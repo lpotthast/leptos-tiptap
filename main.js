@@ -1,10 +1,10 @@
 var TipTap = require('@tiptap/core')
-var StarterKit = require('@tiptap/starter-kit')
+var TipTapStarterKit = require('@tiptap/starter-kit')
 var TipTapHighlight = require('@tiptap/extension-highlight')
 var TipTapTextAlign = require('@tiptap/extension-text-align')
 var TipTapImage = require('@tiptap/extension-image')
 global.window.TipTap = TipTap
-global.window.TipTapStarterKit = StarterKit
+global.window.TipTapStarterKit = TipTapStarterKit
 global.window.TipTapHighlight = TipTapHighlight
 global.window.TipTapTextAlign = TipTapTextAlign
 global.window.TipTapImage = TipTapImage
