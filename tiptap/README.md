@@ -34,11 +34,11 @@ Create a file called `main.js` which `require`s your previously installed depend
 
 Bundle them together with
 
-    browserify main.js -o dist/tiptap-bundle.js
+    browserify main.js -o ../crates/leptos-tiptap-build/dist/tiptap-bundle.js
 
 Minify the output with uglify-js
 
-    uglifyjs --compress --mangle --output dist/tiptap-bundle.min.js -- dist/tiptap-bundle.js
+    uglifyjs --compress --mangle --output ../crates/leptos-tiptap-build/dist/tiptap-bundle.min.js -- ../crates/leptos-tiptap-build/dist/tiptap-bundle.js
 
 You can now include
 

@@ -1,0 +1,7 @@
+[package]
+name = "leptos-tiptap-build"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+phf = "0.11"

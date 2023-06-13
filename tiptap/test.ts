@@ -3,19 +3,24 @@ import StarterKit from "@tiptap/starter-kit";
 import Strike, { StrikeOptions } from '@tiptap/extension-strike'
 
 var editor: Editor = new Editor({
-    element: document.querySelector('#asd'),
+    element: document.getElementById('asd'),
     extensions: [
       StarterKit,
     ],
     content: '<p>Hello World!</p>',
   });
 
+editor.createNodeViews();
+
+editor.createNodeViews
+editor.view
+
 editor.chain().toggleBlockquote();
-editor.chain().toggleBold();
+editor.chain().toggleBold().run();
 editor.chain().toggleBulletList();
 editor.chain().toggleCode();
 editor.chain().toggleCodeBlock();
-editor.chain().toggleHeading();
+editor.chain().toggleHeading({ level: 1 });
 editor.chain().toggleItalic();
 editor.chain().toggleList();
 editor.chain().toggleMark();

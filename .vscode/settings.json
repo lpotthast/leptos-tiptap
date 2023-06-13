@@ -1,0 +1,15 @@
+{
+    "cSpell.words": [
+        "bindgen",
+        "browserify",
+        "leptos",
+        "tbody",
+        "thead",
+        "uglifyjs"
+    ],
+    "rust-analyzer.linkedProjects": [
+        "./leptos-tiptap/Cargo.toml",
+        "./leptos-tiptap/examples/book/Cargo.toml",
+        "./leptos-tiptap-build/Cargo.toml"
+    ]
+}
