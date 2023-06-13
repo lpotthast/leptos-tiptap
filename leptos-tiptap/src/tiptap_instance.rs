@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use tracing::error;
 use wasm_bindgen::prelude::Closure;
 
-use crate::js_tiptap;
+use crate::{js_tiptap, HeadingLevel, SelectionState};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ImageResource {
@@ -71,14 +71,6 @@ pub enum TiptapInstanceMsg {
     SetImage(ImageResource),
 }
 
-#[derive(Debug, Default, PartialEq, Clone)]
-pub struct Selection {
-    pub state: SelectionState,
-}
-
-pub type SelectionState = js_tiptap::State;
-pub type HeadingLevel = js_tiptap::HeadingLevel;
-
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct Content {
     pub content: String,
@@ -109,7 +101,7 @@ pub fn TiptapInstance<C, S>(
 ) -> impl IntoView
 where
     C: Fn(Content) + 'static,
-    S: Fn(Selection) + 'static,
+    S: Fn(SelectionState) + 'static,
 {
     let instance: NodeRef<leptos::html::Div> = create_node_ref(cx);
 
@@ -131,14 +123,12 @@ where
     let on_selection_change_closure: StoredValue<Closure<dyn Fn()>> = store_value(
         cx,
         Closure::wrap(Box::new(move || {
-            on_selection_change(Selection {
-                state: match js_tiptap::get_state(id.get_value()) {
-                    Ok(state) => state,
-                    Err(err) => {
-                        error!("Could not parse JsValue as TipTap state. Deserialization error: '{err}'. Falling back to default state.");
-                        Default::default()
-                    }
-                },
+            on_selection_change(match js_tiptap::get_state(id.get_value()) {
+                Ok(state) => state,
+                Err(err) => {
+                    error!("Could not parse JsValue as TipTap state. Deserialization error: '{err}'. Falling back to default state.");
+                    Default::default()
+                }
             });
         }) as Box<dyn Fn()>),
     );
@@ -177,22 +167,22 @@ where
     create_effect(cx, move |_| match msg.get() {
         TiptapInstanceMsg::Noop => {}
         TiptapInstanceMsg::H1 => {
-            js_tiptap::toggle_heading(id.get_value(), js_tiptap::HeadingLevel::H1);
+            js_tiptap::toggle_heading(id.get_value(), HeadingLevel::H1);
         }
         TiptapInstanceMsg::H2 => {
-            js_tiptap::toggle_heading(id.get_value(), js_tiptap::HeadingLevel::H2);
+            js_tiptap::toggle_heading(id.get_value(), HeadingLevel::H2);
         }
         TiptapInstanceMsg::H3 => {
-            js_tiptap::toggle_heading(id.get_value(), js_tiptap::HeadingLevel::H3);
+            js_tiptap::toggle_heading(id.get_value(), HeadingLevel::H3);
         }
         TiptapInstanceMsg::H4 => {
-            js_tiptap::toggle_heading(id.get_value(), js_tiptap::HeadingLevel::H4);
+            js_tiptap::toggle_heading(id.get_value(), HeadingLevel::H4);
         }
         TiptapInstanceMsg::H5 => {
-            js_tiptap::toggle_heading(id.get_value(), js_tiptap::HeadingLevel::H5);
+            js_tiptap::toggle_heading(id.get_value(), HeadingLevel::H5);
         }
         TiptapInstanceMsg::H6 => {
-            js_tiptap::toggle_heading(id.get_value(), js_tiptap::HeadingLevel::H6);
+            js_tiptap::toggle_heading(id.get_value(), HeadingLevel::H6);
         }
         TiptapInstanceMsg::Paragraph => {
             js_tiptap::set_paragraph(id.get_value());

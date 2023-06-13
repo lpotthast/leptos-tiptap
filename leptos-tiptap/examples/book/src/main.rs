@@ -1,7 +1,7 @@
 use leptos::*;
 
 mod wasm_tracing_layer;
-use leptos_tiptap::tiptap_instance::{Selection, TiptapInstance, TiptapInstanceMsg};
+use leptos_tiptap::*;
 
 fn main() {
     console_error_panic_hook::set_once();
@@ -23,7 +23,7 @@ pub fn App(cx: Scope) -> impl IntoView {
     let (msg, set_msg) = create_signal(cx, TiptapInstanceMsg::Noop);
     let (value, set_value) = create_signal(cx, r#"<h1>This is a simple <em><s>paragraph</s></em> ... <strong>H1</strong>!</h1><p style="text-align: center"><strong>Lorem ipsum dolor sit amet, consetetur sadipscing elitr, <mark>sed diam nonumy</mark> eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua.</strong></p><p style="text-align: justify">Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.</p>"#.to_owned());
 
-    let (selection, set_selection) = create_signal(cx, Selection::default());
+    let (selection, set_selection) = create_signal(cx, SelectionState::default());
 
     view! {cx,
         <h2>"Tiptap instance with Controls"</h2>
@@ -73,67 +73,67 @@ pub fn App(cx: Scope) -> impl IntoView {
                     <tbody>
                         <tr>
                             <td>"H1"</td>
-                            <td class:active=selection.state.h1>{ selection.state.h1 }</td>
+                            <td class:active=selection.h1>{ selection.h1 }</td>
                         </tr>
                         <tr>
                             <td>"H2"</td>
-                            <td class:active=selection.state.h2>{ selection.state.h2 }</td>
+                            <td class:active=selection.h2>{ selection.h2 }</td>
                         </tr>
                         <tr>
                             <td>"H3"</td>
-                            <td class:active=selection.state.h3>{ selection.state.h3 }</td>
+                            <td class:active=selection.h3>{ selection.h3 }</td>
                         </tr>
                         <tr>
                             <td>"H4"</td>
-                            <td class:active=selection.state.h4>{ selection.state.h4 }</td>
+                            <td class:active=selection.h4>{ selection.h4 }</td>
                         </tr>
                         <tr>
                             <td>"H5"</td>
-                            <td class:active=selection.state.h5>{ selection.state.h5 }</td>
+                            <td class:active=selection.h5>{ selection.h5 }</td>
                         </tr>
                         <tr>
                             <td>"H6"</td>
-                            <td class:active=selection.state.h6>{ selection.state.h6 }</td>
+                            <td class:active=selection.h6>{ selection.h6 }</td>
                         </tr>
                         <tr>
                             <td>"Paragraph"</td>
-                            <td class:active=selection.state.paragraph>{ selection.state.paragraph }</td>
+                            <td class:active=selection.paragraph>{ selection.paragraph }</td>
                         </tr>
                         <tr>
                             <td>"Bold"</td>
-                            <td class:active=selection.state.bold>{ selection.state.bold }</td>
+                            <td class:active=selection.bold>{ selection.bold }</td>
                         </tr>
                         <tr>
                             <td>"Italic"</td>
-                            <td class:active=selection.state.italic>{ selection.state.italic }</td>
+                            <td class:active=selection.italic>{ selection.italic }</td>
                         </tr>
                         <tr>
                             <td>"Strike"</td>
-                            <td class:active=selection.state.strike>{ selection.state.strike }</td>
+                            <td class:active=selection.strike>{ selection.strike }</td>
                         </tr>
                         <tr>
                             <td>"Blockquote"</td>
-                            <td class:active=selection.state.blockquote>{ selection.state.blockquote }</td>
+                            <td class:active=selection.blockquote>{ selection.blockquote }</td>
                         </tr>
                         <tr>
                             <td>"Highlight"</td>
-                            <td class:active=selection.state.highlight>{ selection.state.highlight }</td>
+                            <td class:active=selection.highlight>{ selection.highlight }</td>
                         </tr>
                         <tr>
                             <td>"Align left"</td>
-                            <td class:active=selection.state.align_left>{ selection.state.align_left }</td>
+                            <td class:active=selection.align_left>{ selection.align_left }</td>
                         </tr>
                         <tr>
                             <td>"Align center"</td>
-                            <td class:active=selection.state.align_center>{ selection.state.align_center }</td>
+                            <td class:active=selection.align_center>{ selection.align_center }</td>
                         </tr>
                         <tr>
                             <td>"Align right"</td>
-                            <td class:active=selection.state.align_right>{ selection.state.align_right }</td>
+                            <td class:active=selection.align_right>{ selection.align_right }</td>
                         </tr>
                         <tr>
                             <td>"Align justify"</td>
-                            <td class:active=selection.state.align_justify>{ selection.state.align_justify }</td>
+                            <td class:active=selection.align_justify>{ selection.align_justify }</td>
                         </tr>
                     </tbody>
                 </table>

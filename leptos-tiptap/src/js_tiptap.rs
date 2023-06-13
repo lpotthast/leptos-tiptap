@@ -1,6 +1,7 @@
-use serde::Deserialize;
 use tracing::error;
 use wasm_bindgen::prelude::Closure;
+
+use crate::{HeadingLevel, SelectionState};
 
 mod js {
     use wasm_bindgen::prelude::*;
@@ -32,27 +33,6 @@ mod js {
     }
 }
 
-/// State of the current selection.
-#[derive(Default, Debug, Clone, PartialEq, Deserialize)]
-pub struct State {
-    pub h1: bool,
-    pub h2: bool,
-    pub h3: bool,
-    pub h4: bool,
-    pub h5: bool,
-    pub h6: bool,
-    pub paragraph: bool,
-    pub bold: bool,
-    pub italic: bool,
-    pub strike: bool,
-    pub blockquote: bool,
-    pub highlight: bool,
-    pub align_left: bool,
-    pub align_center: bool,
-    pub align_right: bool,
-    pub align_justify: bool,
-}
-
 pub fn create(
     id: String,
     content: String,
@@ -77,29 +57,6 @@ pub fn get_html(id: String) -> String {
                 value
             );
             "error".to_owned()
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HeadingLevel {
-    H1,
-    H2,
-    H3,
-    H4,
-    H5,
-    H6,
-}
-
-impl From<HeadingLevel> for i32 {
-    fn from(val: HeadingLevel) -> Self {
-        match val {
-            HeadingLevel::H1 => 1,
-            HeadingLevel::H2 => 2,
-            HeadingLevel::H3 => 3,
-            HeadingLevel::H4 => 4,
-            HeadingLevel::H5 => 5,
-            HeadingLevel::H6 => 6,
         }
     }
 }
@@ -152,6 +109,6 @@ pub fn set_image(id: String, src: String, alt: String, title: String) {
     js::setImage(id, src, alt, title);
 }
 
-pub fn get_state(id: String) -> Result<State, serde_wasm_bindgen::Error> {
+pub fn get_state(id: String) -> Result<SelectionState, serde_wasm_bindgen::Error> {
     serde_wasm_bindgen::from_value(js::getState(id))
 }
