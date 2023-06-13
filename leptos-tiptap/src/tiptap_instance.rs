@@ -76,7 +76,7 @@ pub fn TiptapInstance<C, S>(
     #[prop(into)]
     value: Signal<String>,
 
-    msg: ReadSignal<TiptapInstanceMsg>,
+    #[prop(into)] msg: Signal<TiptapInstanceMsg>,
 
     /// If set to true, the tiptap instance becomes un-editable. TODO: Make this optional.
     #[prop(into)]
@@ -213,10 +213,11 @@ where
 
     view! {cx,
         <leptos-tiptap-instance
+            node_ref=instance
             id=id.get_value()
             class=class
             style=style
-            node_ref=instance
+            aria-disabled=move || disabled.get()
         />
     }
 }
