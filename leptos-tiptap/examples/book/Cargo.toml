@@ -18,13 +18,13 @@ debug = 0
 console_error_panic_hook = "0.1"
 console_log = "1"
 indoc = "2.0.1"
-leptos-tiptap = { path = "../../../leptos-tiptap" }
-leptos-tiptap-build = { path = "../../../leptos-tiptap-build", optional = true }
 leptos = { version = "0.3", default-features = false, features = [
     "csr",
     "tracing",
     "stable",
 ] }
+leptos-tiptap = { path = "../../../leptos-tiptap" }
+leptos-tiptap-build = { path = "../../../leptos-tiptap-build", optional = true }
 serde = "1"
 serde-wasm-bindgen = "0.5"
 serde_json = "1"
