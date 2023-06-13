@@ -26,7 +26,8 @@ pub fn App(cx: Scope) -> impl IntoView {
     let (selection, set_selection) = create_signal(cx, SelectionState::default());
 
     view! {cx,
-        <h2>"Tiptap instance with Controls"</h2>
+
+        <h2>"Tiptap instance"</h2>
 
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::H1)>"H1"</button>
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::H2)>"H2"</button>
@@ -52,100 +53,102 @@ pub fn App(cx: Scope) -> impl IntoView {
             value=value
             set_value=move |v| set_value.set(v.content)
             on_selection_change=move |state| set_selection.set(state)
-            style="display: block; width: 100%; height: auto; border: 1px solid;"
+            style="display: block; width: auto; height: auto; border: 1px solid; padding: 0.5em;"
         />
 
-        <hr/>
+        <div style="display: flex; flex-direction: row; gap: 0.5em; margin-top: 0.5em;">
+            <div style="border: 1px solid; padding: 0.5em; min-width: 9em;">
+                <h2>"Selection"</h2>
 
-        <h2>"Selection state"</h2>
+                { move || {
+                    let selection = selection.get();
 
-        { move || {
-            let selection = selection.get();
+                    view! {cx,
+                        <table id="selection-state">
+                            <thead>
+                                <tr>
+                                    <th>"State"</th>
+                                    <th>"Value"</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>"H1"</td>
+                                    <td class="value" class:active=selection.h1>{ selection.h1 }</td>
+                                </tr>
+                                <tr>
+                                    <td>"H2"</td>
+                                    <td class="value" class:active=selection.h2>{ selection.h2 }</td>
+                                </tr>
+                                <tr>
+                                    <td>"H3"</td>
+                                    <td class="value" class:active=selection.h3>{ selection.h3 }</td>
+                                </tr>
+                                <tr>
+                                    <td>"H4"</td>
+                                    <td class="value" class:active=selection.h4>{ selection.h4 }</td>
+                                </tr>
+                                <tr>
+                                    <td>"H5"</td>
+                                    <td class="value" class:active=selection.h5>{ selection.h5 }</td>
+                                </tr>
+                                <tr>
+                                    <td>"H6"</td>
+                                    <td class="value" class:active=selection.h6>{ selection.h6 }</td>
+                                </tr>
+                                <tr>
+                                    <td>"Paragraph"</td>
+                                    <td class="value" class:active=selection.paragraph>{ selection.paragraph }</td>
+                                </tr>
+                                <tr>
+                                    <td>"Bold"</td>
+                                    <td class="value" class:active=selection.bold>{ selection.bold }</td>
+                                </tr>
+                                <tr>
+                                    <td>"Italic"</td>
+                                    <td class="value" class:active=selection.italic>{ selection.italic }</td>
+                                </tr>
+                                <tr>
+                                    <td>"Strike"</td>
+                                    <td class="value" class:active=selection.strike>{ selection.strike }</td>
+                                </tr>
+                                <tr>
+                                    <td>"Blockquote"</td>
+                                    <td class="value" class:active=selection.blockquote>{ selection.blockquote }</td>
+                                </tr>
+                                <tr>
+                                    <td>"Highlight"</td>
+                                    <td class="value" class:active=selection.highlight>{ selection.highlight }</td>
+                                </tr>
+                                <tr>
+                                    <td>"Align left"</td>
+                                    <td class="value" class:active=selection.align_left>{ selection.align_left }</td>
+                                </tr>
+                                <tr>
+                                    <td>"Align center"</td>
+                                    <td class="value" class:active=selection.align_center>{ selection.align_center }</td>
+                                </tr>
+                                <tr>
+                                    <td>"Align right"</td>
+                                    <td class="value" class:active=selection.align_right>{ selection.align_right }</td>
+                                </tr>
+                                <tr>
+                                    <td>"Align justify"</td>
+                                    <td class="value" class:active=selection.align_justify>{ selection.align_justify }</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    }
+                } }
+            </div>
 
-            view! {cx,
-                <table id="selection-state">
-                    <thead>
-                        <tr>
-                            <th>"State"</th>
-                            <th>"Value"</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>"H1"</td>
-                            <td class:active=selection.h1>{ selection.h1 }</td>
-                        </tr>
-                        <tr>
-                            <td>"H2"</td>
-                            <td class:active=selection.h2>{ selection.h2 }</td>
-                        </tr>
-                        <tr>
-                            <td>"H3"</td>
-                            <td class:active=selection.h3>{ selection.h3 }</td>
-                        </tr>
-                        <tr>
-                            <td>"H4"</td>
-                            <td class:active=selection.h4>{ selection.h4 }</td>
-                        </tr>
-                        <tr>
-                            <td>"H5"</td>
-                            <td class:active=selection.h5>{ selection.h5 }</td>
-                        </tr>
-                        <tr>
-                            <td>"H6"</td>
-                            <td class:active=selection.h6>{ selection.h6 }</td>
-                        </tr>
-                        <tr>
-                            <td>"Paragraph"</td>
-                            <td class:active=selection.paragraph>{ selection.paragraph }</td>
-                        </tr>
-                        <tr>
-                            <td>"Bold"</td>
-                            <td class:active=selection.bold>{ selection.bold }</td>
-                        </tr>
-                        <tr>
-                            <td>"Italic"</td>
-                            <td class:active=selection.italic>{ selection.italic }</td>
-                        </tr>
-                        <tr>
-                            <td>"Strike"</td>
-                            <td class:active=selection.strike>{ selection.strike }</td>
-                        </tr>
-                        <tr>
-                            <td>"Blockquote"</td>
-                            <td class:active=selection.blockquote>{ selection.blockquote }</td>
-                        </tr>
-                        <tr>
-                            <td>"Highlight"</td>
-                            <td class:active=selection.highlight>{ selection.highlight }</td>
-                        </tr>
-                        <tr>
-                            <td>"Align left"</td>
-                            <td class:active=selection.align_left>{ selection.align_left }</td>
-                        </tr>
-                        <tr>
-                            <td>"Align center"</td>
-                            <td class:active=selection.align_center>{ selection.align_center }</td>
-                        </tr>
-                        <tr>
-                            <td>"Align right"</td>
-                            <td class:active=selection.align_right>{ selection.align_right }</td>
-                        </tr>
-                        <tr>
-                            <td>"Align justify"</td>
-                            <td class:active=selection.align_justify>{ selection.align_justify }</td>
-                        </tr>
-                    </tbody>
-                </table>
-            }
-        } }
+            <div style="border: 1px solid; padding: 0.5em;">
+                <h2>"HTML content"</h2>
 
-        <hr/>
-
-        <h2>"HTML content"</h2>
-
-        <div>
-            { move || value.get() }
+                <div>
+                    { move || value.get() }
+                </div>
+            </div>
         </div>
     }
 }

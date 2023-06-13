@@ -37,3 +37,5 @@ editor.chain().setHardBreak();
 editor.chain().setHorizontalRule();
 editor.chain().setParagraph();
 editor.chain().undo();
+
+editor.destroy()

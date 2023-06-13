@@ -6,8 +6,14 @@ mod tiptap_instance;
 pub use tiptap_instance::TiptapInstance;
 pub use tiptap_instance::TiptapInstanceMsg;
 
+/// State of the current editor. Contains the selection state.
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EditorState {
+    editable: bool,
+    selection: SelectionState,
+}
+
 /// State of the current selection.
-// Note: Only the Deserialize is actively required by this implementation. Serialize was added for sake of completeness.
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SelectionState {
     pub h1: bool,

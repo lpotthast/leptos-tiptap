@@ -1,7 +1,7 @@
 use tracing::error;
-use wasm_bindgen::prelude::Closure;
+use wasm_bindgen::{prelude::Closure, JsValue};
 
-use crate::{HeadingLevel, SelectionState};
+use crate::{EditorState, HeadingLevel, SelectionState};
 
 mod js {
     use wasm_bindgen::prelude::*;
@@ -13,8 +13,9 @@ mod js {
             content: String,
             editable: bool,
             onChange: &Closure<dyn Fn(String)>,
-            onSelection: &Closure<dyn Fn()>,
+            onSelection: &Closure<dyn Fn(JsValue)>,
         );
+        pub fn destroy(id: String);
         pub fn isEditable(id: String) -> bool;
         pub fn getHTML(id: String) -> JsValue;
         pub fn toggleHeading(id: String, level: i32) -> JsValue;
@@ -29,7 +30,8 @@ mod js {
         pub fn setTextAlignRight(id: String) -> JsValue;
         pub fn setTextAlignJustify(id: String) -> JsValue;
         pub fn setImage(id: String, src: String, alt: String, title: String) -> JsValue;
-        pub fn getState(id: String) -> JsValue;
+        pub fn getEditorState(id: String) -> JsValue;
+        pub fn getSelectionState(id: String) -> JsValue;
     }
 }
 
@@ -38,9 +40,13 @@ pub fn create(
     content: String,
     editable: bool,
     on_change: &Closure<dyn Fn(String)>,
-    on_selection: &Closure<dyn Fn()>,
+    on_selection: &Closure<dyn Fn(JsValue)>,
 ) {
     js::create(id, content, editable, on_change, on_selection);
+}
+
+pub fn destroy(id: String) {
+    js::destroy(id);
 }
 
 pub fn is_editable(id: String) -> bool {
@@ -109,6 +115,10 @@ pub fn set_image(id: String, src: String, alt: String, title: String) {
     js::setImage(id, src, alt, title);
 }
 
-pub fn get_state(id: String) -> Result<SelectionState, serde_wasm_bindgen::Error> {
-    serde_wasm_bindgen::from_value(js::getState(id))
+pub fn get_editor_state(id: String) -> Result<EditorState, serde_wasm_bindgen::Error> {
+    serde_wasm_bindgen::from_value(js::getEditorState(id))
+}
+
+pub fn get_selection_state(id: String) -> Result<SelectionState, serde_wasm_bindgen::Error> {
+    serde_wasm_bindgen::from_value(js::getSelectionState(id))
 }

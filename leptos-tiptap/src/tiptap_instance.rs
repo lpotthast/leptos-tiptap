@@ -1,7 +1,7 @@
 use leptos::*;
 use serde::{Deserialize, Serialize};
 use tracing::error;
-use wasm_bindgen::prelude::Closure;
+use wasm_bindgen::{prelude::Closure, JsValue};
 
 use crate::{js_tiptap, HeadingLevel, SelectionState};
 
@@ -120,17 +120,19 @@ where
     // This closure is passed on to the JS tiptap instance.
     // We expect this to be called whenever the SELECTION in the editor changes.
     // We have to own this closure until the end of this components lifetime!
-    let on_selection_change_closure: StoredValue<Closure<dyn Fn()>> = store_value(
+    let on_selection_change_closure: StoredValue<Closure<dyn Fn(JsValue)>> = store_value(
         cx,
-        Closure::wrap(Box::new(move || {
-            on_selection_change(match js_tiptap::get_state(id.get_value()) {
-                Ok(state) => state,
-                Err(err) => {
-                    error!("Could not parse JsValue as TipTap state. Deserialization error: '{err}'. Falling back to default state.");
-                    Default::default()
-                }
-            });
-        }) as Box<dyn Fn()>),
+        Closure::wrap(Box::new(move |selection_state_as_js_value| {
+            on_selection_change(
+                match serde_wasm_bindgen::from_value(selection_state_as_js_value) {
+                    Ok(state) => state,
+                    Err(err) => {
+                        error!("Could not parse JsValue as TipTap state. Deserialization error: '{err}'. Falling back to default state.");
+                        Default::default()
+                    }
+                },
+            );
+        }) as Box<dyn Fn(JsValue)>),
     );
 
     // The tiptap instance must be initialized EXACTLY ONCE through the tiptap JS API.
@@ -157,6 +159,10 @@ where
             };
         }
         None
+    });
+
+    on_cleanup(cx, move || {
+        js_tiptap::destroy(id.get_value());
     });
 
     // Talking to the tiptap instance here may ultimately trigger a content change.

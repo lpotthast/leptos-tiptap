@@ -1,7 +1,20 @@
 table#selection-state {
-    tbody {
-        td.active {
-            background-color: red;
+    th {
+        padding: 0.2em;
+        text-align: left;
+    }
+    td {
+        padding: 0.2em;
+        text-align: left;
+
+        &.value {
+            text-align: center;
+        }
+
+        &.active {
+            background-color: #fe2e2e;
+            color: white;
+            border-radius: 0.2em;
         }
     }
 }
