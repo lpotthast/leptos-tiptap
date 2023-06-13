@@ -23,7 +23,7 @@ pub fn App(cx: Scope) -> impl IntoView {
     let (msg, set_msg) = create_signal(cx, TiptapInstanceMsg::Noop);
     let (value, set_value) = create_signal(cx, r#"<h1>This is a simple <em><s>paragraph</s></em> ... <strong>H1</strong>!</h1><p style="text-align: center"><strong>Lorem ipsum dolor sit amet, consetetur sadipscing elitr, <mark>sed diam nonumy</mark> eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua.</strong></p><p style="text-align: justify">Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.</p>"#.to_owned());
 
-    let (selection, set_selection) = create_signal(cx, SelectionState::default());
+    let (selection, set_selection) = create_signal(cx, TiptapSelectionState::default());
 
     view! {cx,
 
@@ -51,7 +51,10 @@ pub fn App(cx: Scope) -> impl IntoView {
             msg=msg
             disabled=false
             value=value
-            set_value=move |v| set_value.set(v.content)
+            set_value=move |v| set_value.set(match v {
+                TiptapContent::Html(content) => content,
+                TiptapContent::Json(content) => content,
+            })
             on_selection_change=move |state| set_selection.set(state)
             style="display: block; width: auto; height: auto; border: 1px solid; padding: 0.5em;"
         />

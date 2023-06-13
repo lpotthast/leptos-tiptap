@@ -1,7 +1,7 @@
 use tracing::error;
 use wasm_bindgen::{prelude::Closure, JsValue};
 
-use crate::{EditorState, HeadingLevel, SelectionState};
+use crate::{TiptapEditorState, TiptapHeadingLevel, TiptapSelectionState};
 
 mod js {
     use wasm_bindgen::prelude::*;
@@ -67,7 +67,7 @@ pub fn get_html(id: String) -> String {
     }
 }
 
-pub fn toggle_heading(id: String, level: HeadingLevel) {
+pub fn toggle_heading(id: String, level: TiptapHeadingLevel) {
     js::toggleHeading(id, level.into());
 }
 
@@ -115,10 +115,10 @@ pub fn set_image(id: String, src: String, alt: String, title: String) {
     js::setImage(id, src, alt, title);
 }
 
-pub fn get_editor_state(id: String) -> Result<EditorState, serde_wasm_bindgen::Error> {
+pub fn get_editor_state(id: String) -> Result<TiptapEditorState, serde_wasm_bindgen::Error> {
     serde_wasm_bindgen::from_value(js::getEditorState(id))
 }
 
-pub fn get_selection_state(id: String) -> Result<SelectionState, serde_wasm_bindgen::Error> {
+pub fn get_selection_state(id: String) -> Result<TiptapSelectionState, serde_wasm_bindgen::Error> {
     serde_wasm_bindgen::from_value(js::getSelectionState(id))
 }

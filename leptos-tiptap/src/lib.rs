@@ -6,16 +6,22 @@ mod tiptap_instance;
 pub use tiptap_instance::TiptapInstance;
 pub use tiptap_instance::TiptapInstanceMsg;
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
+pub enum TiptapContent {
+    Html(String),
+    Json(String),
+}
+
 /// State of the current editor. Contains the selection state.
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct EditorState {
+pub struct TiptapEditorState {
     editable: bool,
-    selection: SelectionState,
+    selection: TiptapSelectionState,
 }
 
 /// State of the current selection.
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SelectionState {
+pub struct TiptapSelectionState {
     pub h1: bool,
     pub h2: bool,
     pub h3: bool,
@@ -35,7 +41,7 @@ pub struct SelectionState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HeadingLevel {
+pub enum TiptapHeadingLevel {
     H1,
     H2,
     H3,
@@ -44,15 +50,25 @@ pub enum HeadingLevel {
     H6,
 }
 
-impl From<HeadingLevel> for i32 {
-    fn from(val: HeadingLevel) -> Self {
+impl From<TiptapHeadingLevel> for i32 {
+    fn from(val: TiptapHeadingLevel) -> Self {
         match val {
-            HeadingLevel::H1 => 1,
-            HeadingLevel::H2 => 2,
-            HeadingLevel::H3 => 3,
-            HeadingLevel::H4 => 4,
-            HeadingLevel::H5 => 5,
-            HeadingLevel::H6 => 6,
+            TiptapHeadingLevel::H1 => 1,
+            TiptapHeadingLevel::H2 => 2,
+            TiptapHeadingLevel::H3 => 3,
+            TiptapHeadingLevel::H4 => 4,
+            TiptapHeadingLevel::H5 => 5,
+            TiptapHeadingLevel::H6 => 6,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct TiptapImageResource {
+    // Example: image.png
+    pub title: String,
+    // Example: "An example image, ..."
+    pub alt: String,
+    // Example: https:://my-site.com/public/image.png
+    pub url: String,
 }
