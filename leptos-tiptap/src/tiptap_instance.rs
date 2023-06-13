@@ -89,7 +89,7 @@ where
     C: Fn(TiptapContent) + 'static,
     S: Fn(TiptapSelectionState) + 'static,
 {
-    let instance: NodeRef<leptos::html::Div> = create_node_ref(cx);
+    let instance: NodeRef<leptos::html::Custom> = create_node_ref(cx);
 
     let id = store_value(cx, id);
 
@@ -212,11 +212,11 @@ where
     });
 
     view! {cx,
-        <div
+        <leptos-tiptap-instance
             id=id.get_value()
             class=class
             style=style
             node_ref=instance
-        ></div>
+        />
     }
 }
