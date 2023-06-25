@@ -1,6 +1,6 @@
 # leptos-tiptap
 
-Enables the integration of [Tiptap](https://tiptap.dev/) instances into your [https://leptos.dev/](leptos) projects.
+Enables the integration of [Tiptap](https://tiptap.dev/) instances into your [leptos](https://leptos.dev/) projects.
 
 Currently used tiptap version: `2.0.3`
 
