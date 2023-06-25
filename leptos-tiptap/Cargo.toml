@@ -17,10 +17,12 @@ keywords = ["tiptap", "leptos", "components", "editor", "wysiwyg"]
 leptos = { version = "0.3", default-features = false, features = [
     "csr",
     "tracing",
-    "stable",
 ] }
 serde = { version = "1", features = ["derive"] }
 serde-wasm-bindgen = "0.5"
 tracing = "0.1"
 urlencoding = "2"
 wasm-bindgen = "0.2"
+
+[features]
+stable = ["leptos/stable"]
