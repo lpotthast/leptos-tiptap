@@ -9,3 +9,7 @@ If you are searching for a ready-to-use text editor, check out the leptos compon
 The currently used tiptap version is `2.0.3`
 
 Check out the [repository](https://github.com/lpotthast/leptos-tiptap) for further instructions on how to use this dependency directly.
+
+## Features
+
+`stable` - Allows to build your leptos application using the stable rust channel.
