@@ -1,6 +1,6 @@
 # leptos-tiptap
 
-Enables the integration of [Tiptap](https://tiptap.dev/) instances into your [https://leptos.dev/](leptos) projects.
+Enables the integration of [Tiptap](https://tiptap.dev/) instances into your [leptos](https://leptos.dev/) projects.
 
 This is a rather low-level dependency. Use it if you want to create your own editor experience.
 
