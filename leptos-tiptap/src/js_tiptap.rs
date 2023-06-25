@@ -1,7 +1,6 @@
-use tracing::error;
 use wasm_bindgen::{prelude::Closure, JsValue};
 
-use crate::{TiptapEditorState, TiptapHeadingLevel, TiptapSelectionState};
+use crate::TiptapHeadingLevel;
 
 mod js {
     use wasm_bindgen::prelude::*;
@@ -35,6 +34,8 @@ mod js {
     }
 }
 
+// TODO: Decide what to do with currently unused functionality.
+
 pub fn create(
     id: String,
     content: String,
@@ -49,23 +50,23 @@ pub fn destroy(id: String) {
     js::destroy(id);
 }
 
-pub fn is_editable(id: String) -> bool {
-    js::isEditable(id)
-}
+// pub fn is_editable(id: String) -> bool {
+//     js::isEditable(id)
+// }
 
-pub fn get_html(id: String) -> String {
-    let value = js::getHTML(id);
-    match value.as_string() {
-        Some(string) => string,
-        None => {
-            error!(
-                "JS function getHTML returned {:?}, which was not of the expected type: String",
-                value
-            );
-            "error".to_owned()
-        }
-    }
-}
+// pub fn get_html(id: String) -> String {
+//     let value = js::getHTML(id);
+//     match value.as_string() {
+//         Some(string) => string,
+//         None => {
+//             error!(
+//                 "JS function getHTML returned {:?}, which was not of the expected type: String",
+//                 value
+//             );
+//             "error".to_owned()
+//         }
+//     }
+// }
 
 pub fn toggle_heading(id: String, level: TiptapHeadingLevel) {
     js::toggleHeading(id, level.into());
@@ -115,10 +116,10 @@ pub fn set_image(id: String, src: String, alt: String, title: String) {
     js::setImage(id, src, alt, title);
 }
 
-pub fn get_editor_state(id: String) -> Result<TiptapEditorState, serde_wasm_bindgen::Error> {
-    serde_wasm_bindgen::from_value(js::getEditorState(id))
-}
+// pub fn get_editor_state(id: String) -> Result<TiptapEditorState, serde_wasm_bindgen::Error> {
+//     serde_wasm_bindgen::from_value(js::getEditorState(id))
+// }
 
-pub fn get_selection_state(id: String) -> Result<TiptapSelectionState, serde_wasm_bindgen::Error> {
-    serde_wasm_bindgen::from_value(js::getSelectionState(id))
-}
+// pub fn get_selection_state(id: String) -> Result<TiptapSelectionState, serde_wasm_bindgen::Error> {
+//     serde_wasm_bindgen::from_value(js::getSelectionState(id))
+// }
