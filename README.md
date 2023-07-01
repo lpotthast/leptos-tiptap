@@ -7,7 +7,7 @@ Currently used tiptap version: `2.0.3`
 Currently used tiptap extensions:
 
 - "@tiptap/core": "^2.0.3",
-- "@tiptap/extension-highlight": "^2.0.3",s
+- "@tiptap/extension-highlight": "^2.0.3",
 - "@tiptap/extension-image": "^2.0.3",
 - "@tiptap/extension-text-align": "^2.0.3",
 - "@tiptap/starter-kit": "^2.0.3"

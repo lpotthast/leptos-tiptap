@@ -1,4 +1,4 @@
-# Bundling tiptap into a single static js file
+# Bundling the tiptap NPM packages into a single static js file
 
 Beginning with an empty directory...
 
@@ -6,12 +6,12 @@ Create an initial package.json with
 
     npm init
 
-Install browserify
+Install browserify and uglify-js globally
 
     npm install -g browserify
     npm install -g uglify-js
 
-Install your packages
+Install the required packages
 
     npm install @tiptap/core
     npm install @tiptap/starter-kit
@@ -20,6 +20,8 @@ Install your packages
     npm install @tiptap/extension-text-align
 
 Create a file called `main.js` which `require`s your previously installed dependencies.
+
+You may make these dependencies available, by adding them as new `global.window` properties or through other means.
 
     var TipTap = require('@tiptap/core')
     var TipTapStarterKit = require('@tiptap/starter-kit')
@@ -32,16 +34,19 @@ Create a file called `main.js` which `require`s your previously installed depend
     global.window.TipTapTextAlign = TipTapTextAlign
     global.window.TipTapImage = TipTapImage
 
-Bundle them together with
+Create a single JS bundle using the browserify tool
 
     browserify main.js -o ../crates/leptos-tiptap-build/dist/tiptap-bundle.js
 
-Minify the output with uglify-js
+And minify the output with uglify-js
 
     uglifyjs --compress --mangle --output ../crates/leptos-tiptap-build/dist/tiptap-bundle.min.js -- ../crates/leptos-tiptap-build/dist/tiptap-bundle.js
 
-You can now include
+The generated JS files
 
-    dist/tiptap-bundle.min.js
+    ../crates/leptos-tiptap-build/dist/tiptap-bundle.js
+    ../crates/leptos-tiptap-build/dist/tiptap-bundle.min.js
 
-in your web page! :)
+can now be used with a simple HTML script element
+
+    <script type="module" src="/js/tiptap-bundle.min.js"></script>

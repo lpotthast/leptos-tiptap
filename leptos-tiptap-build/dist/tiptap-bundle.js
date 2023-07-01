@@ -15991,6 +15991,21 @@ var ViewDesc = function () {
 
         if (node.nodeType == 3) {
           brKludge = !!(_offset && node.nodeValue[_offset - 1] == "\n");
+
+          if (brKludge && _offset == node.nodeValue.length) {
+            for (var scan = node, after; scan; scan = scan.parentNode) {
+              if (after = scan.nextSibling) {
+                if (after.nodeName == "BR") anchorDOM = headDOM = {
+                  node: after.parentNode,
+                  offset: domIndex(after) + 1
+                };
+                break;
+              }
+
+              var desc = scan.pmViewDesc;
+              if (desc && desc.node && desc.node.isBlock) break;
+            }
+          }
         } else {
           var prev = node.childNodes[_offset - 1];
           brKludge = prev && (prev.nodeName == "BR" || prev.contentEditable == "false");
@@ -15998,8 +16013,8 @@ var ViewDesc = function () {
       }
 
       if (gecko && domSel.focusNode && domSel.focusNode != headDOM.node && domSel.focusNode.nodeType == 1) {
-        var after = domSel.focusNode.childNodes[domSel.focusOffset];
-        if (after && after.contentEditable == "false") force = true;
+        var _after2 = domSel.focusNode.childNodes[domSel.focusOffset];
+        if (_after2 && _after2.contentEditable == "false") force = true;
       }
 
       if (!(force || brKludge && safari) && isEquivalentPosition(anchorDOM.node, anchorDOM.offset, domSel.anchorNode, domSel.anchorOffset) && isEquivalentPosition(headDOM.node, headDOM.offset, domSel.focusNode, domSel.focusOffset)) return;
@@ -17848,7 +17863,7 @@ function captureKeyDown(view, event) {
 
   if (code == 8 || mac && code == 72 && mods == "c") {
     return stopNativeHorizontalDelete(view, -1) || skipIgnoredNodes(view, -1);
-  } else if (code == 46 || mac && code == 68 && mods == "c") {
+  } else if (code == 46 && !event.shiftKey || mac && code == 68 && mods == "c") {
     return stopNativeHorizontalDelete(view, 1) || skipIgnoredNodes(view, 1);
   } else if (code == 13 || code == 27) {
     return true;
@@ -18752,10 +18767,11 @@ function capturePaste(view, event) {
   if (!plainText) target.contentEditable = "true";
   target.style.cssText = "position: fixed; left: -10000px; top: 10px";
   target.focus();
+  var plain = view.input.shiftKey && view.input.lastKeyCode != 45;
   setTimeout(function () {
     view.focus();
     if (target.parentNode) target.parentNode.removeChild(target);
-    if (plainText) doPaste(view, target.value, null, view.input.shiftKey, event);else doPaste(view, target.textContent, target.innerHTML, view.input.shiftKey, event);
+    if (plainText) doPaste(view, target.value, null, plain, event);else doPaste(view, target.textContent, target.innerHTML, plain, event);
   }, 50);
 }
 
@@ -18766,7 +18782,7 @@ function doPaste(view, text, html, preferPlain, event) {
   })) return true;
   if (!slice) return false;
   var singleNode = sliceSingleNode(slice);
-  var tr = singleNode ? view.state.tr.replaceSelectionWith(singleNode, view.input.shiftKey) : view.state.tr.replaceSelection(slice);
+  var tr = singleNode ? view.state.tr.replaceSelectionWith(singleNode, preferPlain) : view.state.tr.replaceSelection(slice);
   view.dispatch(tr.scrollIntoView().setMeta("paste", true).setMeta("uiEvent", "paste"));
   return true;
 }
@@ -18775,7 +18791,8 @@ editHandlers.paste = function (view, _event) {
   var event = _event;
   if (view.composing && !android) return;
   var data = brokenClipboardAPI ? null : event.clipboardData;
-  if (data && doPaste(view, data.getData("text/plain"), data.getData("text/html"), view.input.shiftKey, event)) event.preventDefault();else capturePaste(view, event);
+  var plain = view.input.shiftKey && view.input.lastKeyCode != 45;
+  if (data && doPaste(view, data.getData("text/plain"), data.getData("text/html"), plain, event)) event.preventDefault();else capturePaste(view, event);
 };
 
 var Dragging = _createClass(function Dragging(slice, move) {
@@ -20229,7 +20246,7 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
 
   if ((ios && view.input.lastIOSEnter > Date.now() - 225 && (!inlineChange || addedNodes.some(function (n) {
     return n.nodeName == "DIV" || n.nodeName == "P";
-  })) || !inlineChange && $from.pos < parse.doc.content.size && (nextSel = prosemirrorState.Selection.findFrom(parse.doc.resolve($from.pos + 1), 1, true)) && nextSel.head == $to.pos) && view.someProp("handleKeyDown", function (f) {
+  })) || !inlineChange && $from.pos < parse.doc.content.size && !$from.sameParent($to) && (nextSel = prosemirrorState.Selection.findFrom(parse.doc.resolve($from.pos + 1), 1, true)) && nextSel.head == $to.pos) && view.someProp("handleKeyDown", function (f) {
     return f(view, keyEvent(13, "Enter"));
   })) {
     view.input.lastIOSEnter = 0;
