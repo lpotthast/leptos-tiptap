@@ -4,12 +4,17 @@ Enables the integration of [Tiptap](https://tiptap.dev/) instances into your [le
 
 This is a rather low-level dependency. Use it if you want to create your own editor experience.
 
-If you are searching for a ready-to-use text editor, check out the leptos component library [Leptonic](https://leptonic.dev/), which already incorporates this crate to define an editor.
+If you are searching for a ready-to-use text editor, check out the leptos component
+library [Leptonic](https://leptonic.dev/), which already incorporates this crate to define an editor.
 
 The currently used tiptap version is `2.0.3`
 
-Check out the [repository](https://github.com/lpotthast/leptos-tiptap) for further instructions on how to use this dependency directly.
+Check out the [repository](https://github.com/lpotthast/leptos-tiptap) for further instructions on how to use this
+dependency directly.
 
-## Features
+## Versions
 
-`stable` - Allows to build your leptos application using the stable rust channel.
+| Crate version | Compatible Leptos version |
+|---------------|---------------------------|
+| 0.1           | 0.3                       |
+| 0.2           | 0.4                       |
