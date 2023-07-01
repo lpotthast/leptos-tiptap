@@ -18,11 +18,7 @@ debug = 0
 console_error_panic_hook = "0.1"
 console_log = "1"
 indoc = "2.0.1"
-leptos = { version = "0.3", default-features = false, features = [
-    "csr",
-    "tracing",
-    "stable",
-] }
+leptos = { version = "0.4", features = ["csr"] }
 leptos-tiptap = { path = "../../../leptos-tiptap" }
 leptos-tiptap-build = { path = "../../../leptos-tiptap-build", optional = true }
 serde = "1"

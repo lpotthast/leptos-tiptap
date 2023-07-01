@@ -56,7 +56,7 @@ pub fn App(cx: Scope) -> impl IntoView {
                 TiptapContent::Json(content) => content,
             })
             on_selection_change=move |state| set_selection.set(state)
-            style="display: block; width: auto; height: auto; border: 1px solid; padding: 0.5em;"
+            style="display: block; width: auto; height: auto; border: 1px solid; padding: 0.5em; white-space: pre-wrap;"
         />
 
         <div style="display: flex; flex-direction: row; gap: 0.5em; margin-top: 0.5em;">
