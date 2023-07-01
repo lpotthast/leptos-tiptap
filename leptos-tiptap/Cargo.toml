@@ -18,5 +18,4 @@ leptos = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde-wasm-bindgen = "0.5"
 tracing = "0.1"
-urlencoding = "2"
 wasm-bindgen = "0.2"
