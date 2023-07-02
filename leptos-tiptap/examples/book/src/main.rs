@@ -1,17 +1,9 @@
 use leptos::*;
 
-mod wasm_tracing_layer;
 use leptos_tiptap::*;
 
 fn main() {
     console_error_panic_hook::set_once();
-
-    // Initialize a tracing subscriber logging to the browser console.
-    wasm_tracing_layer::set_as_global_default_with_config(
-        wasm_tracing_layer::WASMLayerConfigBuilder::default()
-            .set_max_level(tracing::Level::DEBUG)
-            .build(),
-    );
 
     mount_to_body(|cx| {
         view! { cx, <App/> }
