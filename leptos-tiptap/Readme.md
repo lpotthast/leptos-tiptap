@@ -12,7 +12,7 @@ The currently used tiptap version is `2.0.3`
 Check out the [repository](https://github.com/lpotthast/leptos-tiptap) for further instructions on how to use this
 dependency directly.
 
-## Versions
+## Leptos compatibility
 
 | Crate version | Compatible Leptos version |
 |---------------|---------------------------|
