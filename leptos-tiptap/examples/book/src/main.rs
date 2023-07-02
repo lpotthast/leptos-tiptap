@@ -14,13 +14,13 @@ fn main() {
 pub fn App(cx: Scope) -> impl IntoView {
     let (msg, set_msg) = create_signal(cx, TiptapInstanceMsg::Noop);
     let (value, set_value) = create_signal(cx, r#"<h1>This is a simple <em><s>paragraph</s></em> ... <strong>H1</strong>!</h1><p style="text-align: center"><strong>Lorem ipsum dolor sit amet, consetetur sadipscing elitr, <mark>sed diam nonumy</mark> eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua.</strong></p><p style="text-align: justify">Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.</p>"#.to_owned());
-
     let (selection, set_selection) = create_signal(cx, TiptapSelectionState::default());
+    let (disabled, set_disabled) = create_signal(cx, false);
 
     view! {cx,
-
         <h2>"Tiptap instance"</h2>
 
+        <button on:click=move |_| set_disabled.set(!disabled.get())>"Disabled: " { move || disabled.get() }</button>
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::H1)>"H1"</button>
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::H2)>"H2"</button>
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::H3)>"H3"</button>
@@ -41,7 +41,7 @@ pub fn App(cx: Scope) -> impl IntoView {
         <TiptapInstance
             id="id"
             msg=msg
-            disabled=false
+            disabled=disabled
             value=value
             set_value=move |v| set_value.set(match v {
                 TiptapContent::Html(content) => content,

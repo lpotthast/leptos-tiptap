@@ -15,6 +15,8 @@ var editor: Editor = new Editor({
     content: '<p>Hello World!</p>',
   });
 
+editor.setEditable(true);
+
 editor.chain().toggleBlockquote();
 editor.chain().toggleBold().run();
 editor.chain().toggleBulletList();

@@ -16,6 +16,7 @@ mod js {
         );
         pub fn destroy(id: String);
         pub fn isEditable(id: String) -> bool;
+        pub fn setEditable(id: String, editable: bool);
         pub fn getHTML(id: String) -> JsValue;
         pub fn toggleHeading(id: String, level: i32) -> JsValue;
         pub fn setParagraph(id: String) -> JsValue;
@@ -53,6 +54,10 @@ pub fn destroy(id: String) {
 // pub fn is_editable(id: String) -> bool {
 //     js::isEditable(id)
 // }
+
+pub fn set_editable(id: String, editable: bool) {
+    js::setEditable(id, editable);
+}
 
 // pub fn get_html(id: String) -> String {
 //     let value = js::getHTML(id);

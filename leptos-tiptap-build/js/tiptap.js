@@ -66,6 +66,11 @@ export function isEditable(id) {
   return editor.isEditable
 }
 
+export function setEditable(id, editable) {
+  const {editor, _onSelection} = _getEditor(id);
+  editor.setEditable(editable);
+}
+
 export function toggleHeading(id, level) {
   const {editor, onSelection} = _getEditor(id);
   editor.chain().focus().toggleHeading({ level: level }).run();

@@ -65,9 +65,18 @@ pub enum TiptapInstanceMsg {
 #[component]
 pub fn TiptapInstance<C, S>(
     cx: Scope,
-    #[prop(into)] id: String,
-    #[prop(optional, into)] class: Option<AttributeValue>,
-    #[prop(optional, into)] style: Option<AttributeValue>,
+
+    /// The ID of for this tiptap instance. Must be UNIQUE across ALL instances. You might want to use a UUID if uniqueness is otherwise not enforceable.
+    #[prop(into)]
+    id: String,
+
+    /// Classes, optional.
+    #[prop(optional, into)]
+    class: Option<AttributeValue>,
+
+    /// Styles, optional.
+    #[prop(optional, into)]
+    style: Option<AttributeValue>,
 
     /// Initial content of the editor.
     /// Note that the editor keeps an internal copy of this string and can solely work with that for an unlimited time.
@@ -76,13 +85,23 @@ pub fn TiptapInstance<C, S>(
     #[prop(into)]
     value: Signal<String>,
 
-    #[prop(into)] msg: Signal<TiptapInstanceMsg>,
-
-    /// If set to true, the tiptap instance becomes un-editable. TODO: Make this optional.
-    #[prop(into)]
-    disabled: MaybeSignal<bool>, // TODO: Handle changes!
-
+    /// Callback giving you the updated content of this tiptap instance.
+    /// Every change to the content inside the editor is reflected back to you immediately through this callback.
+    /// This will change / be configurable with: https://github.com/lpotthast/leptos-tiptap/issues/1
     set_value: C,
+
+    /// This signal is your point of interaction with tiptap.
+    /// Update this signal to a new value, and the action corresponding to the msg set will be executed.
+    #[prop(into)]
+    msg: Signal<TiptapInstanceMsg>,
+
+    /// If set to true, the tiptap instance becomes un-editable. The instance reacts to changes of this signals value.
+    #[prop(into)]
+    disabled: MaybeSignal<bool>,
+
+    /// Notifies you about a new selection. A selection changes, for example, if the cursor in the editor changes position, "selecting" a new element in the editor.
+    /// Most actions, given by the changing `msg` signal values, are applied to the current selection.
+    /// If a paragraph is selected and the H1 message is sent, that selected paragraph will be made an H1.
     on_selection_change: S,
 ) -> impl IntoView
 where
@@ -122,6 +141,7 @@ where
     );
 
     // The tiptap instance must be initialized EXACTLY ONCE through the tiptap JS API.
+    let (initialized, set_initialized) = create_signal(cx, false);
     create_effect(cx, move |prev| {
         if prev.is_none() || prev == Some(None) {
             return match instance.get() {
@@ -136,6 +156,7 @@ where
                                     on_change_closure,
                                     on_selection_closure,
                                 );
+                                set_initialized.set(true);
                             });
                         });
                     });
@@ -155,60 +176,76 @@ where
     // This, and some other actions, may trigger callbacks reaching back to us using the closures above.
     // MAKE SURE that no signal is set in such a callback function so that this create_effect re-executes, as this might break it!
     // This is the reason why we handle on_content_change_closure and on_selection_change_closure without generating messages!
-    // Besides that, TiptapInstanceMsg is a public enum and not only contain non-technical, non-destructive options.
-    create_effect(cx, move |_| match msg.get() {
-        TiptapInstanceMsg::Noop => {}
-        TiptapInstanceMsg::H1 => {
-            js_tiptap::toggle_heading(id.get_value(), TiptapHeadingLevel::H1);
+    // Besides that, TiptapInstanceMsg is a public enum and should / must only contain non-technical, non-destructive options.
+    create_effect(cx, move |_| {
+        let msg = msg.get();
+        if !initialized.get_untracked() {
+            return;
         }
-        TiptapInstanceMsg::H2 => {
-            js_tiptap::toggle_heading(id.get_value(), TiptapHeadingLevel::H2);
+        match msg {
+            TiptapInstanceMsg::Noop => {}
+            TiptapInstanceMsg::H1 => {
+                js_tiptap::toggle_heading(id.get_value(), TiptapHeadingLevel::H1);
+            }
+            TiptapInstanceMsg::H2 => {
+                js_tiptap::toggle_heading(id.get_value(), TiptapHeadingLevel::H2);
+            }
+            TiptapInstanceMsg::H3 => {
+                js_tiptap::toggle_heading(id.get_value(), TiptapHeadingLevel::H3);
+            }
+            TiptapInstanceMsg::H4 => {
+                js_tiptap::toggle_heading(id.get_value(), TiptapHeadingLevel::H4);
+            }
+            TiptapInstanceMsg::H5 => {
+                js_tiptap::toggle_heading(id.get_value(), TiptapHeadingLevel::H5);
+            }
+            TiptapInstanceMsg::H6 => {
+                js_tiptap::toggle_heading(id.get_value(), TiptapHeadingLevel::H6);
+            }
+            TiptapInstanceMsg::Paragraph => {
+                js_tiptap::set_paragraph(id.get_value());
+            }
+            TiptapInstanceMsg::Bold => {
+                js_tiptap::toggle_bold(id.get_value());
+            }
+            TiptapInstanceMsg::Italic => {
+                js_tiptap::toggle_italic(id.get_value());
+            }
+            TiptapInstanceMsg::Strike => {
+                js_tiptap::toggle_strike(id.get_value());
+            }
+            TiptapInstanceMsg::Blockquote => {
+                js_tiptap::toggle_blockquote(id.get_value());
+            }
+            TiptapInstanceMsg::Highlight => {
+                js_tiptap::toggle_highlight(id.get_value());
+            }
+            TiptapInstanceMsg::AlignLeft => {
+                js_tiptap::set_text_align_left(id.get_value());
+            }
+            TiptapInstanceMsg::AlignCenter => {
+                js_tiptap::set_text_align_center(id.get_value());
+            }
+            TiptapInstanceMsg::AlignRight => {
+                js_tiptap::set_text_align_right(id.get_value());
+            }
+            TiptapInstanceMsg::AlignJustify => {
+                js_tiptap::set_text_align_justify(id.get_value());
+            }
+            TiptapInstanceMsg::SetImage(resource) => {
+                js_tiptap::set_image(id.get_value(), resource.url, resource.alt, resource.title);
+            }
         }
-        TiptapInstanceMsg::H3 => {
-            js_tiptap::toggle_heading(id.get_value(), TiptapHeadingLevel::H3);
+    });
+
+    let disabled_memo = create_memo(cx, move |_| disabled.get());
+
+    create_effect(cx, move |_| {
+        let disabled = disabled_memo.get();
+        if !initialized.get_untracked() {
+            return;
         }
-        TiptapInstanceMsg::H4 => {
-            js_tiptap::toggle_heading(id.get_value(), TiptapHeadingLevel::H4);
-        }
-        TiptapInstanceMsg::H5 => {
-            js_tiptap::toggle_heading(id.get_value(), TiptapHeadingLevel::H5);
-        }
-        TiptapInstanceMsg::H6 => {
-            js_tiptap::toggle_heading(id.get_value(), TiptapHeadingLevel::H6);
-        }
-        TiptapInstanceMsg::Paragraph => {
-            js_tiptap::set_paragraph(id.get_value());
-        }
-        TiptapInstanceMsg::Bold => {
-            js_tiptap::toggle_bold(id.get_value());
-        }
-        TiptapInstanceMsg::Italic => {
-            js_tiptap::toggle_italic(id.get_value());
-        }
-        TiptapInstanceMsg::Strike => {
-            js_tiptap::toggle_strike(id.get_value());
-        }
-        TiptapInstanceMsg::Blockquote => {
-            js_tiptap::toggle_blockquote(id.get_value());
-        }
-        TiptapInstanceMsg::Highlight => {
-            js_tiptap::toggle_highlight(id.get_value());
-        }
-        TiptapInstanceMsg::AlignLeft => {
-            js_tiptap::set_text_align_left(id.get_value());
-        }
-        TiptapInstanceMsg::AlignCenter => {
-            js_tiptap::set_text_align_center(id.get_value());
-        }
-        TiptapInstanceMsg::AlignRight => {
-            js_tiptap::set_text_align_right(id.get_value());
-        }
-        TiptapInstanceMsg::AlignJustify => {
-            js_tiptap::set_text_align_justify(id.get_value());
-        }
-        TiptapInstanceMsg::SetImage(resource) => {
-            js_tiptap::set_image(id.get_value(), resource.url, resource.alt, resource.title);
-        }
+        js_tiptap::set_editable(id.get_value(), !disabled);
     });
 
     view! {cx,
