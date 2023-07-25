@@ -3,6 +3,7 @@
         "bindgen",
         "browserify",
         "leptos",
+        "MSRV",
         "tbody",
         "thead",
         "uglifyjs"
