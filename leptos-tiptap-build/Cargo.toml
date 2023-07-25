@@ -1,8 +1,8 @@
 [package]
 name = "leptos-tiptap-build"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.60"
 authors = ["Lukas Potthast <privat@lukas-potthast.de>"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
