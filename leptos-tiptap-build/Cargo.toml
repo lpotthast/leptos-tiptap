@@ -2,7 +2,7 @@
 name = "leptos-tiptap-build"
 version = "0.2.1"
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.60.0"
 authors = ["Lukas Potthast <privat@lukas-potthast.de>"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
