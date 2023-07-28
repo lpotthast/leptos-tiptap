@@ -2,12 +2,7 @@
 name = "book"
 version = "0.2.0"
 edition = "2021"
-build = false
-
-[[bin]]
-name = "force-build"
-path = "build.rs"
-required-features = ["build_deps"] # only needed for build-dependencies
+build = "build.rs"
 
 [profile.release]
 opt-level = "z"
@@ -16,9 +11,8 @@ debug = 0
 
 [dependencies]
 console_error_panic_hook = "0.1"
-leptos = { version = "0.4", features = ["csr"] }
+leptos = { version = "0.5.0-alpha", features = ["csr"] }
 leptos-tiptap = { path = "../../../leptos-tiptap" }
-leptos-tiptap-build = { path = "../../../leptos-tiptap-build", optional = true }
 
-[features]
-build_deps = ["leptos-tiptap-build"]
+[build-dependencies]
+leptos-tiptap-build = { path = "../../../leptos-tiptap-build" }

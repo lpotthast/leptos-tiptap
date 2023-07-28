@@ -5,19 +5,19 @@ use leptos_tiptap::*;
 fn main() {
     console_error_panic_hook::set_once();
 
-    mount_to_body(|cx| {
-        view! { cx, <App/> }
+    mount_to_body(|| {
+        view! { <App/> }
     })
 }
 
 #[component]
-pub fn App(cx: Scope) -> impl IntoView {
-    let (msg, set_msg) = create_signal(cx, TiptapInstanceMsg::Noop);
-    let (value, set_value) = create_signal(cx, r#"<h1>This is a simple <em><s>paragraph</s></em> ... <strong>H1</strong>!</h1><p style="text-align: center"><strong>Lorem ipsum dolor sit amet, consetetur sadipscing elitr, <mark>sed diam nonumy</mark> eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua.</strong></p><p style="text-align: justify">Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.</p>"#.to_owned());
-    let (selection, set_selection) = create_signal(cx, TiptapSelectionState::default());
-    let (disabled, set_disabled) = create_signal(cx, false);
+pub fn App() -> impl IntoView {
+    let (msg, set_msg) = create_signal(TiptapInstanceMsg::Noop);
+    let (value, set_value) = create_signal(r#"<h1>This is a simple <em><s>paragraph</s></em> ... <strong>H1</strong>!</h1><p style="text-align: center"><strong>Lorem ipsum dolor sit amet, consetetur sadipscing elitr, <mark>sed diam nonumy</mark> eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua.</strong></p><p style="text-align: justify">Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.</p>"#.to_owned());
+    let (selection, set_selection) = create_signal(TiptapSelectionState::default());
+    let (disabled, set_disabled) = create_signal(false);
 
-    view! {cx,
+    view! {
         <h2>"Tiptap instance"</h2>
 
         <button on:click=move |_| set_disabled.set(!disabled.get())>"Disabled: " { move || disabled.get() }</button>
@@ -58,7 +58,7 @@ pub fn App(cx: Scope) -> impl IntoView {
                 { move || {
                     let selection = selection.get();
 
-                    view! {cx,
+                    view! {
                         <table id="selection-state">
                             <thead>
                                 <tr>

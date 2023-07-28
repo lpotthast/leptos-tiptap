@@ -64,8 +64,6 @@ pub enum TiptapInstanceMsg {
 
 #[component]
 pub fn TiptapInstance<C, S>(
-    cx: Scope,
-
     /// The ID of for this tiptap instance. Must be UNIQUE across ALL instances. You might want to use a UUID if uniqueness is otherwise not enforceable.
     #[prop(into)]
     id: String,
@@ -108,25 +106,22 @@ where
     C: Fn(TiptapContent) + 'static,
     S: Fn(TiptapSelectionState) + 'static,
 {
-    let instance: NodeRef<leptos::html::Custom> = create_node_ref(cx);
+    let instance: NodeRef<leptos::html::Custom> = create_node_ref();
 
-    let id = store_value(cx, id);
+    let id = store_value(id);
 
     // This closure is passed on to the JS tiptap instance.
     // We expect this to be called whenever the INPUT in the editor changes.
     // We have to own this closure until the end of this components lifetime!
-    let on_content_change_closure: StoredValue<Closure<dyn Fn(String)>> = store_value(
-        cx,
-        Closure::wrap(Box::new(move |content| {
+    let on_content_change_closure: StoredValue<Closure<dyn Fn(String)>> =
+        store_value(Closure::wrap(Box::new(move |content| {
             set_value(TiptapContent::Html(content));
-        }) as Box<dyn Fn(String)>),
-    );
+        }) as Box<dyn Fn(String)>));
 
     // This closure is passed on to the JS tiptap instance.
     // We expect this to be called whenever the SELECTION in the editor changes.
     // We have to own this closure until the end of this components lifetime!
     let on_selection_change_closure: StoredValue<Closure<dyn Fn(JsValue)>> = store_value(
-        cx,
         Closure::wrap(Box::new(move |selection_state_as_js_value| {
             on_selection_change(
                 match serde_wasm_bindgen::from_value(selection_state_as_js_value) {
@@ -141,8 +136,8 @@ where
     );
 
     // The tiptap instance must be initialized EXACTLY ONCE through the tiptap JS API.
-    let (initialized, set_initialized) = create_signal(cx, false);
-    create_effect(cx, move |prev| {
+    let (initialized, set_initialized) = create_signal(false);
+    create_effect(move |prev| {
         if prev.is_none() || prev == Some(None) {
             return match instance.get() {
                 Some(element) => {
@@ -168,7 +163,7 @@ where
         None
     });
 
-    on_cleanup(cx, move || {
+    on_cleanup(move || {
         js_tiptap::destroy(id.get_value());
     });
 
@@ -177,7 +172,7 @@ where
     // MAKE SURE that no signal is set in such a callback function so that this create_effect re-executes, as this might break it!
     // This is the reason why we handle on_content_change_closure and on_selection_change_closure without generating messages!
     // Besides that, TiptapInstanceMsg is a public enum and should / must only contain non-technical, non-destructive options.
-    create_effect(cx, move |_| {
+    create_effect(move |_| {
         let msg = msg.get();
         if !initialized.get_untracked() {
             return;
@@ -238,9 +233,9 @@ where
         }
     });
 
-    let disabled_memo = create_memo(cx, move |_| disabled.get());
+    let disabled_memo = create_memo(move |_| disabled.get());
 
-    create_effect(cx, move |_| {
+    create_effect(move |_| {
         let disabled = disabled_memo.get();
         if !initialized.get_untracked() {
             return;
@@ -248,7 +243,7 @@ where
         js_tiptap::set_editable(id.get_value(), !disabled);
     });
 
-    view! {cx,
+    view! {
         <leptos-tiptap-instance
             node_ref=instance
             id=id.get_value()

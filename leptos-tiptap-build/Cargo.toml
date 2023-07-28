@@ -14,4 +14,4 @@ categories = ["gui"]
 keywords = ["tiptap", "leptos", "components", "editor", "wysiwyg"]
 
 [dependencies]
-phf = "0.11"
+phf = "0.11.2"

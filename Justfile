@@ -24,3 +24,9 @@ bundle:
 # Minify a previously created tiptap bundle -> leptos-tiptap-build/dist/tiptap-bundle.min.js
 minify:
   uglifyjs --compress --mangle --output leptos-tiptap-build/dist/tiptap-bundle.min.js -- leptos-tiptap-build/dist/tiptap-bundle.js
+
+# Find the minimum supported rust version
+msrv:
+    cargo install cargo-msrv
+    cargo msrv --min "2021" --path leptos-tiptap
+    cargo msrv --min "2021" --path leptos-tiptap-build
