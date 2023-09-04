@@ -136,9 +136,6 @@ class CommandManager {
     buildProps(tr, shouldDispatch = true) {
         const { rawCommands, editor, state } = this;
         const { view } = editor;
-        if (state.storedMarks) {
-            tr.setStoredMarks(state.storedMarks);
-        }
         const props = {
             tr,
             editor,
@@ -148,7 +145,7 @@ class CommandManager {
                 transaction: tr,
             }),
             dispatch: shouldDispatch ? () => undefined : undefined,
-            chain: () => this.createChain(tr),
+            chain: () => this.createChain(tr, shouldDispatch),
             can: () => this.createCan(tr),
             get commands() {
                 return Object.fromEntries(Object.entries(rawCommands).map(([name, command]) => {
@@ -324,7 +321,10 @@ function mergeAttributes(...objects) {
                 return;
             }
             if (key === 'class') {
-                mergedAttributes[key] = [mergedAttributes[key], value].join(' ');
+                const valueClasses = value ? value.split(' ') : [];
+                const existingClasses = mergedAttributes[key] ? mergedAttributes[key].split(' ') : [];
+                const insertClasses = valueClasses.filter(valueClass => !existingClasses.includes(valueClass));
+                mergedAttributes[key] = [...existingClasses, ...insertClasses].join(' ');
             }
             else if (key === 'style') {
                 mergedAttributes[key] = [mergedAttributes[key], value].join('; ');
@@ -1327,6 +1327,16 @@ const createParagraphNear = () => ({ state, dispatch }) => {
     return commands$1.createParagraphNear(state, dispatch);
 };
 
+const cut = (originRange, targetPos) => ({ editor, tr }) => {
+    const { state: state$1 } = editor;
+    const contentSlice = state$1.doc.slice(originRange.from, originRange.to);
+    tr.deleteRange(originRange.from, originRange.to);
+    const newPos = tr.mapping.map(targetPos);
+    tr.insert(newPos, contentSlice.content);
+    tr.setSelection(new state.TextSelection(tr.doc.resolve(newPos - 1)));
+    return true;
+};
+
 const deleteCurrentNode = () => ({ tr, dispatch }) => {
     const { selection } = tr;
     const currentNode = selection.$anchor.node();
@@ -1656,7 +1666,7 @@ const insertContentAt = (position, value, options) => ({ tr, dispatch, editor })
         if (content.toString() === '<>') {
             return true;
         }
-        let { from, to } = typeof position === 'number' ? { from: position, to: position } : position;
+        let { from, to } = typeof position === 'number' ? { from: position, to: position } : { from: position.from, to: position.to };
         let isOnlyTextContent = true;
         let isOnlyBlockContent = true;
         const nodes = isFragment(content) ? content : [content];
@@ -1716,6 +1726,40 @@ const joinBackward = () => ({ state, dispatch }) => {
 };
 const joinForward = () => ({ state, dispatch }) => {
     return commands$1.joinForward(state, dispatch);
+};
+
+const joinItemBackward = () => ({ tr, state, dispatch, }) => {
+    try {
+        const point = transform.joinPoint(state.doc, state.selection.$from.pos, -1);
+        if (point === null || point === undefined) {
+            return false;
+        }
+        tr.join(point, 2);
+        if (dispatch) {
+            dispatch(tr);
+        }
+        return true;
+    }
+    catch {
+        return false;
+    }
+};
+
+const joinItemForward = () => ({ state, dispatch, tr, }) => {
+    try {
+        const point = transform.joinPoint(state.doc, state.selection.$from.pos, +1);
+        if (point === null || point === undefined) {
+            return false;
+        }
+        tr.join(point, 2);
+        if (dispatch) {
+            dispatch(tr);
+        }
+        return true;
+    }
+    catch (e) {
+        return false;
+    }
 };
 
 function isMacOS() {
@@ -1964,6 +2008,28 @@ const setContent = (content, emitUpdate = false, parseOptions = {}) => ({ tr, ed
     return true;
 };
 
+function getMarkAttributes(state, typeOrName) {
+    const type = getMarkType(typeOrName, state.schema);
+    const { from, to, empty } = state.selection;
+    const marks = [];
+    if (empty) {
+        if (state.storedMarks) {
+            marks.push(...state.storedMarks);
+        }
+        marks.push(...state.selection.$head.marks());
+    }
+    else {
+        state.doc.nodesBetween(from, to, node => {
+            marks.push(...node.marks);
+        });
+    }
+    const mark = marks.find(markItem => markItem.type.name === type.name);
+    if (!mark) {
+        return {};
+    }
+    return { ...mark.attrs };
+}
+
 /**
  * Returns a new `Transform` based on all steps of the passed transactions.
  */
@@ -2087,28 +2153,6 @@ function generateText(doc, extensions, options) {
             ...textSerializers,
         },
     });
-}
-
-function getMarkAttributes(state, typeOrName) {
-    const type = getMarkType(typeOrName, state.schema);
-    const { from, to, empty } = state.selection;
-    const marks = [];
-    if (empty) {
-        if (state.storedMarks) {
-            marks.push(...state.storedMarks);
-        }
-        marks.push(...state.selection.$head.marks());
-    }
-    else {
-        state.doc.nodesBetween(from, to, node => {
-            marks.push(...node.marks);
-        });
-    }
-    const mark = marks.find(markItem => markItem.type.name === type.name);
-    if (!mark) {
-        return {};
-    }
-    return { ...mark.attrs };
 }
 
 function getNodeAttributes(state, typeOrName) {
@@ -2282,6 +2326,30 @@ function getMarksBetween(from, to, doc) {
     return marks;
 }
 
+/**
+ * Finds the first node of a given type or name in the current selection.
+ * @param state The editor state.
+ * @param typeOrName The node type or name.
+ * @param pos The position to start searching from.
+ * @param maxDepth The maximum depth to search.
+ * @returns The node and the depth as an array.
+ */
+const getNodeAtPosition = (state, typeOrName, pos, maxDepth = 20) => {
+    const $pos = state.doc.resolve(pos);
+    let currentDepth = maxDepth;
+    let node = null;
+    while (currentDepth > 0 && node === null) {
+        const currentNode = $pos.node(currentDepth);
+        if ((currentNode === null || currentNode === void 0 ? void 0 : currentNode.type.name) === typeOrName) {
+            node = currentNode;
+        }
+        else {
+            currentDepth -= 1;
+        }
+    }
+    return [node, currentDepth];
+};
+
 function getSplittedAttributes(extensionAttributes, typeName, attributes) {
     return Object.fromEntries(Object
         .entries(attributes)
@@ -2371,6 +2439,33 @@ function isActive(state, name, attributes = {}) {
     }
     return false;
 }
+
+const isAtEndOfNode = (state, nodeType) => {
+    const { $from, $to, $anchor } = state.selection;
+    if (nodeType) {
+        const parentNode = findParentNode(node => node.type.name === nodeType)(state.selection);
+        if (!parentNode) {
+            return false;
+        }
+        const $parentPos = state.doc.resolve(parentNode.pos + 1);
+        if ($anchor.pos + 1 === $parentPos.end()) {
+            return true;
+        }
+        return false;
+    }
+    if ($to.parentOffset < $to.parent.nodeSize - 2 || $from.pos !== $to.pos) {
+        return false;
+    }
+    return true;
+};
+
+const isAtStartOfNode = (state) => {
+    const { $from, $to } = state.selection;
+    if ($from.parentOffset > 0 || $from.pos !== $to.pos) {
+        return false;
+    }
+    return true;
+};
 
 function isList(name, extensions) {
     const { nodeExtensions } = splitExtensions(extensions);
@@ -2979,6 +3074,7 @@ var commands = /*#__PURE__*/Object.freeze({
   clearNodes: clearNodes,
   command: command,
   createParagraphNear: createParagraphNear,
+  cut: cut,
   deleteCurrentNode: deleteCurrentNode,
   deleteNode: deleteNode,
   deleteRange: deleteRange,
@@ -2995,6 +3091,8 @@ var commands = /*#__PURE__*/Object.freeze({
   joinDown: joinDown,
   joinBackward: joinBackward,
   joinForward: joinForward,
+  joinItemBackward: joinItemBackward,
+  joinItemForward: joinItemForward,
   keyboardShortcut: keyboardShortcut,
   lift: lift,
   liftEmptyBlock: liftEmptyBlock,
@@ -3094,7 +3192,12 @@ const Keymap = Extension.create({
                 const { selection, doc } = tr;
                 const { empty, $anchor } = selection;
                 const { pos, parent } = $anchor;
-                const isAtStart = state.Selection.atStart(doc).from === pos;
+                const $parentPos = $anchor.parent.isTextblock ? tr.doc.resolve(pos - 1) : $anchor;
+                const parentIsIsolating = $parentPos.parent.type.spec.isolating;
+                const parentPos = $anchor.pos - $anchor.parentOffset;
+                const isAtStart = (parentIsIsolating && $parentPos.parent.childCount === 1)
+                    ? parentPos === $anchor.pos
+                    : state.Selection.atStart(doc).from === pos;
                 if (!empty || !isAtStart || !parent.type.isTextblock || parent.textContent.length) {
                     return false;
                 }
@@ -3291,8 +3394,8 @@ img.ProseMirror-separator {
   opacity: 0
 }`;
 
-function createStyleTag(style, nonce) {
-    const tiptapStyleTag = document.querySelector('style[data-tiptap-style]');
+function createStyleTag(style, nonce, suffix) {
+    const tiptapStyleTag = document.querySelector(`style[data-tiptap-style${suffix ? `-${suffix}` : ''}]`);
     if (tiptapStyleTag !== null) {
         return tiptapStyleTag;
     }
@@ -3300,7 +3403,7 @@ function createStyleTag(style, nonce) {
     if (nonce) {
         styleNode.setAttribute('nonce', nonce);
     }
-    styleNode.setAttribute('data-tiptap-style', '');
+    styleNode.setAttribute(`data-tiptap-style${suffix ? `-${suffix}` : ''}`, '');
     styleNode.innerHTML = style;
     document.getElementsByTagName('head')[0].appendChild(styleNode);
     return styleNode;
@@ -3507,6 +3610,7 @@ class Editor extends EventEmitter {
         });
         this.view.updateState(newState);
         this.createNodeViews();
+        this.prependClass();
         // Let’s store the editor instance in the DOM element.
         // So we’ll have access to it for tests.
         const dom = this.view.dom;
@@ -3519,6 +3623,12 @@ class Editor extends EventEmitter {
         this.view.setProps({
             nodeViews: this.extensionManager.nodeViews,
         });
+    }
+    /**
+     * Prepend class name to element.
+     */
+    prependClass() {
+        this.view.dom.className = `tiptap ${this.view.dom.className}`;
     }
     captureTransaction(fn) {
         this.isCapturingTransaction = true;
@@ -3670,7 +3780,6 @@ function markInputRule(config) {
             const { tr } = state;
             const captureGroup = match[match.length - 1];
             const fullMatch = match[0];
-            let markEnd = range.to;
             if (captureGroup) {
                 const startSpaces = fullMatch.search(/\S/);
                 const textStart = range.from + fullMatch.indexOf(captureGroup);
@@ -3691,7 +3800,7 @@ function markInputRule(config) {
                 if (textStart > range.from) {
                     tr.delete(range.from + startSpaces, textStart);
                 }
-                markEnd = range.from + startSpaces + captureGroup.length;
+                const markEnd = range.from + startSpaces + captureGroup.length;
                 tr.addMark(range.from + startSpaces, markEnd, config.type.create(attributes || {}));
                 tr.removeStoredMark(config.type);
             }
@@ -3711,6 +3820,7 @@ function nodeInputRule(config) {
             const { tr } = state;
             const start = range.from;
             let end = range.to;
+            const newNode = config.type.create(attributes);
             if (match[1]) {
                 const offset = match[0].lastIndexOf(match[1]);
                 let matchStart = start + offset;
@@ -3724,11 +3834,12 @@ function nodeInputRule(config) {
                 const lastChar = match[0][match[0].length - 1];
                 tr.insertText(lastChar, start + match[0].length - 1);
                 // insert node from input rule
-                tr.replaceWith(matchStart, end, config.type.create(attributes));
+                tr.replaceWith(matchStart, end, newNode);
             }
             else if (match[0]) {
-                tr.replaceWith(start, end, config.type.create(attributes));
+                tr.insert(start - 1, config.type.create(attributes)).delete(tr.mapping.map(start), tr.mapping.map(end));
             }
+            tr.scrollIntoView();
         },
     });
 }
@@ -3979,6 +4090,10 @@ class Node {
     }
 }
 
+function isAndroid() {
+    return navigator.platform === 'Android' || /android/i.test(navigator.userAgent);
+}
+
 class NodeView {
     constructor(component, props, options) {
         this.isDragging = false;
@@ -4119,13 +4234,14 @@ class NodeView {
         if (mutation.type === 'selection') {
             return false;
         }
-        // try to prevent a bug on iOS that will break node views on enter
+        // try to prevent a bug on iOS and Android that will break node views on enter
         // this is because ProseMirror can’t preventDispatch on enter
         // this will lead to a re-render of the node view on enter
         // see: https://github.com/ueberdosis/tiptap/issues/1214
+        // see: https://github.com/ueberdosis/tiptap/issues/2534
         if (this.dom.contains(mutation.target)
             && mutation.type === 'childList'
-            && isiOS()
+            && (isiOS() || isAndroid())
             && this.editor.isFocused) {
             const changedNodes = [
                 ...Array.from(mutation.addedNodes),
@@ -4328,6 +4444,7 @@ exports.getMarkAttributes = getMarkAttributes;
 exports.getMarkRange = getMarkRange;
 exports.getMarkType = getMarkType;
 exports.getMarksBetween = getMarksBetween;
+exports.getNodeAtPosition = getNodeAtPosition;
 exports.getNodeAttributes = getNodeAttributes;
 exports.getNodeType = getNodeType;
 exports.getRenderedAttributes = getRenderedAttributes;
@@ -4343,6 +4460,8 @@ exports.getTextSerializersFromSchema = getTextSerializersFromSchema;
 exports.injectExtensionAttributesToParseRule = injectExtensionAttributesToParseRule;
 exports.inputRulesPlugin = inputRulesPlugin;
 exports.isActive = isActive;
+exports.isAtEndOfNode = isAtEndOfNode;
+exports.isAtStartOfNode = isAtStartOfNode;
 exports.isEmptyObject = isEmptyObject;
 exports.isExtensionRulesEnabled = isExtensionRulesEnabled;
 exports.isFunction = isFunction;
@@ -4538,6 +4657,8 @@ const ListItem = core.Node.create({
     addOptions() {
         return {
             HTMLAttributes: {},
+            bulletListTypeName: 'bulletList',
+            orderedListTypeName: 'orderedList',
         };
     },
     content: 'paragraph block*',
@@ -5298,8 +5419,11 @@ const History = core.Extension.create({
     addKeyboardShortcuts() {
         return {
             'Mod-z': () => this.editor.commands.undo(),
+            'Mod-Z': () => this.editor.commands.undo(),
             'Mod-y': () => this.editor.commands.redo(),
+            'Mod-Y': () => this.editor.commands.redo(),
             'Shift-Mod-z': () => this.editor.commands.redo(),
+            'Shift-Mod-Z': () => this.editor.commands.redo(),
             // Russian keyboard layouts
             'Mod-я': () => this.editor.commands.undo(),
             'Shift-Mod-я': () => this.editor.commands.redo(),
@@ -5335,9 +5459,16 @@ const HorizontalRule = core.Node.create({
     },
     addCommands() {
         return {
-            setHorizontalRule: () => ({ chain }) => {
-                return (chain()
-                    .insertContent({ type: this.name })
+            setHorizontalRule: () => ({ chain, state: state$1 }) => {
+                const { $to: $originTo } = state$1.selection;
+                const currentChain = chain();
+                if ($originTo.parentOffset === 0) {
+                    currentChain.insertContentAt(Math.max($originTo.pos - 2, 0), { type: this.name });
+                }
+                else {
+                    currentChain.insertContent({ type: this.name });
+                }
+                return (currentChain
                     // set cursor after horizontal rule
                     .command(({ tr, dispatch }) => {
                     var _a;
@@ -5345,14 +5476,22 @@ const HorizontalRule = core.Node.create({
                         const { $to } = tr.selection;
                         const posAfter = $to.end();
                         if ($to.nodeAfter) {
-                            tr.setSelection(state.TextSelection.create(tr.doc, $to.pos));
+                            if ($to.nodeAfter.isTextblock) {
+                                tr.setSelection(state.TextSelection.create(tr.doc, $to.pos + 1));
+                            }
+                            else if ($to.nodeAfter.isBlock) {
+                                tr.setSelection(state.NodeSelection.create(tr.doc, $to.pos));
+                            }
+                            else {
+                                tr.setSelection(state.TextSelection.create(tr.doc, $to.pos));
+                            }
                         }
                         else {
                             // add node after horizontal rule if it’s the end of the document
                             const node = (_a = $to.parent.type.contentMatch.defaultType) === null || _a === void 0 ? void 0 : _a.create();
                             if (node) {
                                 tr.insert(posAfter, node);
-                                tr.setSelection(state.TextSelection.create(tr.doc, posAfter));
+                                tr.setSelection(state.TextSelection.create(tr.doc, posAfter + 1));
                             }
                         }
                         tr.scrollIntoView();
@@ -5555,6 +5694,8 @@ const ListItem = core.Node.create({
     addOptions() {
         return {
             HTMLAttributes: {},
+            bulletListTypeName: 'bulletList',
+            orderedListTypeName: 'orderedList',
         };
     },
     content: 'paragraph block*',
@@ -5594,6 +5735,8 @@ const ListItem = core.Node.create({
     addOptions() {
         return {
             HTMLAttributes: {},
+            bulletListTypeName: 'bulletList',
+            orderedListTypeName: 'orderedList',
         };
     },
     content: 'paragraph block*',
@@ -5833,9 +5976,14 @@ const Strike = core.Mark.create({
         };
     },
     addKeyboardShortcuts() {
-        return {
-            'Mod-Shift-x': () => this.editor.commands.toggleStrike(),
-        };
+        const shortcuts = {};
+        if (core.isMacOS()) {
+            shortcuts['Mod-Shift-s'] = () => this.editor.commands.toggleStrike();
+        }
+        else {
+            shortcuts['Ctrl-Shift-s'] = () => this.editor.commands.toggleStrike();
+        }
+        return shortcuts;
     },
     addInputRules() {
         return [
@@ -10729,40 +10877,37 @@ var ParseContext = function () {
   }, {
     key: "addDOM",
     value: function addDOM(dom) {
-      if (dom.nodeType == 3) {
-        this.addTextNode(dom);
-      } else if (dom.nodeType == 1) {
-        var style = dom.getAttribute("style");
+      if (dom.nodeType == 3) this.addTextNode(dom);else if (dom.nodeType == 1) this.addElement(dom);
+    }
+  }, {
+    key: "withStyleRules",
+    value: function withStyleRules(dom, f) {
+      var style = dom.getAttribute("style");
+      if (!style) return f();
+      var marks = this.readStyles(parseStyles(style));
+      if (!marks) return;
 
-        if (!style) {
-          this.addElement(dom);
-        } else {
-          var marks = this.readStyles(parseStyles(style));
-          if (!marks) return;
+      var _marks = _slicedToArray(marks, 2),
+          addMarks = _marks[0],
+          removeMarks = _marks[1],
+          top = this.top;
 
-          var _marks = _slicedToArray(marks, 2),
-              addMarks = _marks[0],
-              removeMarks = _marks[1],
-              top = this.top;
+      for (var i = 0; i < removeMarks.length; i++) {
+        this.removePendingMark(removeMarks[i], top);
+      }
 
-          for (var i = 0; i < removeMarks.length; i++) {
-            this.removePendingMark(removeMarks[i], top);
-          }
+      for (var _i4 = 0; _i4 < addMarks.length; _i4++) {
+        this.addPendingMark(addMarks[_i4]);
+      }
 
-          for (var _i4 = 0; _i4 < addMarks.length; _i4++) {
-            this.addPendingMark(addMarks[_i4]);
-          }
+      f();
 
-          this.addElement(dom);
+      for (var _i5 = 0; _i5 < addMarks.length; _i5++) {
+        this.removePendingMark(addMarks[_i5], top);
+      }
 
-          for (var _i5 = 0; _i5 < addMarks.length; _i5++) {
-            this.removePendingMark(addMarks[_i5], top);
-          }
-
-          for (var _i6 = 0; _i6 < removeMarks.length; _i6++) {
-            this.addPendingMark(removeMarks[_i6]);
-          }
-        }
+      for (var _i6 = 0; _i6 < removeMarks.length; _i6++) {
+        this.addPendingMark(removeMarks[_i6]);
       }
     }
   }, {
@@ -10795,6 +10940,8 @@ var ParseContext = function () {
   }, {
     key: "addElement",
     value: function addElement(dom, matchAfter) {
+      var _this3 = this;
+
       var name = dom.nodeName.toLowerCase(),
           ruleID;
       if (listTags.hasOwnProperty(name) && this.parser.normalizeLists) normalizeList(dom);
@@ -10822,11 +10969,15 @@ var ParseContext = function () {
           return;
         }
 
-        this.addAll(dom);
+        if (rule && rule.skip) this.addAll(dom);else this.withStyleRules(dom, function () {
+          return _this3.addAll(dom);
+        });
         if (sync) this.sync(top);
         this.needsBlock = oldNeedsBlock;
       } else {
-        this.addElementByRule(dom, rule, rule.consuming === false ? ruleID : undefined);
+        this.withStyleRules(dom, function () {
+          _this3.addElementByRule(dom, rule, rule.consuming === false ? ruleID : undefined);
+        });
       }
     }
   }, {
@@ -10842,14 +10993,14 @@ var ParseContext = function () {
   }, {
     key: "readStyles",
     value: function readStyles(styles) {
-      var _this3 = this;
+      var _this4 = this;
 
       var add = Mark.none,
           remove = Mark.none;
 
       for (var i = 0; i < styles.length; i += 2) {
         var _loop4 = function _loop4(_after) {
-          var rule = _this3.parser.matchStyle(styles[i], styles[i + 1], _this3, _after);
+          var rule = _this4.parser.matchStyle(styles[i], styles[i + 1], _this4, _after);
 
           if (!rule) {
             after = _after;
@@ -10864,11 +11015,11 @@ var ParseContext = function () {
           }
 
           if (rule.clearMark) {
-            _this3.top.pendingMarks.concat(_this3.top.activeMarks).forEach(function (m) {
+            _this4.top.pendingMarks.concat(_this4.top.activeMarks).forEach(function (m) {
               if (rule.clearMark(m)) remove = m.addToSet(remove);
             });
           } else {
-            add = _this3.parser.schema.marks[rule.mark].create(rule.attrs).addToSet(add);
+            add = _this4.parser.schema.marks[rule.mark].create(rule.attrs).addToSet(add);
           }
 
           if (rule.consuming === false) _after = rule;else {
@@ -10891,7 +11042,7 @@ var ParseContext = function () {
   }, {
     key: "addElementByRule",
     value: function addElementByRule(dom, rule, continueAfter) {
-      var _this4 = this;
+      var _this5 = this;
 
       var sync, nodeType, mark;
 
@@ -10918,7 +11069,7 @@ var ParseContext = function () {
       } else if (rule.getContent) {
         this.findInside(dom);
         rule.getContent(dom, this.parser.schema).forEach(function (node) {
-          return _this4.insertNode(node);
+          return _this5.insertNode(node);
         });
       } else {
         var contentDOM = dom;
@@ -11102,7 +11253,7 @@ var ParseContext = function () {
   }, {
     key: "matchesContext",
     value: function matchesContext(context) {
-      var _this5 = this;
+      var _this6 = this;
 
       if (context.indexOf("|") > -1) return context.split(/\s*\|\s*/).some(this.matchesContext, this);
       var parts = context.split("/");
@@ -11123,7 +11274,7 @@ var ParseContext = function () {
 
             return false;
           } else {
-            var next = depth > 0 || depth == 0 && useRoot ? _this5.nodes[depth].type : option && depth >= minDepth ? option.node(depth - minDepth).type : null;
+            var next = depth > 0 || depth == 0 && useRoot ? _this6.nodes[depth].type : option && depth >= minDepth ? option.node(depth - minDepth).type : null;
             if (!next || next.name != part && next.groups.indexOf(part) == -1) return false;
             depth--;
           }
@@ -11271,7 +11422,7 @@ var DOMSerializer = function () {
   _createClass(DOMSerializer, [{
     key: "serializeFragment",
     value: function serializeFragment(fragment) {
-      var _this6 = this;
+      var _this7 = this;
 
       var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
       var target = arguments.length > 2 ? arguments[2] : undefined;
@@ -11286,7 +11437,7 @@ var DOMSerializer = function () {
           while (keep < active.length && rendered < node.marks.length) {
             var next = node.marks[rendered];
 
-            if (!_this6.marks[next.type.name]) {
+            if (!_this7.marks[next.type.name]) {
               rendered++;
               continue;
             }
@@ -11303,7 +11454,7 @@ var DOMSerializer = function () {
           while (rendered < node.marks.length) {
             var add = node.marks[rendered++];
 
-            var markDOM = _this6.serializeMark(add, node.isInline, options);
+            var markDOM = _this7.serializeMark(add, node.isInline, options);
 
             if (markDOM) {
               active.push([add, top]);
@@ -11313,7 +11464,7 @@ var DOMSerializer = function () {
           }
         }
 
-        top.appendChild(_this6.serializeNodeInner(node, options));
+        top.appendChild(_this7.serializeNodeInner(node, options));
       });
       return target;
     }
@@ -12828,10 +12979,6 @@ function _defineProperties(target, props) { for (var i = 0; i < props.length; i+
 
 function _createClass(Constructor, protoProps, staticProps) { if (protoProps) _defineProperties(Constructor.prototype, protoProps); if (staticProps) _defineProperties(Constructor, staticProps); Object.defineProperty(Constructor, "prototype", { writable: false }); return Constructor; }
 
-Object.defineProperty(exports, '__esModule', {
-  value: true
-});
-
 var prosemirrorModel = require('prosemirror-model');
 
 var lower16 = 0xffff;
@@ -13757,7 +13904,7 @@ function _removeMark(tr, from, to, mark) {
 function _clearIncompatible(tr, pos, parentType) {
   var match = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : parentType.contentMatch;
   var node = tr.doc.nodeAt(pos);
-  var delSteps = [],
+  var replSteps = [],
       cur = pos + 1;
 
   for (var i = 0; i < node.childCount; i++) {
@@ -13766,12 +13913,23 @@ function _clearIncompatible(tr, pos, parentType) {
     var allowed = match.matchType(child.type);
 
     if (!allowed) {
-      delSteps.push(new ReplaceStep(cur, end, prosemirrorModel.Slice.empty));
+      replSteps.push(new ReplaceStep(cur, end, prosemirrorModel.Slice.empty));
     } else {
       match = allowed;
 
       for (var j = 0; j < child.marks.length; j++) {
         if (!parentType.allowsMarkType(child.marks[j].type)) tr.step(new RemoveMarkStep(cur, end, child.marks[j]));
+      }
+
+      if (child.isText && !parentType.spec.code) {
+        var m = void 0,
+            newline = /\r?\n|\r/g,
+            slice = void 0;
+
+        while (m = newline.exec(child.text)) {
+          if (!slice) slice = new prosemirrorModel.Slice(prosemirrorModel.Fragment.from(parentType.schema.text(" ", parentType.allowedMarks(child.marks))), 0, 0);
+          replSteps.push(new ReplaceStep(cur + m.index, cur + m.index + m[0].length, slice));
+        }
       }
     }
 
@@ -13783,8 +13941,8 @@ function _clearIncompatible(tr, pos, parentType) {
     tr.replace(cur, cur, new prosemirrorModel.Slice(fill, 0, 0));
   }
 
-  for (var _i = delSteps.length - 1; _i >= 0; _i--) {
-    tr.step(delSteps[_i]);
+  for (var _i = replSteps.length - 1; _i >= 0; _i--) {
+    tr.step(replSteps[_i]);
   }
 }
 
@@ -14452,9 +14610,9 @@ function _replaceRange(tr, from, to, slice) {
   }
 
   for (var _d3 = preferredDepth - 1; _d3 >= 0; _d3--) {
-    var type = leftNodes[_d3].type,
-        def = definesContent(type);
-    if (def && $from.node(preferredTargetIndex).type != type) preferredDepth = _d3;else if (def || !type.isTextblock) break;
+    var leftNode = leftNodes[_d3],
+        def = definesContent(leftNode.type);
+    if (def && !leftNode.sameMarkup($from.node(Math.abs(preferredTarget) - 1))) preferredDepth = _d3;else if (def || !leftNode.type.isTextblock) break;
   }
 
   for (var j = slice.openStart; j >= 0; j--) {
@@ -14617,17 +14775,17 @@ var AttrStep = function (_Step7) {
 Step.jsonID("attr", AttrStep);
 
 exports.TransformError = function (_Error) {
-  _inherits(_class, _Error);
+  _inherits(TransformError, _Error);
 
-  var _super8 = _createSuper(_class);
+  var _super8 = _createSuper(TransformError);
 
-  function _class() {
-    _classCallCheck(this, _class);
+  function TransformError() {
+    _classCallCheck(this, TransformError);
 
     return _super8.apply(this, arguments);
   }
 
-  return _createClass(_class);
+  return _createClass(TransformError);
 }(_wrapNativeSuper(Error));
 
 exports.TransformError = function TransformError(message) {
@@ -15073,7 +15231,7 @@ function scrollRectIntoView(view, rect, startDOM) {
     var bounding = atTop ? windowRect(doc) : clientRect(elt);
     var moveX = 0,
         moveY = 0;
-    if (rect.top < bounding.top + getSide(scrollThreshold, "top")) moveY = -(bounding.top - rect.top + getSide(scrollMargin, "top"));else if (rect.bottom > bounding.bottom - getSide(scrollThreshold, "bottom")) moveY = rect.bottom - bounding.bottom + getSide(scrollMargin, "bottom");
+    if (rect.top < bounding.top + getSide(scrollThreshold, "top")) moveY = -(bounding.top - rect.top + getSide(scrollMargin, "top"));else if (rect.bottom > bounding.bottom - getSide(scrollThreshold, "bottom")) moveY = rect.bottom - rect.top > bounding.bottom - bounding.top ? rect.top + getSide(scrollMargin, "top") - bounding.top : rect.bottom - bounding.bottom + getSide(scrollMargin, "bottom");
     if (rect.left < bounding.left + getSide(scrollThreshold, "left")) moveX = -(bounding.left - rect.left + getSide(scrollMargin, "left"));else if (rect.right > bounding.right - getSide(scrollThreshold, "right")) moveX = rect.right - bounding.right + getSide(scrollMargin, "right");
 
     if (moveX || moveY) {
@@ -15095,7 +15253,7 @@ function scrollRectIntoView(view, rect, startDOM) {
       }
     }
 
-    if (atTop) break;
+    if (atTop || /^(fixed|sticky)$/.test(getComputedStyle(parent).position)) break;
   }
 }
 
@@ -15298,7 +15456,7 @@ function posFromCaret(view, node, offset, coords) {
         if (rect.left > coords.left || rect.top > coords.top) outsideBlock = desc.posBefore;else if (rect.right < coords.left || rect.bottom < coords.top) outsideBlock = desc.posAfter;
       }
 
-      if (!desc.contentDOM && outsideBlock < 0) {
+      if (!desc.contentDOM && outsideBlock < 0 && !desc.node.isText) {
         var before = desc.node.isBlock ? coords.top < (rect.top + rect.bottom) / 2 : coords.left < (rect.left + rect.right) / 2;
         return before ? desc.posBefore : desc.posAfter;
       }
@@ -16250,7 +16408,7 @@ var MarkViewDesc = function (_ViewDesc3) {
       return {
         mark: this.mark.type.name,
         attrs: this.mark.attrs,
-        contentElement: this.contentDOM || undefined
+        contentElement: this.contentDOM
       };
     }
   }, {
@@ -17631,6 +17789,7 @@ function nodeLen(node) {
 }
 
 function isIgnorable(dom) {
+  if (dom.contentEditable == "false") return true;
   var desc = dom.pmViewDesc;
   return desc && desc.size == 0 && (dom.nextSibling || dom.nodeName != "BR");
 }
@@ -17737,7 +17896,45 @@ function isBlockNode(dom) {
   return desc && desc.node && desc.node.isBlock;
 }
 
+function textNodeAfter(node, offset) {
+  while (node && offset == node.childNodes.length && !hasBlockDesc(node)) {
+    offset = domIndex(node) + 1;
+    node = node.parentNode;
+  }
+
+  while (node && offset < node.childNodes.length) {
+    node = node.childNodes[offset];
+    if (node.nodeType == 3) return node;
+    offset = 0;
+  }
+}
+
+function textNodeBefore(node, offset) {
+  while (node && !offset && !hasBlockDesc(node)) {
+    offset = domIndex(node);
+    node = node.parentNode;
+  }
+
+  while (node && offset) {
+    node = node.childNodes[offset - 1];
+    if (node.nodeType == 3) return node;
+    offset = node.childNodes.length;
+  }
+}
+
 function setSelFocus(view, node, offset) {
+  if (node.nodeType != 3) {
+    var before, after;
+
+    if (after = textNodeAfter(node, offset)) {
+      node = after;
+      offset = 0;
+    } else if (before = textNodeBefore(node, offset)) {
+      node = before;
+      offset = before.nodeValue.length;
+    }
+  }
+
   var sel = view.domSelection();
 
   if (selectionCollapsed(sel)) {
@@ -18206,6 +18403,7 @@ var InputState = _createClass(function InputState() {
   this.compositionNodes = [];
   this.compositionEndedAt = -2e8;
   this.compositionID = 1;
+  this.compositionPendingChanges = 0;
   this.domChangeCount = 0;
   this.eventHandlers = Object.create(null);
   this.hideSelectionGuard = null;
@@ -18669,6 +18867,10 @@ editHandlers.compositionend = function (view, event) {
   if (view.composing) {
     view.input.composing = false;
     view.input.compositionEndedAt = event.timeStamp;
+    view.input.compositionPendingChanges = view.domObserver.pendingRecords().length ? view.input.compositionID : 0;
+    if (view.input.compositionPendingChanges) Promise.resolve().then(function () {
+      return view.domObserver.flush();
+    });
     view.input.compositionID++;
     scheduleComposeEnd(view, 20);
   }
@@ -19876,17 +20078,33 @@ var DOMObserver = function () {
       }
     }
   }, {
+    key: "pendingRecords",
+    value: function pendingRecords() {
+      if (this.observer) {
+        var _iterator2 = _createForOfIteratorHelper(this.observer.takeRecords()),
+            _step2;
+
+        try {
+          for (_iterator2.s(); !(_step2 = _iterator2.n()).done;) {
+            var mut = _step2.value;
+            this.queue.push(mut);
+          }
+        } catch (err) {
+          _iterator2.e(err);
+        } finally {
+          _iterator2.f();
+        }
+      }
+
+      return this.queue;
+    }
+  }, {
     key: "flush",
     value: function flush() {
       var view = this.view;
       if (!view.docView || this.flushingSoon > -1) return;
-      var mutations = this.observer ? this.observer.takeRecords() : [];
-
-      if (this.queue.length) {
-        mutations = this.queue.concat(mutations);
-        this.queue.length = 0;
-      }
-
+      var mutations = this.pendingRecords();
+      if (mutations.length) this.queue = [];
       var sel = view.domSelectionRange();
       var newSel = !this.suppressingSelectionUpdates && !this.currentSelection.eq(sel) && hasFocusAndSelection(view) && !this.ignoreSelectionChange(sel);
       var from = -1,
@@ -20141,6 +20359,9 @@ function ruleFromNode(dom) {
 var isInline = /^(a|abbr|acronym|b|bd[io]|big|br|button|cite|code|data(list)?|del|dfn|em|i|ins|kbd|label|map|mark|meter|output|q|ruby|s|samp|small|span|strong|su[bp]|time|u|tt|var)$/i;
 
 function readDOMChange(view, from, to, typeOver, addedNodes) {
+  var compositionID = view.input.compositionPendingChanges || (view.composing ? view.input.compositionID : 0);
+  view.input.compositionPendingChanges = 0;
+
   if (from < 0) {
     var origin = view.input.lastSelectionTime > Date.now() - 50 ? view.input.lastSelectionOrigin : null;
     var newSel = selectionFromDOM(view, origin);
@@ -20153,7 +20374,7 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
       var _tr = view.state.tr.setSelection(newSel);
 
       if (origin == "pointer") _tr.setMeta("pointer", true);else if (origin == "key") _tr.scrollIntoView();
-      if (view.composing) _tr.setMeta("composition", view.input.compositionID);
+      if (compositionID) _tr.setMeta("composition", compositionID);
       view.dispatch(_tr);
     }
 
@@ -20204,7 +20425,7 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
         if (_sel && !_sel.eq(view.state.selection)) {
           var _tr2 = view.state.tr.setSelection(_sel);
 
-          if (view.composing) _tr2.setMeta("composition", view.input.compositionID);
+          if (compositionID) _tr2.setMeta("composition", compositionID);
           view.dispatch(_tr2);
         }
       }
@@ -20308,7 +20529,7 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
   }
 
   if (storedMarks) tr.ensureMarks(storedMarks);
-  if (view.composing) tr.setMeta("composition", view.input.compositionID);
+  if (compositionID) tr.setMeta("composition", compositionID);
   view.dispatch(tr.scrollIntoView());
 }
 
