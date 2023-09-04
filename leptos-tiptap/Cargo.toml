@@ -1,6 +1,6 @@
 [package]
 name = "leptos-tiptap"
-version = "0.3.0-alpha"
+version = "0.3.0-beta"
 edition = "2021"
 rust-version = "1.65.0"
 authors = ["Lukas Potthast <privat@lukas-potthast.de>"]
@@ -14,7 +14,7 @@ categories = ["gui"]
 keywords = ["tiptap", "leptos", "components", "editor", "wysiwyg"]
 
 [dependencies]
-leptos = "0.5.0-alpha"
+leptos = "0.5.0-beta2"
 serde = { version = "1.0.177", features = ["derive"] }
 serde-wasm-bindgen = "0.5.0"
 tracing = "0.1.37"
