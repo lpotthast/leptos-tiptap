@@ -15047,10 +15047,6 @@ function _defineProperties(target, props) { for (var i = 0; i < props.length; i+
 
 function _createClass(Constructor, protoProps, staticProps) { if (protoProps) _defineProperties(Constructor.prototype, protoProps); if (staticProps) _defineProperties(Constructor, staticProps); Object.defineProperty(Constructor, "prototype", { writable: false }); return Constructor; }
 
-Object.defineProperty(exports, '__esModule', {
-  value: true
-});
-
 var prosemirrorState = require('prosemirror-state');
 
 var prosemirrorModel = require('prosemirror-model');
@@ -17205,9 +17201,13 @@ var ViewTreeUpdater = function () {
             return true;
           } else if (!locked && (updated = this.recreateWrapper(next, node, outerDeco, innerDeco, view, pos))) {
             this.top.children[this.index] = updated;
-            updated.dirty = CONTENT_DIRTY;
-            updated.updateChildren(view, pos + 1);
-            updated.dirty = NOT_DIRTY;
+
+            if (updated.contentDOM) {
+              updated.dirty = CONTENT_DIRTY;
+              updated.updateChildren(view, pos + 1);
+              updated.dirty = NOT_DIRTY;
+            }
+
             this.changed = true;
             this.index++;
             return true;
@@ -17224,25 +17224,27 @@ var ViewTreeUpdater = function () {
     value: function recreateWrapper(next, node, outerDeco, innerDeco, view, pos) {
       if (next.dirty || node.isAtom || !next.children.length || !next.node.content.eq(node.content)) return null;
       var wrapper = NodeViewDesc.create(this.top, node, outerDeco, innerDeco, view, pos);
-      if (!wrapper.contentDOM) return null;
-      wrapper.children = next.children;
-      next.children = [];
-      next.destroy();
 
-      var _iterator = _createForOfIteratorHelper(wrapper.children),
-          _step;
+      if (wrapper.contentDOM) {
+        wrapper.children = next.children;
+        next.children = [];
 
-      try {
-        for (_iterator.s(); !(_step = _iterator.n()).done;) {
-          var ch = _step.value;
-          ch.parent = wrapper;
+        var _iterator = _createForOfIteratorHelper(wrapper.children),
+            _step;
+
+        try {
+          for (_iterator.s(); !(_step = _iterator.n()).done;) {
+            var ch = _step.value;
+            ch.parent = wrapper;
+          }
+        } catch (err) {
+          _iterator.e(err);
+        } finally {
+          _iterator.f();
         }
-      } catch (err) {
-        _iterator.e(err);
-      } finally {
-        _iterator.f();
       }
 
+      next.destroy();
       return wrapper;
     }
   }, {
@@ -17379,14 +17381,18 @@ function iterDeco(parent, deco, onWidget, onNode) {
       restNode = null;
 
   for (var parentIndex = 0;;) {
-    if (decoIndex < locals.length && locals[decoIndex].to == offset) {
-      var widget = locals[decoIndex++],
-          widgets = void 0;
+    var widget = void 0,
+        widgets = void 0;
 
-      while (decoIndex < locals.length && locals[decoIndex].to == offset) {
-        (widgets || (widgets = [widget])).push(locals[decoIndex++]);
+    while (decoIndex < locals.length && locals[decoIndex].to == offset) {
+      var next = locals[decoIndex++];
+
+      if (next.widget) {
+        if (!widget) widget = next;else (widgets || (widgets = [widget])).push(next);
       }
+    }
 
+    if (widget) {
       if (widgets) {
         widgets.sort(compareSide);
 
@@ -17788,10 +17794,10 @@ function nodeLen(node) {
   return node.nodeType == 3 ? node.nodeValue.length : node.childNodes.length;
 }
 
-function isIgnorable(dom) {
+function isIgnorable(dom, dir) {
   if (dom.contentEditable == "false") return true;
   var desc = dom.pmViewDesc;
-  return desc && desc.size == 0 && (dom.nextSibling || dom.nodeName != "BR");
+  return desc && desc.size == 0 && (dir < 0 || dom.nextSibling || dom.nodeName != "BR");
 }
 
 function skipIgnoredNodes(view, dir) {
@@ -17806,7 +17812,7 @@ function skipIgnoredNodesBefore(view) {
   var moveNode,
       moveOffset,
       force = false;
-  if (gecko && node.nodeType == 1 && offset < nodeLen(node) && isIgnorable(node.childNodes[offset])) force = true;
+  if (gecko && node.nodeType == 1 && offset < nodeLen(node) && isIgnorable(node.childNodes[offset], -1)) force = true;
 
   for (;;) {
     if (offset > 0) {
@@ -17815,7 +17821,7 @@ function skipIgnoredNodesBefore(view) {
       } else {
         var before = node.childNodes[offset - 1];
 
-        if (isIgnorable(before)) {
+        if (isIgnorable(before, -1)) {
           moveNode = node;
           moveOffset = --offset;
         } else if (before.nodeType == 3) {
@@ -17828,7 +17834,7 @@ function skipIgnoredNodesBefore(view) {
     } else {
       var prev = node.previousSibling;
 
-      while (prev && isIgnorable(prev)) {
+      while (prev && isIgnorable(prev, -1)) {
         moveNode = node.parentNode;
         moveOffset = domIndex(prev);
         prev = prev.previousSibling;
@@ -17861,7 +17867,7 @@ function skipIgnoredNodesAfter(view) {
       if (node.nodeType != 1) break;
       var after = node.childNodes[offset];
 
-      if (isIgnorable(after)) {
+      if (isIgnorable(after, 1)) {
         moveNode = node;
         moveOffset = ++offset;
       } else break;
@@ -17870,7 +17876,7 @@ function skipIgnoredNodesAfter(view) {
     } else {
       var next = node.nextSibling;
 
-      while (next && isIgnorable(next)) {
+      while (next && isIgnorable(next, 1)) {
         moveNode = next.parentNode;
         moveOffset = domIndex(next) + 1;
         next = next.nextSibling;
@@ -17903,8 +17909,10 @@ function textNodeAfter(node, offset) {
   }
 
   while (node && offset < node.childNodes.length) {
-    node = node.childNodes[offset];
-    if (node.nodeType == 3) return node;
+    var next = node.childNodes[offset];
+    if (next.nodeType == 3) return next;
+    if (next.nodeType == 1 && next.contentEditable == "false") break;
+    node = next;
     offset = 0;
   }
 }
@@ -17916,8 +17924,10 @@ function textNodeBefore(node, offset) {
   }
 
   while (node && offset) {
-    node = node.childNodes[offset - 1];
-    if (node.nodeType == 3) return node;
+    var next = node.childNodes[offset - 1];
+    if (next.nodeType == 3) return next;
+    if (next.nodeType == 1 && next.contentEditable == "false") break;
+    node = next;
     offset = node.childNodes.length;
   }
 }
@@ -18074,7 +18084,7 @@ function captureKeyDown(view, event) {
   } else if (code == 38 || mac && code == 80 && mods == "c") {
     return selectVertically(view, -1, mods) || skipIgnoredNodes(view, -1);
   } else if (code == 40 || mac && code == 78 && mods == "c") {
-    return safariDownArrowBug(view) || selectVertically(view, 1, mods) || skipIgnoredNodesAfter(view);
+    return safariDownArrowBug(view) || selectVertically(view, 1, mods) || skipIgnoredNodes(view, 1);
   } else if (mods == (mac ? "m" : "c") && (code == 66 || code == 73 || code == 89 || code == 90)) {
     return true;
   }
@@ -19310,6 +19320,11 @@ var Decoration = function () {
     key: "inline",
     get: function get() {
       return this.type instanceof InlineType;
+    }
+  }, {
+    key: "widget",
+    get: function get() {
+      return this.type instanceof WidgetType;
     }
   }], [{
     key: "widget",
