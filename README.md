@@ -2,15 +2,15 @@
 
 Enables the integration of [Tiptap](https://tiptap.dev/) instances into your [leptos](https://leptos.dev/) projects.
 
-Currently used tiptap version: `2.0.3`
+Currently used tiptap version: `2.1.8`, when using leptos-tiptap-build `0.2.3`
 
 Currently used tiptap extensions:
 
-- "@tiptap/core": "^2.0.3",
-- "@tiptap/extension-highlight": "^2.0.3",
-- "@tiptap/extension-image": "^2.0.3",
-- "@tiptap/extension-text-align": "^2.0.3",
-- "@tiptap/starter-kit": "^2.0.3"
+- "@tiptap/core": "^2.1.8",
+- "@tiptap/extension-highlight": "^2.1.8",
+- "@tiptap/extension-image": "^2.1.8",
+- "@tiptap/extension-text-align": "^2.1.8,
+- "@tiptap/starter-kit": "^2.1.8"
 
 This repository contains:
 
