@@ -11,7 +11,7 @@ debug = 0
 
 [dependencies]
 console_error_panic_hook = "0.1"
-leptos = { version = "0.5.0-beta2", features = ["csr"] }
+leptos = { version = "0.5.0-rc1", features = ["csr"] }
 leptos-tiptap = { path = "../../../leptos-tiptap" }
 
 [build-dependencies]
