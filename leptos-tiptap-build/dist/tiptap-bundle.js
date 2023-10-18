@@ -772,7 +772,7 @@ const pasteRuleMatcherHandler = (text, find) => {
     });
 };
 function run(config) {
-    const { editor, state, from, to, rule, } = config;
+    const { editor, state, from, to, rule, pasteEvent, dropEvent, } = config;
     const { commands, chain, can } = new CommandManager({
         editor,
         state,
@@ -803,6 +803,8 @@ function run(config) {
                 commands,
                 chain,
                 can,
+                pasteEvent,
+                dropEvent,
             });
             handlers.push(handler);
         });
@@ -820,6 +822,8 @@ function pasteRulesPlugin(props) {
     let dragSourceElement = null;
     let isPastedFromProseMirror = false;
     let isDroppedFromProseMirror = false;
+    let pasteEvent = new ClipboardEvent('paste');
+    let dropEvent = new DragEvent('drop');
     const plugins = rules.map(rule => {
         return new state.Plugin({
             // we register a global drag handler to track the current drag source element
@@ -839,13 +843,15 @@ function pasteRulesPlugin(props) {
             },
             props: {
                 handleDOMEvents: {
-                    drop: view => {
+                    drop: (view, event) => {
                         isDroppedFromProseMirror = dragSourceElement === view.dom.parentElement;
+                        dropEvent = event;
                         return false;
                     },
-                    paste: (view, event) => {
+                    paste: (_view, event) => {
                         var _a;
                         const html = (_a = event.clipboardData) === null || _a === void 0 ? void 0 : _a.getData('text/html');
+                        pasteEvent = event;
                         isPastedFromProseMirror = !!(html === null || html === void 0 ? void 0 : html.includes('data-pm-slice'));
                         return false;
                     },
@@ -877,11 +883,15 @@ function pasteRulesPlugin(props) {
                     from: Math.max(from - 1, 0),
                     to: to.b - 1,
                     rule,
+                    pasteEvent,
+                    dropEvent,
                 });
                 // stop if there are no changes
                 if (!handler || !tr.steps.length) {
                     return;
                 }
+                dropEvent = new DragEvent('drop');
+                pasteEvent = new ClipboardEvent('paste');
                 return tr;
             },
         });
@@ -4288,8 +4298,8 @@ class NodeView {
 function markPasteRule(config) {
     return new PasteRule({
         find: config.find,
-        handler: ({ state, range, match }) => {
-            const attributes = callOrReturn(config.getAttributes, undefined, match);
+        handler: ({ state, range, match, pasteEvent, }) => {
+            const attributes = callOrReturn(config.getAttributes, undefined, match, pasteEvent);
             if (attributes === false || attributes === null) {
                 return null;
             }
@@ -4341,8 +4351,8 @@ function isString(value) {
 function nodePasteRule(config) {
     return new PasteRule({
         find: config.find,
-        handler({ match, chain, range }) {
-            const attributes = callOrReturn(config.getAttributes, undefined, match);
+        handler({ match, chain, range, pasteEvent, }) {
+            const attributes = callOrReturn(config.getAttributes, undefined, match, pasteEvent);
             if (attributes === false || attributes === null) {
                 return null;
             }
@@ -14774,15 +14784,81 @@ var AttrStep = function (_Step7) {
 
 Step.jsonID("attr", AttrStep);
 
+var DocAttrStep = function (_Step8) {
+  _inherits(DocAttrStep, _Step8);
+
+  var _super8 = _createSuper(DocAttrStep);
+
+  function DocAttrStep(attr, value) {
+    var _this10;
+
+    _classCallCheck(this, DocAttrStep);
+
+    _this10 = _super8.call(this);
+    _this10.attr = attr;
+    _this10.value = value;
+    return _this10;
+  }
+
+  _createClass(DocAttrStep, [{
+    key: "apply",
+    value: function apply(doc) {
+      var attrs = Object.create(null);
+
+      for (var name in doc.attrs) {
+        attrs[name] = doc.attrs[name];
+      }
+
+      attrs[this.attr] = this.value;
+      var updated = doc.type.create(attrs, doc.content, doc.marks);
+      return StepResult.ok(updated);
+    }
+  }, {
+    key: "getMap",
+    value: function getMap() {
+      return StepMap.empty;
+    }
+  }, {
+    key: "invert",
+    value: function invert(doc) {
+      return new DocAttrStep(this.attr, doc.attrs[this.attr]);
+    }
+  }, {
+    key: "map",
+    value: function map(mapping) {
+      return this;
+    }
+  }, {
+    key: "toJSON",
+    value: function toJSON() {
+      return {
+        stepType: "docAttr",
+        attr: this.attr,
+        value: this.value
+      };
+    }
+  }], [{
+    key: "fromJSON",
+    value: function fromJSON(schema, json) {
+      if (typeof json.attr != "string") throw new RangeError("Invalid input for DocAttrStep.fromJSON");
+      return new DocAttrStep(json.attr, json.value);
+    }
+  }]);
+
+  return DocAttrStep;
+}(Step);
+
+Step.jsonID("docAttr", DocAttrStep);
+
 exports.TransformError = function (_Error) {
   _inherits(TransformError, _Error);
 
-  var _super8 = _createSuper(TransformError);
+  var _super9 = _createSuper(TransformError);
 
   function TransformError() {
     _classCallCheck(this, TransformError);
 
-    return _super8.apply(this, arguments);
+    return _super9.apply(this, arguments);
   }
 
   return _createClass(TransformError);
@@ -14936,6 +15012,12 @@ var Transform = function () {
       return this;
     }
   }, {
+    key: "setDocAttribute",
+    value: function setDocAttribute(attr, value) {
+      this.step(new DocAttrStep(attr, value));
+      return this;
+    }
+  }, {
     key: "addNodeMark",
     value: function addNodeMark(pos, mark) {
       this.step(new AddNodeMarkStep(pos, mark));
@@ -14993,6 +15075,7 @@ var Transform = function () {
 exports.AddMarkStep = AddMarkStep;
 exports.AddNodeMarkStep = AddNodeMarkStep;
 exports.AttrStep = AttrStep;
+exports.DocAttrStep = DocAttrStep;
 exports.MapResult = MapResult;
 exports.Mapping = Mapping;
 exports.RemoveMarkStep = RemoveMarkStep;
@@ -15528,6 +15611,8 @@ function _posAtCoords(view, coords) {
       }
     }
 
+    var prev;
+    if (webkit && offset && node.nodeType == 1 && (prev = node.childNodes[offset - 1]).nodeType == 1 && prev.contentEditable == "false" && prev.getBoundingClientRect().top >= coords.top) offset--;
     if (node == view.dom && offset == node.childNodes.length - 1 && node.lastChild.nodeType == 1 && coords.top > node.lastChild.getBoundingClientRect().bottom) pos = view.state.doc.content.size;else if (offset == 0 || node.nodeType != 1 || node.childNodes[offset - 1].nodeName != "BR") pos = posFromCaret(view, node, offset, coords);
   }
 
@@ -17494,6 +17579,7 @@ function findTextInFragment(frag, text, from, to) {
     }
 
     if (pos >= from) {
+      if (pos >= to && str.slice(to - text.length - childStart, to - childStart) == text) return to - text.length;
       var found = childStart < to ? str.lastIndexOf(text, to - childStart - 1) : -1;
       if (found >= 0 && found + text.length + childStart >= from) return childStart + found;
       if (from == to && str.length >= to + text.length - childStart && str.slice(to - childStart, to - childStart + text.length) == text) return to;
@@ -17758,24 +17844,31 @@ function selectHorizontally(view, dir, mods) {
   var sel = view.state.selection;
 
   if (sel instanceof prosemirrorState.TextSelection) {
-    if (!sel.empty || mods.indexOf("s") > -1) {
+    if (mods.indexOf("s") > -1) {
+      var $head = sel.$head,
+          node = $head.textOffset ? null : dir < 0 ? $head.nodeBefore : $head.nodeAfter;
+      if (!node || node.isText || !node.isLeaf) return false;
+      var $newHead = view.state.doc.resolve($head.pos + node.nodeSize * (dir < 0 ? -1 : 1));
+      return apply(view, new prosemirrorState.TextSelection(sel.$anchor, $newHead));
+    } else if (!sel.empty) {
       return false;
     } else if (view.endOfTextblock(dir > 0 ? "forward" : "backward")) {
       var next = moveSelectionBlock(view.state, dir);
       if (next && next instanceof prosemirrorState.NodeSelection) return apply(view, next);
       return false;
     } else if (!(mac && mods.indexOf("m") > -1)) {
-      var $head = sel.$head,
-          node = $head.textOffset ? null : dir < 0 ? $head.nodeBefore : $head.nodeAfter,
+      var _$head = sel.$head,
+          _node = _$head.textOffset ? null : dir < 0 ? _$head.nodeBefore : _$head.nodeAfter,
           desc;
-      if (!node || node.isText) return false;
-      var nodePos = dir < 0 ? $head.pos - node.nodeSize : $head.pos;
-      if (!(node.isAtom || (desc = view.docView.descAt(nodePos)) && !desc.contentDOM)) return false;
 
-      if (prosemirrorState.NodeSelection.isSelectable(node)) {
-        return apply(view, new prosemirrorState.NodeSelection(dir < 0 ? view.state.doc.resolve($head.pos - node.nodeSize) : $head));
+      if (!_node || _node.isText) return false;
+      var nodePos = dir < 0 ? _$head.pos - _node.nodeSize : _$head.pos;
+      if (!(_node.isAtom || (desc = view.docView.descAt(nodePos)) && !desc.contentDOM)) return false;
+
+      if (prosemirrorState.NodeSelection.isSelectable(_node)) {
+        return apply(view, new prosemirrorState.NodeSelection(dir < 0 ? view.state.doc.resolve(_$head.pos - _node.nodeSize) : _$head));
       } else if (webkit) {
-        return apply(view, new prosemirrorState.TextSelection(view.state.doc.resolve(dir < 0 ? nodePos : nodePos + node.nodeSize)));
+        return apply(view, new prosemirrorState.TextSelection(view.state.doc.resolve(dir < 0 ? nodePos : nodePos + _node.nodeSize)));
       } else {
         return false;
       }
@@ -17795,7 +17888,6 @@ function nodeLen(node) {
 }
 
 function isIgnorable(dom, dir) {
-  if (dom.contentEditable == "false") return true;
   var desc = dom.pmViewDesc;
   return desc && desc.size == 0 && (dir < 0 || dom.nextSibling || dom.nodeName != "BR");
 }
@@ -18218,7 +18310,7 @@ function parseFromClipboard(view, text, html, plainText, $context) {
 
       for (var node = slice.content.firstChild; openStart < slice.openStart && !node.type.spec.isolating; openStart++, node = node.firstChild) {}
 
-      for (var _node = slice.content.lastChild; openEnd < slice.openEnd && !_node.type.spec.isolating; openEnd++, _node = _node.lastChild) {}
+      for (var _node2 = slice.content.lastChild; openEnd < slice.openEnd && !_node2.type.spec.isolating; openEnd++, _node2 = _node2.lastChild) {}
 
       slice = closeSlice(slice, openStart, openEnd);
     }
@@ -20957,6 +21049,11 @@ var EditorView = function () {
       }
 
       return cached || document;
+    }
+  }, {
+    key: "updateRoot",
+    value: function updateRoot() {
+      this._root = null;
     }
   }, {
     key: "posAtCoords",

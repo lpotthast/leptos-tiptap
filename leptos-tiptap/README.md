@@ -21,6 +21,7 @@ dependency directly.
 | 0.3.0-alpha   | 0.5.0-alpha               |
 | 0.3.0-beta    | 0.5.0-beta                |
 | 0.3.0-rc1     | 0.5.0-rc1                 |
+| 0.4           | 0.5                       |
 
 ## MSRV
 
