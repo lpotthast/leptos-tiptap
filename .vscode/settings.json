@@ -1,16 +1,20 @@
 {
     "cSpell.words": [
         "bindgen",
+        "blockquote",
         "browserify",
         "leptos",
         "MSRV",
+        "Stylesheet",
         "tbody",
         "thead",
+        "tiptap",
         "uglifyjs"
     ],
     "rust-analyzer.linkedProjects": [
         "./leptos-tiptap/Cargo.toml",
-        "./leptos-tiptap/examples/book/Cargo.toml",
+        "./leptos-tiptap/examples/demo-csr/Cargo.toml",
+        "./leptos-tiptap/examples/demo-ssr/Cargo.toml",
         "./leptos-tiptap-build/Cargo.toml"
     ]
 }

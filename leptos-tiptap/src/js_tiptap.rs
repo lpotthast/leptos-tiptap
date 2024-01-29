@@ -1,7 +1,9 @@
+use cfg_if::cfg_if;
 use wasm_bindgen::{prelude::Closure, JsValue};
 
 use crate::TiptapHeadingLevel;
 
+#[cfg(not(feature = "ssr"))]
 mod js {
     use wasm_bindgen::prelude::*;
 
@@ -44,11 +46,23 @@ pub fn create(
     on_change: &Closure<dyn Fn(String)>,
     on_selection: &Closure<dyn Fn(JsValue)>,
 ) {
-    js::create(id, content, editable, on_change, on_selection);
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::create(id, content, editable, on_change, on_selection);
+    } else {
+        let _id = id;
+        let _content = content;
+        let _editable = editable;
+        let _on_change = on_change;
+        let _on_selection = on_selection;
+    }}
 }
 
 pub fn destroy(id: String) {
-    js::destroy(id);
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::destroy(id);
+    } else {
+        let _id = id;
+    }}
 }
 
 // pub fn is_editable(id: String) -> bool {
@@ -56,7 +70,12 @@ pub fn destroy(id: String) {
 // }
 
 pub fn set_editable(id: String, editable: bool) {
-    js::setEditable(id, editable);
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::setEditable(id, editable);
+    } else {
+        let _id = id;
+        let _editable = editable;
+    }}
 }
 
 // pub fn get_html(id: String) -> String {
@@ -74,51 +93,103 @@ pub fn set_editable(id: String, editable: bool) {
 // }
 
 pub fn toggle_heading(id: String, level: TiptapHeadingLevel) {
-    js::toggleHeading(id, level.into());
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::toggleHeading(id, level.into());
+    } else {
+        let _id = id;
+        let _level = level;
+    }}
 }
 
 pub fn set_paragraph(id: String) {
-    js::setParagraph(id);
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::setParagraph(id);
+    } else {
+        let _id = id;
+    }}
 }
 
 pub fn toggle_bold(id: String) {
-    js::toggleBold(id);
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::toggleBold(id);
+    } else {
+        let _id = id;
+    }}
 }
 
 pub fn toggle_italic(id: String) {
-    js::toggleItalic(id);
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::toggleItalic(id);
+    } else {
+        let _id = id;
+    }}
 }
 
 pub fn toggle_strike(id: String) {
-    js::toggleStrike(id);
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::toggleStrike(id);
+    } else {
+        let _id = id;
+    }}
 }
 
 pub fn toggle_blockquote(id: String) {
-    js::toggleBlockquote(id);
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::toggleBlockquote(id);
+    } else {
+        let _id = id;
+    }}
 }
 
 pub fn toggle_highlight(id: String) {
-    js::toggleHighlight(id);
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::toggleHighlight(id);
+    } else {
+        let _id = id;
+    }}
 }
 
 pub fn set_text_align_left(id: String) {
-    js::setTextAlignLeft(id);
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::setTextAlignLeft(id);
+    } else {
+        let _id = id;
+    }}
 }
 
 pub fn set_text_align_center(id: String) {
-    js::setTextAlignCenter(id);
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::setTextAlignCenter(id);
+    } else {
+        let _id = id;
+    }}
 }
 
 pub fn set_text_align_right(id: String) {
-    js::setTextAlignRight(id);
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::setTextAlignRight(id);
+    } else {
+        let _id = id;
+    }}
 }
 
 pub fn set_text_align_justify(id: String) {
-    js::setTextAlignJustify(id);
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::setTextAlignJustify(id);
+    } else {
+        let _id = id;
+    }}
 }
 
 pub fn set_image(id: String, src: String, alt: String, title: String) {
-    js::setImage(id, src, alt, title);
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::setImage(id, src, alt, title);
+    } else {
+        let _id = id;
+        let _src = src;
+        let _alt = alt;
+        let _title = title;
+    }}
 }
 
 // pub fn get_editor_state(id: String) -> Result<TiptapEditorState, serde_wasm_bindgen::Error> {
