@@ -34,7 +34,6 @@ function createChainableState(config) {
         ...state,
         apply: state.apply.bind(state),
         applyTransaction: state.applyTransaction.bind(state),
-        filterTransaction: state.filterTransaction,
         plugins: state.plugins,
         schema: state.schema,
         reconfigure: state.reconfigure.bind(state),
@@ -749,11 +748,11 @@ class PasteRule {
         this.handler = config.handler;
     }
 }
-const pasteRuleMatcherHandler = (text, find) => {
+const pasteRuleMatcherHandler = (text, find, event) => {
     if (isRegExp(find)) {
         return [...text.matchAll(find)];
     }
-    const matches = find(text);
+    const matches = find(text, event);
     if (!matches) {
         return [];
     }
@@ -785,7 +784,7 @@ function run(config) {
         const resolvedFrom = Math.max(from, pos);
         const resolvedTo = Math.min(to, pos + node.content.size);
         const textToMatch = node.textBetween(resolvedFrom - pos, resolvedTo - pos, undefined, '\ufffc');
-        const matches = pasteRuleMatcherHandler(textToMatch, rule.find);
+        const matches = pasteRuleMatcherHandler(textToMatch, rule.find, pasteEvent);
         matches.forEach(match => {
             if (match.index === undefined) {
                 return;
@@ -1166,7 +1165,7 @@ class Extension {
             ...config,
         };
         this.name = this.config.name;
-        if (config.defaultOptions) {
+        if (config.defaultOptions && Object.keys(config.defaultOptions).length > 0) {
             console.warn(`[tiptap warn]: BREAKING CHANGE: "defaultOptions" is deprecated. Please use "addOptions" instead. Found in extension: "${this.name}".`);
         }
         // TODO: remove `addOptions` fallback
@@ -1196,7 +1195,7 @@ class Extension {
         return extension;
     }
     extend(extendedConfig = {}) {
-        const extension = new Extension(extendedConfig);
+        const extension = new Extension({ ...this.config, ...extendedConfig });
         extension.parent = this;
         this.child = extension;
         extension.name = extendedConfig.name ? extendedConfig.name : extension.parent.name;
@@ -1603,10 +1602,24 @@ const insertContent = (value, options) => ({ tr, commands }) => {
     return commands.insertContentAt({ from: tr.selection.from, to: tr.selection.to }, value, options);
 };
 
+const removeWhitespaces = (node) => {
+    const children = node.childNodes;
+    for (let i = children.length - 1; i >= 0; i -= 1) {
+        const child = children[i];
+        if (child.nodeType === 3 && child.nodeValue && /^(\n\s\s|\n)$/.test(child.nodeValue)) {
+            node.removeChild(child);
+        }
+        else if (child.nodeType === 1) {
+            removeWhitespaces(child);
+        }
+    }
+    return node;
+};
 function elementFromString(value) {
     // add a wrapper to preserve leading and trailing whitespace
     const wrappedValue = `<body>${value}</body>`;
-    return new window.DOMParser().parseFromString(wrappedValue, 'text/html').body;
+    const html = new window.DOMParser().parseFromString(wrappedValue, 'text/html').body;
+    return removeWhitespaces(html);
 }
 
 function createNodeFromContent(content, schema, options) {
@@ -1770,6 +1783,14 @@ const joinItemForward = () => ({ state, dispatch, tr, }) => {
     catch (e) {
         return false;
     }
+};
+
+const joinTextblockBackward = () => ({ state, dispatch }) => {
+    return commands$1.joinTextblockBackward(state, dispatch);
+};
+
+const joinTextblockForward = () => ({ state, dispatch }) => {
+    return commands$1.joinTextblockForward(state, dispatch);
 };
 
 function isMacOS() {
@@ -2326,6 +2347,9 @@ function getMarksBetween(from, to, doc) {
     }
     else {
         doc.nodesBetween(from, to, (node, pos) => {
+            if (!node || (node === null || node === void 0 ? void 0 : node.nodeSize) === undefined) {
+                return;
+            }
             marks.push(...node.marks.map(mark => ({
                 from: pos,
                 to: pos + node.nodeSize,
@@ -3103,6 +3127,8 @@ var commands = /*#__PURE__*/Object.freeze({
   joinForward: joinForward,
   joinItemBackward: joinItemBackward,
   joinItemForward: joinItemForward,
+  joinTextblockBackward: joinTextblockBackward,
+  joinTextblockForward: joinTextblockForward,
   keyboardShortcut: keyboardShortcut,
   lift: lift,
   liftEmptyBlock: liftEmptyBlock,
@@ -3327,6 +3353,151 @@ var extensions = /*#__PURE__*/Object.freeze({
   Keymap: Keymap,
   Tabindex: Tabindex
 });
+
+class NodePos {
+    constructor(pos, editor) {
+        this.resolvedPos = pos;
+        this.editor = editor;
+    }
+    get node() {
+        return this.resolvedPos.node();
+    }
+    get element() {
+        return this.editor.view.domAtPos(this.pos).node;
+    }
+    get depth() {
+        return this.resolvedPos.depth;
+    }
+    get pos() {
+        return this.resolvedPos.pos;
+    }
+    get content() {
+        return this.node.content;
+    }
+    set content(content) {
+        this.editor.commands.insertContentAt({ from: this.from, to: this.to }, content);
+    }
+    get attributes() {
+        return this.node.attrs;
+    }
+    get textContent() {
+        return this.node.textContent;
+    }
+    get size() {
+        return this.node.nodeSize;
+    }
+    get from() {
+        return this.resolvedPos.start(this.resolvedPos.depth);
+    }
+    get range() {
+        return {
+            from: this.from,
+            to: this.to,
+        };
+    }
+    get to() {
+        return this.resolvedPos.end(this.resolvedPos.depth) + (this.node.isText ? 0 : 1);
+    }
+    get parent() {
+        if (this.depth === 0) {
+            return null;
+        }
+        const parentPos = this.resolvedPos.start(this.resolvedPos.depth - 1);
+        const $pos = this.resolvedPos.doc.resolve(parentPos);
+        return new NodePos($pos, this.editor);
+    }
+    get before() {
+        let $pos = this.resolvedPos.doc.resolve(this.from - 2);
+        if ($pos.depth !== this.depth) {
+            $pos = this.resolvedPos.doc.resolve(this.from - 3);
+        }
+        return new NodePos($pos, this.editor);
+    }
+    get after() {
+        let $pos = this.resolvedPos.doc.resolve(this.to + 2);
+        if ($pos.depth !== this.depth) {
+            $pos = this.resolvedPos.doc.resolve(this.to + 3);
+        }
+        return new NodePos($pos, this.editor);
+    }
+    get children() {
+        const children = [];
+        this.node.content.forEach((node, offset) => {
+            const targetPos = this.pos + offset + 1;
+            const $pos = this.resolvedPos.doc.resolve(targetPos);
+            if ($pos.depth === this.depth) {
+                return;
+            }
+            children.push(new NodePos($pos, this.editor));
+        });
+        return children;
+    }
+    get firstChild() {
+        return this.children[0] || null;
+    }
+    get lastChild() {
+        const children = this.children;
+        return children[children.length - 1] || null;
+    }
+    closest(selector, attributes = {}) {
+        let node = null;
+        let currentNode = this.parent;
+        while (currentNode && !node) {
+            if (currentNode.node.type.name === selector) {
+                if (Object.keys(attributes).length > 0) {
+                    const nodeAttributes = currentNode.node.attrs;
+                    const attrKeys = Object.keys(attributes);
+                    for (let index = 0; index < attrKeys.length; index += 1) {
+                        const key = attrKeys[index];
+                        if (nodeAttributes[key] !== attributes[key]) {
+                            break;
+                        }
+                    }
+                }
+                else {
+                    node = currentNode;
+                }
+            }
+            currentNode = currentNode.parent;
+        }
+        return node;
+    }
+    querySelector(selector, attributes = {}) {
+        return this.querySelectorAll(selector, attributes, true)[0] || null;
+    }
+    querySelectorAll(selector, attributes = {}, firstItemOnly = false) {
+        let nodes = [];
+        // iterate through children recursively finding all nodes which match the selector with the node name
+        if (!this.children || this.children.length === 0) {
+            return nodes;
+        }
+        this.children.forEach(node => {
+            if (node.node.type.name === selector) {
+                if (Object.keys(attributes).length > 0) {
+                    const nodeAttributes = node.node.attrs;
+                    const attrKeys = Object.keys(attributes);
+                    for (let index = 0; index < attrKeys.length; index += 1) {
+                        const key = attrKeys[index];
+                        if (nodeAttributes[key] !== attributes[key]) {
+                            return;
+                        }
+                    }
+                }
+                nodes.push(node);
+                if (firstItemOnly) {
+                    return;
+                }
+            }
+            nodes = nodes.concat(node.querySelectorAll(selector));
+        });
+        return nodes;
+    }
+    setAttribute(attributes) {
+        const oldSelection = this.editor.state.selection;
+        this.editor.chain().setTextSelection(this.from).updateAttributes(this.node.type.name, attributes).setTextSelection(oldSelection.from)
+            .run();
+    }
+}
 
 const style = `.ProseMirror {
   position: relative;
@@ -3773,6 +3944,21 @@ class Editor extends EventEmitter {
         // @ts-ignore
         return !((_a = this.view) === null || _a === void 0 ? void 0 : _a.docView);
     }
+    $node(selector, attributes) {
+        var _a;
+        return ((_a = this.$doc) === null || _a === void 0 ? void 0 : _a.querySelector(selector, attributes)) || null;
+    }
+    $nodes(selector, attributes) {
+        var _a;
+        return ((_a = this.$doc) === null || _a === void 0 ? void 0 : _a.querySelectorAll(selector, attributes)) || null;
+    }
+    $pos(pos) {
+        const $pos = this.state.doc.resolve(pos);
+        return new NodePos($pos, this);
+    }
+    get $doc() {
+        return this.$pos(0);
+    }
 }
 
 /**
@@ -3969,7 +4155,7 @@ class Mark {
             ...config,
         };
         this.name = this.config.name;
-        if (config.defaultOptions) {
+        if (config.defaultOptions && Object.keys(config.defaultOptions).length > 0) {
             console.warn(`[tiptap warn]: BREAKING CHANGE: "defaultOptions" is deprecated. Please use "addOptions" instead. Found in extension: "${this.name}".`);
         }
         // TODO: remove `addOptions` fallback
@@ -3999,7 +4185,7 @@ class Mark {
         return extension;
     }
     extend(extendedConfig = {}) {
-        const extension = new Mark(extendedConfig);
+        const extension = new Mark({ ...this.config, ...extendedConfig });
         extension.parent = this;
         this.child = extension;
         extension.name = extendedConfig.name ? extendedConfig.name : extension.parent.name;
@@ -4052,7 +4238,7 @@ class Node {
             ...config,
         };
         this.name = this.config.name;
-        if (config.defaultOptions) {
+        if (config.defaultOptions && Object.keys(config.defaultOptions).length > 0) {
             console.warn(`[tiptap warn]: BREAKING CHANGE: "defaultOptions" is deprecated. Please use "addOptions" instead. Found in extension: "${this.name}".`);
         }
         // TODO: remove `addOptions` fallback
@@ -4082,7 +4268,7 @@ class Node {
         return extension;
     }
     extend(extendedConfig = {}) {
-        const extension = new Node(extendedConfig);
+        const extension = new Node({ ...this.config, ...extendedConfig });
         extension.parent = this;
         this.child = extension;
         extension.name = extendedConfig.name ? extendedConfig.name : extension.parent.name;
@@ -4421,6 +4607,7 @@ exports.Extension = Extension;
 exports.InputRule = InputRule;
 exports.Mark = Mark;
 exports.Node = Node;
+exports.NodePos = NodePos;
 exports.NodeView = NodeView;
 exports.PasteRule = PasteRule;
 exports.Tracker = Tracker;
@@ -5429,11 +5616,8 @@ const History = core.Extension.create({
     addKeyboardShortcuts() {
         return {
             'Mod-z': () => this.editor.commands.undo(),
-            'Mod-Z': () => this.editor.commands.undo(),
-            'Mod-y': () => this.editor.commands.redo(),
-            'Mod-Y': () => this.editor.commands.redo(),
             'Shift-Mod-z': () => this.editor.commands.redo(),
-            'Shift-Mod-Z': () => this.editor.commands.redo(),
+            'Mod-y': () => this.editor.commands.redo(),
             // Russian keyboard layouts
             'Mod-я': () => this.editor.commands.undo(),
             'Shift-Mod-я': () => this.editor.commands.redo(),
@@ -8221,94 +8405,51 @@ exports.keymap = keymap;
 'use strict';
 
 function _slicedToArray(arr, i) { return _arrayWithHoles(arr) || _iterableToArrayLimit(arr, i) || _unsupportedIterableToArray(arr, i) || _nonIterableRest(); }
-
 function _nonIterableRest() { throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
-
 function _unsupportedIterableToArray(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen); }
-
-function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) { arr2[i] = arr[i]; } return arr2; }
-
-function _iterableToArrayLimit(arr, i) { var _i = arr == null ? null : typeof Symbol !== "undefined" && arr[Symbol.iterator] || arr["@@iterator"]; if (_i == null) return; var _arr = []; var _n = true; var _d = false; var _s, _e; try { for (_i = _i.call(arr); !(_n = (_s = _i.next()).done); _n = true) { _arr.push(_s.value); if (i && _arr.length === i) break; } } catch (err) { _d = true; _e = err; } finally { try { if (!_n && _i["return"] != null) _i["return"](); } finally { if (_d) throw _e; } } return _arr; }
-
+function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i]; return arr2; }
+function _iterableToArrayLimit(r, l) { var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"]; if (null != t) { var e, n, i, u, a = [], f = !0, o = !1; try { if (i = (t = t.call(r)).next, 0 === l) { if (Object(t) !== t) return; f = !1; } else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = !0); } catch (r) { o = !0, n = r; } finally { try { if (!f && null != t["return"] && (u = t["return"](), Object(u) !== u)) return; } finally { if (o) throw n; } } return a; } }
 function _arrayWithHoles(arr) { if (Array.isArray(arr)) return arr; }
-
-function _get() { if (typeof Reflect !== "undefined" && Reflect.get) { _get = Reflect.get; } else { _get = function _get(target, property, receiver) { var base = _superPropBase(target, property); if (!base) return; var desc = Object.getOwnPropertyDescriptor(base, property); if (desc.get) { return desc.get.call(arguments.length < 3 ? target : receiver); } return desc.value; }; } return _get.apply(this, arguments); }
-
+function _get() { if (typeof Reflect !== "undefined" && Reflect.get) { _get = Reflect.get.bind(); } else { _get = function _get(target, property, receiver) { var base = _superPropBase(target, property); if (!base) return; var desc = Object.getOwnPropertyDescriptor(base, property); if (desc.get) { return desc.get.call(arguments.length < 3 ? target : receiver); } return desc.value; }; } return _get.apply(this, arguments); }
 function _superPropBase(object, property) { while (!Object.prototype.hasOwnProperty.call(object, property)) { object = _getPrototypeOf(object); if (object === null) break; } return object; }
-
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function"); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, writable: true, configurable: true } }); Object.defineProperty(subClass, "prototype", { writable: false }); if (superClass) _setPrototypeOf(subClass, superClass); }
-
 function _createSuper(Derived) { var hasNativeReflectConstruct = _isNativeReflectConstruct(); return function _createSuperInternal() { var Super = _getPrototypeOf(Derived), result; if (hasNativeReflectConstruct) { var NewTarget = _getPrototypeOf(this).constructor; result = Reflect.construct(Super, arguments, NewTarget); } else { result = Super.apply(this, arguments); } return _possibleConstructorReturn(this, result); }; }
-
 function _possibleConstructorReturn(self, call) { if (call && (_typeof(call) === "object" || typeof call === "function")) { return call; } else if (call !== void 0) { throw new TypeError("Derived constructors may only return object or undefined"); } return _assertThisInitialized(self); }
-
 function _assertThisInitialized(self) { if (self === void 0) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return self; }
-
 function _wrapNativeSuper(Class) { var _cache = typeof Map === "function" ? new Map() : undefined; _wrapNativeSuper = function _wrapNativeSuper(Class) { if (Class === null || !_isNativeFunction(Class)) return Class; if (typeof Class !== "function") { throw new TypeError("Super expression must either be null or a function"); } if (typeof _cache !== "undefined") { if (_cache.has(Class)) return _cache.get(Class); _cache.set(Class, Wrapper); } function Wrapper() { return _construct(Class, arguments, _getPrototypeOf(this).constructor); } Wrapper.prototype = Object.create(Class.prototype, { constructor: { value: Wrapper, enumerable: false, writable: true, configurable: true } }); return _setPrototypeOf(Wrapper, Class); }; return _wrapNativeSuper(Class); }
-
-function _construct(Parent, args, Class) { if (_isNativeReflectConstruct()) { _construct = Reflect.construct; } else { _construct = function _construct(Parent, args, Class) { var a = [null]; a.push.apply(a, args); var Constructor = Function.bind.apply(Parent, a); var instance = new Constructor(); if (Class) _setPrototypeOf(instance, Class.prototype); return instance; }; } return _construct.apply(null, arguments); }
-
+function _construct(Parent, args, Class) { if (_isNativeReflectConstruct()) { _construct = Reflect.construct.bind(); } else { _construct = function _construct(Parent, args, Class) { var a = [null]; a.push.apply(a, args); var Constructor = Function.bind.apply(Parent, a); var instance = new Constructor(); if (Class) _setPrototypeOf(instance, Class.prototype); return instance; }; } return _construct.apply(null, arguments); }
 function _isNativeReflectConstruct() { if (typeof Reflect === "undefined" || !Reflect.construct) return false; if (Reflect.construct.sham) return false; if (typeof Proxy === "function") return true; try { Boolean.prototype.valueOf.call(Reflect.construct(Boolean, [], function () {})); return true; } catch (e) { return false; } }
-
-function _isNativeFunction(fn) { return Function.toString.call(fn).indexOf("[native code]") !== -1; }
-
-function _setPrototypeOf(o, p) { _setPrototypeOf = Object.setPrototypeOf || function _setPrototypeOf(o, p) { o.__proto__ = p; return o; }; return _setPrototypeOf(o, p); }
-
-function _getPrototypeOf(o) { _getPrototypeOf = Object.setPrototypeOf ? Object.getPrototypeOf : function _getPrototypeOf(o) { return o.__proto__ || Object.getPrototypeOf(o); }; return _getPrototypeOf(o); }
-
+function _isNativeFunction(fn) { try { return Function.toString.call(fn).indexOf("[native code]") !== -1; } catch (e) { return typeof fn === "function"; } }
+function _setPrototypeOf(o, p) { _setPrototypeOf = Object.setPrototypeOf ? Object.setPrototypeOf.bind() : function _setPrototypeOf(o, p) { o.__proto__ = p; return o; }; return _setPrototypeOf(o, p); }
+function _getPrototypeOf(o) { _getPrototypeOf = Object.setPrototypeOf ? Object.getPrototypeOf.bind() : function _getPrototypeOf(o) { return o.__proto__ || Object.getPrototypeOf(o); }; return _getPrototypeOf(o); }
+function _typeof(o) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) { return typeof o; } : function (o) { return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o; }, _typeof(o); }
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } }
-
+function _defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, _toPropertyKey(descriptor.key), descriptor); } }
 function _createClass(Constructor, protoProps, staticProps) { if (protoProps) _defineProperties(Constructor.prototype, protoProps); if (staticProps) _defineProperties(Constructor, staticProps); Object.defineProperty(Constructor, "prototype", { writable: false }); return Constructor; }
-
-function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
-
-Object.defineProperty(exports, '__esModule', {
-  value: true
-});
-
+function _toPropertyKey(arg) { var key = _toPrimitive(arg, "string"); return _typeof(key) === "symbol" ? key : String(key); }
+function _toPrimitive(input, hint) { if (_typeof(input) !== "object" || input === null) return input; var prim = input[Symbol.toPrimitive]; if (prim !== undefined) { var res = prim.call(input, hint || "default"); if (_typeof(res) !== "object") return res; throw new TypeError("@@toPrimitive must return a primitive value."); } return (hint === "string" ? String : Number)(input); }
 var OrderedMap = require('orderedmap');
-
-function _interopDefaultLegacy(e) {
-  return e && _typeof(e) === 'object' && 'default' in e ? e : {
-    'default': e
-  };
-}
-
-var OrderedMap__default = _interopDefaultLegacy(OrderedMap);
-
 function _findDiffStart(a, b, pos) {
   for (var i = 0;; i++) {
     if (i == a.childCount || i == b.childCount) return a.childCount == b.childCount ? null : pos;
     var childA = a.child(i),
-        childB = b.child(i);
-
+      childB = b.child(i);
     if (childA == childB) {
       pos += childA.nodeSize;
       continue;
     }
-
     if (!childA.sameMarkup(childB)) return pos;
-
     if (childA.isText && childA.text != childB.text) {
-      for (var j = 0; childA.text[j] == childB.text[j]; j++) {
-        pos++;
-      }
-
+      for (var j = 0; childA.text[j] == childB.text[j]; j++) pos++;
       return pos;
     }
-
     if (childA.content.size || childB.content.size) {
       var inner = _findDiffStart(childA.content, childB.content, pos + 1);
-
       if (inner != null) return inner;
     }
-
     pos += childA.nodeSize;
   }
 }
-
 function _findDiffEnd(a, b, posA, posB) {
   for (var iA = a.childCount, iB = b.childCount;;) {
     if (iA == 0 || iB == 0) return iA == iB ? null : {
@@ -8316,73 +8457,57 @@ function _findDiffEnd(a, b, posA, posB) {
       b: posB
     };
     var childA = a.child(--iA),
-        childB = b.child(--iB),
-        size = childA.nodeSize;
-
+      childB = b.child(--iB),
+      size = childA.nodeSize;
     if (childA == childB) {
       posA -= size;
       posB -= size;
       continue;
     }
-
     if (!childA.sameMarkup(childB)) return {
       a: posA,
       b: posB
     };
-
     if (childA.isText && childA.text != childB.text) {
       var same = 0,
-          minSize = Math.min(childA.text.length, childB.text.length);
-
+        minSize = Math.min(childA.text.length, childB.text.length);
       while (same < minSize && childA.text[childA.text.length - same - 1] == childB.text[childB.text.length - same - 1]) {
         same++;
         posA--;
         posB--;
       }
-
       return {
         a: posA,
         b: posB
       };
     }
-
     if (childA.content.size || childB.content.size) {
       var inner = _findDiffEnd(childA.content, childB.content, posA - 1, posB - 1);
-
       if (inner) return inner;
     }
-
     posA -= size;
     posB -= size;
   }
 }
-
 var Fragment = function () {
   function Fragment(content, size) {
     _classCallCheck(this, Fragment);
-
     this.content = content;
     this.size = size || 0;
-    if (size == null) for (var i = 0; i < content.length; i++) {
-      this.size += content[i].nodeSize;
-    }
+    if (size == null) for (var i = 0; i < content.length; i++) this.size += content[i].nodeSize;
   }
-
   _createClass(Fragment, [{
     key: "nodesBetween",
     value: function nodesBetween(from, to, f) {
       var nodeStart = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : 0;
       var parent = arguments.length > 4 ? arguments[4] : undefined;
-
       for (var i = 0, pos = 0; pos < to; i++) {
         var child = this.content[i],
-            end = pos + child.nodeSize;
-
+          end = pos + child.nodeSize;
         if (end > from && f(child, nodeStart + pos, parent || null, i) !== false && child.content.size) {
           var start = pos + 1;
           child.nodesBetween(Math.max(0, from - start), Math.min(child.content.size, to - start), f, nodeStart + start);
         }
-
         pos = end;
       }
     }
@@ -8395,23 +8520,13 @@ var Fragment = function () {
     key: "textBetween",
     value: function textBetween(from, to, blockSeparator, leafText) {
       var text = "",
-          separated = true;
+        first = true;
       this.nodesBetween(from, to, function (node, pos) {
-        if (node.isText) {
-          text += node.text.slice(Math.max(from, pos) - pos, to - pos);
-          separated = !blockSeparator;
-        } else if (node.isLeaf) {
-          if (leafText) {
-            text += typeof leafText === "function" ? leafText(node) : leafText;
-          } else if (node.type.spec.leafText) {
-            text += node.type.spec.leafText(node);
-          }
-
-          separated = !blockSeparator;
-        } else if (!separated && node.isBlock) {
-          text += blockSeparator;
-          separated = true;
+        var nodeText = node.isText ? node.text.slice(Math.max(from, pos) - pos, to - pos) : !node.isLeaf ? "" : leafText ? typeof leafText === "function" ? leafText(node) : leafText : node.type.spec.leafText ? node.type.spec.leafText(node) : "";
+        if (node.isBlock && (node.isLeaf && nodeText || node.isTextblock) && blockSeparator) {
+          if (first) first = false;else text += blockSeparator;
         }
+        text += nodeText;
       }, 0);
       return text;
     }
@@ -8421,19 +8536,14 @@ var Fragment = function () {
       if (!other.size) return this;
       if (!this.size) return other;
       var last = this.lastChild,
-          first = other.firstChild,
-          content = this.content.slice(),
-          i = 0;
-
+        first = other.firstChild,
+        content = this.content.slice(),
+        i = 0;
       if (last.isText && last.sameMarkup(first)) {
         content[content.length - 1] = last.withText(last.text + first.text);
         i = 1;
       }
-
-      for (; i < other.content.length; i++) {
-        content.push(other.content[i]);
-      }
-
+      for (; i < other.content.length; i++) content.push(other.content[i]);
       return new Fragment(content, this.size + other.size);
     }
   }, {
@@ -8442,20 +8552,17 @@ var Fragment = function () {
       var to = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : this.size;
       if (from == 0 && to == this.size) return this;
       var result = [],
-          size = 0;
+        size = 0;
       if (to > from) for (var i = 0, pos = 0; pos < to; i++) {
         var child = this.content[i],
-            end = pos + child.nodeSize;
-
+          end = pos + child.nodeSize;
         if (end > from) {
           if (pos < from || end > to) {
             if (child.isText) child = child.cut(Math.max(0, from - pos), Math.min(child.text.length, to - pos));else child = child.cut(Math.max(0, from - pos - 1), Math.min(child.content.size, to - pos - 1));
           }
-
           result.push(child);
           size += child.nodeSize;
         }
-
         pos = end;
       }
       return new Fragment(result, size);
@@ -8491,11 +8598,7 @@ var Fragment = function () {
     key: "eq",
     value: function eq(other) {
       if (this.content.length != other.content.length) return false;
-
-      for (var i = 0; i < this.content.length; i++) {
-        if (!this.content[i].eq(other.content[i])) return false;
-      }
-
+      for (var i = 0; i < this.content.length; i++) if (!this.content[i].eq(other.content[i])) return false;
       return true;
     }
   }, {
@@ -8554,16 +8657,13 @@ var Fragment = function () {
       if (pos == 0) return retIndex(0, pos);
       if (pos == this.size) return retIndex(this.content.length, pos);
       if (pos > this.size || pos < 0) throw new RangeError("Position ".concat(pos, " outside of fragment (").concat(this, ")"));
-
       for (var i = 0, curPos = 0;; i++) {
         var cur = this.child(i),
-            end = curPos + cur.nodeSize;
-
+          end = curPos + cur.nodeSize;
         if (end >= pos) {
           if (end == pos || round > 0) return retIndex(i + 1, end);
           return retIndex(i, curPos);
         }
-
         curPos = end;
       }
     }
@@ -8596,12 +8696,10 @@ var Fragment = function () {
     value: function fromArray(array) {
       if (!array.length) return Fragment.empty;
       var joined,
-          size = 0;
-
+        size = 0;
       for (var i = 0; i < array.length; i++) {
         var node = array[i];
         size += node.nodeSize;
-
         if (i && node.isText && array[i - 1].sameMarkup(node)) {
           if (!joined) joined = array.slice(0, i);
           joined[joined.length - 1] = node.withText(joined[joined.length - 1].text + node.text);
@@ -8609,7 +8707,6 @@ var Fragment = function () {
           joined.push(node);
         }
       }
-
       return new Fragment(joined || array, size);
     }
   }, {
@@ -8622,65 +8719,46 @@ var Fragment = function () {
       throw new RangeError("Can not convert " + nodes + " to a Fragment" + (nodes.nodesBetween ? " (looks like multiple versions of prosemirror-model were loaded)" : ""));
     }
   }]);
-
   return Fragment;
 }();
-
 Fragment.empty = new Fragment([], 0);
 var found = {
   index: 0,
   offset: 0
 };
-
 function retIndex(index, offset) {
   found.index = index;
   found.offset = offset;
   return found;
 }
-
 function compareDeep(a, b) {
   if (a === b) return true;
   if (!(a && _typeof(a) == "object") || !(b && _typeof(b) == "object")) return false;
   var array = Array.isArray(a);
   if (Array.isArray(b) != array) return false;
-
   if (array) {
     if (a.length != b.length) return false;
-
-    for (var i = 0; i < a.length; i++) {
-      if (!compareDeep(a[i], b[i])) return false;
-    }
+    for (var i = 0; i < a.length; i++) if (!compareDeep(a[i], b[i])) return false;
   } else {
-    for (var p in a) {
-      if (!(p in b) || !compareDeep(a[p], b[p])) return false;
-    }
-
-    for (var _p in b) {
-      if (!(_p in a)) return false;
-    }
+    for (var p in a) if (!(p in b) || !compareDeep(a[p], b[p])) return false;
+    for (var _p in b) if (!(_p in a)) return false;
   }
-
   return true;
 }
-
 var Mark = function () {
   function Mark(type, attrs) {
     _classCallCheck(this, Mark);
-
     this.type = type;
     this.attrs = attrs;
   }
-
   _createClass(Mark, [{
     key: "addToSet",
     value: function addToSet(set) {
       var copy,
-          placed = false;
-
+        placed = false;
       for (var i = 0; i < set.length; i++) {
         var other = set[i];
         if (this.eq(other)) return set;
-
         if (this.type.excludes(other.type)) {
           if (!copy) copy = set.slice(0, i);
         } else if (other.type.excludes(this.type)) {
@@ -8691,11 +8769,9 @@ var Mark = function () {
             copy.push(this);
             placed = true;
           }
-
           if (copy) copy.push(other);
         }
       }
-
       if (!copy) copy = set.slice();
       if (!placed) copy.push(this);
       return copy;
@@ -8703,19 +8779,13 @@ var Mark = function () {
   }, {
     key: "removeFromSet",
     value: function removeFromSet(set) {
-      for (var i = 0; i < set.length; i++) {
-        if (this.eq(set[i])) return set.slice(0, i).concat(set.slice(i + 1));
-      }
-
+      for (var i = 0; i < set.length; i++) if (this.eq(set[i])) return set.slice(0, i).concat(set.slice(i + 1));
       return set;
     }
   }, {
     key: "isInSet",
     value: function isInSet(set) {
-      for (var i = 0; i < set.length; i++) {
-        if (this.eq(set[i])) return true;
-      }
-
+      for (var i = 0; i < set.length; i++) if (this.eq(set[i])) return true;
       return false;
     }
   }, {
@@ -8729,12 +8799,10 @@ var Mark = function () {
       var obj = {
         type: this.type.name
       };
-
       for (var _ in this.attrs) {
         obj.attrs = this.attrs;
         break;
       }
-
       return obj;
     }
   }], [{
@@ -8750,11 +8818,7 @@ var Mark = function () {
     value: function sameSet(a, b) {
       if (a == b) return true;
       if (a.length != b.length) return false;
-
-      for (var i = 0; i < a.length; i++) {
-        if (!a[i].eq(b[i])) return false;
-      }
-
+      for (var i = 0; i < a.length; i++) if (!a[i].eq(b[i])) return false;
       return true;
     }
   }, {
@@ -8769,35 +8833,25 @@ var Mark = function () {
       return copy;
     }
   }]);
-
   return Mark;
 }();
-
 Mark.none = [];
-
 var ReplaceError = function (_Error) {
   _inherits(ReplaceError, _Error);
-
   var _super = _createSuper(ReplaceError);
-
   function ReplaceError() {
     _classCallCheck(this, ReplaceError);
-
     return _super.apply(this, arguments);
   }
-
   return _createClass(ReplaceError);
 }(_wrapNativeSuper(Error));
-
 var Slice = function () {
   function Slice(content, openStart, openEnd) {
     _classCallCheck(this, Slice);
-
     this.content = content;
     this.openStart = openStart;
     this.openEnd = openEnd;
   }
-
   _createClass(Slice, [{
     key: "size",
     get: function get() {
@@ -8840,7 +8894,7 @@ var Slice = function () {
     value: function fromJSON(schema, json) {
       if (!json) return Slice.empty;
       var openStart = json.openStart || 0,
-          openEnd = json.openEnd || 0;
+        openEnd = json.openEnd || 0;
       if (typeof openStart != "number" || typeof openEnd != "number") throw new RangeError("Invalid input for Slice.fromJSON");
       return new Slice(Fragment.fromJSON(schema, json.content), openStart, openEnd);
     }
@@ -8849,69 +8903,50 @@ var Slice = function () {
     value: function maxOpen(fragment) {
       var openIsolating = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : true;
       var openStart = 0,
-          openEnd = 0;
-
-      for (var n = fragment.firstChild; n && !n.isLeaf && (openIsolating || !n.type.spec.isolating); n = n.firstChild) {
-        openStart++;
-      }
-
-      for (var _n = fragment.lastChild; _n && !_n.isLeaf && (openIsolating || !_n.type.spec.isolating); _n = _n.lastChild) {
-        openEnd++;
-      }
-
+        openEnd = 0;
+      for (var n = fragment.firstChild; n && !n.isLeaf && (openIsolating || !n.type.spec.isolating); n = n.firstChild) openStart++;
+      for (var _n = fragment.lastChild; _n && !_n.isLeaf && (openIsolating || !_n.type.spec.isolating); _n = _n.lastChild) openEnd++;
       return new Slice(fragment, openStart, openEnd);
     }
   }]);
-
   return Slice;
 }();
-
 Slice.empty = new Slice(Fragment.empty, 0, 0);
-
 function removeRange(content, from, to) {
   var _content$findIndex = content.findIndex(from),
-      index = _content$findIndex.index,
-      offset = _content$findIndex.offset,
-      child = content.maybeChild(index);
-
+    index = _content$findIndex.index,
+    offset = _content$findIndex.offset,
+    child = content.maybeChild(index);
   var _content$findIndex2 = content.findIndex(to),
-      indexTo = _content$findIndex2.index,
-      offsetTo = _content$findIndex2.offset;
-
+    indexTo = _content$findIndex2.index,
+    offsetTo = _content$findIndex2.offset;
   if (offset == from || child.isText) {
     if (offsetTo != to && !content.child(indexTo).isText) throw new RangeError("Removing non-flat range");
     return content.cut(0, from).append(content.cut(to));
   }
-
   if (index != indexTo) throw new RangeError("Removing non-flat range");
   return content.replaceChild(index, child.copy(removeRange(child.content, from - offset - 1, to - offset - 1)));
 }
-
 function insertInto(content, dist, insert, parent) {
   var _content$findIndex3 = content.findIndex(dist),
-      index = _content$findIndex3.index,
-      offset = _content$findIndex3.offset,
-      child = content.maybeChild(index);
-
+    index = _content$findIndex3.index,
+    offset = _content$findIndex3.offset,
+    child = content.maybeChild(index);
   if (offset == dist || child.isText) {
     if (parent && !parent.canReplace(index, index, insert)) return null;
     return content.cut(0, dist).append(insert).append(content.cut(dist));
   }
-
   var inner = insertInto(child.content, dist - offset - 1, insert);
   return inner && content.replaceChild(index, child.copy(inner));
 }
-
 function _replace($from, $to, slice) {
   if (slice.openStart > $from.depth) throw new ReplaceError("Inserted content deeper than insertion position");
   if ($from.depth - slice.openStart != $to.depth - slice.openEnd) throw new ReplaceError("Inconsistent open depths");
   return replaceOuter($from, $to, slice, 0);
 }
-
 function replaceOuter($from, $to, slice, depth) {
   var index = $from.index(depth),
-      node = $from.node(depth);
-
+    node = $from.node(depth);
   if (index == $to.index(depth) && depth < $from.depth - slice.openStart) {
     var inner = replaceOuter($from, $to, slice, depth + 1);
     return node.copy(node.content.replaceChild(index, inner));
@@ -8919,40 +8954,33 @@ function replaceOuter($from, $to, slice, depth) {
     return close(node, replaceTwoWay($from, $to, depth));
   } else if (!slice.openStart && !slice.openEnd && $from.depth == depth && $to.depth == depth) {
     var parent = $from.parent,
-        content = parent.content;
+      content = parent.content;
     return close(parent, content.cut(0, $from.parentOffset).append(slice.content).append(content.cut($to.parentOffset)));
   } else {
     var _prepareSliceForRepla = prepareSliceForReplace(slice, $from),
-        start = _prepareSliceForRepla.start,
-        end = _prepareSliceForRepla.end;
-
+      start = _prepareSliceForRepla.start,
+      end = _prepareSliceForRepla.end;
     return close(node, replaceThreeWay($from, start, end, $to, depth));
   }
 }
-
 function checkJoin(main, sub) {
   if (!sub.type.compatibleContent(main.type)) throw new ReplaceError("Cannot join " + sub.type.name + " onto " + main.type.name);
 }
-
 function joinable($before, $after, depth) {
   var node = $before.node(depth);
   checkJoin(node, $after.node(depth));
   return node;
 }
-
 function addNode(child, target) {
   var last = target.length - 1;
   if (last >= 0 && child.isText && child.sameMarkup(target[last])) target[last] = child.withText(target[last].text + child.text);else target.push(child);
 }
-
 function addRange($start, $end, depth, target) {
   var node = ($end || $start).node(depth);
   var startIndex = 0,
-      endIndex = $end ? $end.index(depth) : node.childCount;
-
+    endIndex = $end ? $end.index(depth) : node.childCount;
   if ($start) {
     startIndex = $start.index(depth);
-
     if ($start.depth > depth) {
       startIndex++;
     } else if ($start.textOffset) {
@@ -8960,25 +8988,18 @@ function addRange($start, $end, depth, target) {
       startIndex++;
     }
   }
-
-  for (var i = startIndex; i < endIndex; i++) {
-    addNode(node.child(i), target);
-  }
-
+  for (var i = startIndex; i < endIndex; i++) addNode(node.child(i), target);
   if ($end && $end.depth == depth && $end.textOffset) addNode($end.nodeBefore, target);
 }
-
 function close(node, content) {
   node.type.checkContent(content);
   return node.copy(content);
 }
-
 function replaceThreeWay($from, $start, $end, $to, depth) {
   var openStart = $from.depth > depth && joinable($from, $start, depth + 1);
   var openEnd = $to.depth > depth && joinable($end, $to, depth + 1);
   var content = [];
   addRange(null, $from, depth, content);
-
   if (openStart && openEnd && $start.index(depth) == $end.index(depth)) {
     checkJoin(openStart, openEnd);
     addNode(close(openStart, replaceThreeWay($from, $start, $end, $to, depth + 1)), content);
@@ -8987,49 +9008,37 @@ function replaceThreeWay($from, $start, $end, $to, depth) {
     addRange($start, $end, depth, content);
     if (openEnd) addNode(close(openEnd, replaceTwoWay($end, $to, depth + 1)), content);
   }
-
   addRange($to, null, depth, content);
   return new Fragment(content);
 }
-
 function replaceTwoWay($from, $to, depth) {
   var content = [];
   addRange(null, $from, depth, content);
-
   if ($from.depth > depth) {
     var type = joinable($from, $to, depth + 1);
     addNode(close(type, replaceTwoWay($from, $to, depth + 1)), content);
   }
-
   addRange($to, null, depth, content);
   return new Fragment(content);
 }
-
 function prepareSliceForReplace(slice, $along) {
   var extra = $along.depth - slice.openStart,
-      parent = $along.node(extra);
+    parent = $along.node(extra);
   var node = parent.copy(slice.content);
-
-  for (var i = extra - 1; i >= 0; i--) {
-    node = $along.node(i).copy(Fragment.from(node));
-  }
-
+  for (var i = extra - 1; i >= 0; i--) node = $along.node(i).copy(Fragment.from(node));
   return {
     start: node.resolveNoCache(slice.openStart + extra),
     end: node.resolveNoCache(node.content.size - slice.openEnd - extra)
   };
 }
-
 var ResolvedPos = function () {
   function ResolvedPos(pos, path, parentOffset) {
     _classCallCheck(this, ResolvedPos);
-
     this.pos = pos;
     this.path = path;
     this.parentOffset = parentOffset;
     this.depth = path.length / 3 - 1;
   }
-
   _createClass(ResolvedPos, [{
     key: "resolveDepth",
     value: function resolveDepth(val) {
@@ -9098,10 +9107,10 @@ var ResolvedPos = function () {
     key: "nodeAfter",
     get: function get() {
       var parent = this.parent,
-          index = this.index(this.depth);
+        index = this.index(this.depth);
       if (index == parent.childCount) return null;
       var dOff = this.pos - this.path[this.path.length - 1],
-          child = parent.child(index);
+        child = parent.child(index);
       return dOff ? parent.child(index).cut(dOff) : child;
     }
   }, {
@@ -9117,36 +9126,26 @@ var ResolvedPos = function () {
     value: function posAtIndex(index, depth) {
       depth = this.resolveDepth(depth);
       var node = this.path[depth * 3],
-          pos = depth == 0 ? 0 : this.path[depth * 3 - 1] + 1;
-
-      for (var i = 0; i < index; i++) {
-        pos += node.child(i).nodeSize;
-      }
-
+        pos = depth == 0 ? 0 : this.path[depth * 3 - 1] + 1;
+      for (var i = 0; i < index; i++) pos += node.child(i).nodeSize;
       return pos;
     }
   }, {
     key: "marks",
     value: function marks() {
       var parent = this.parent,
-          index = this.index();
+        index = this.index();
       if (parent.content.size == 0) return Mark.none;
       if (this.textOffset) return parent.child(index).marks;
       var main = parent.maybeChild(index - 1),
-          other = parent.maybeChild(index);
-
+        other = parent.maybeChild(index);
       if (!main) {
         var tmp = main;
         main = other;
         other = tmp;
       }
-
       var marks = main.marks;
-
-      for (var i = 0; i < marks.length; i++) {
-        if (marks[i].type.spec.inclusive === false && (!other || !marks[i].isInSet(other.marks))) marks = marks[i--].removeFromSet(marks);
-      }
-
+      for (var i = 0; i < marks.length; i++) if (marks[i].type.spec.inclusive === false && (!other || !marks[i].isInSet(other.marks))) marks = marks[i--].removeFromSet(marks);
       return marks;
     }
   }, {
@@ -9155,21 +9154,14 @@ var ResolvedPos = function () {
       var after = this.parent.maybeChild(this.index());
       if (!after || !after.isInline) return null;
       var marks = after.marks,
-          next = $end.parent.maybeChild($end.index());
-
-      for (var i = 0; i < marks.length; i++) {
-        if (marks[i].type.spec.inclusive === false && (!next || !marks[i].isInSet(next.marks))) marks = marks[i--].removeFromSet(marks);
-      }
-
+        next = $end.parent.maybeChild($end.index());
+      for (var i = 0; i < marks.length; i++) if (marks[i].type.spec.inclusive === false && (!next || !marks[i].isInSet(next.marks))) marks = marks[i--].removeFromSet(marks);
       return marks;
     }
   }, {
     key: "sharedDepth",
     value: function sharedDepth(pos) {
-      for (var depth = this.depth; depth > 0; depth--) {
-        if (this.start(depth) <= pos && this.end(depth) >= pos) return depth;
-      }
-
+      for (var depth = this.depth; depth > 0; depth--) if (this.start(depth) <= pos && this.end(depth) >= pos) return depth;
       return 0;
     }
   }, {
@@ -9178,11 +9170,7 @@ var ResolvedPos = function () {
       var other = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : this;
       var pred = arguments.length > 1 ? arguments[1] : undefined;
       if (other.pos < this.pos) return other.blockRange(this);
-
-      for (var d = this.depth - (this.parent.inlineContent || this.pos == other.pos ? 1 : 0); d >= 0; d--) {
-        if (other.pos <= this.end(d) && (!pred || pred(this.node(d)))) return new NodeRange(this, other, d);
-      }
-
+      for (var d = this.depth - (this.parent.inlineContent || this.pos == other.pos ? 1 : 0); d >= 0; d--) if (other.pos <= this.end(d) && (!pred || pred(this.node(d)))) return new NodeRange(this, other, d);
       return null;
     }
   }, {
@@ -9204,11 +9192,7 @@ var ResolvedPos = function () {
     key: "toString",
     value: function toString() {
       var str = "";
-
-      for (var i = 1; i <= this.depth; i++) {
-        str += (str ? "/" : "") + this.node(i).type.name + "_" + this.index(i - 1);
-      }
-
+      for (var i = 1; i <= this.depth; i++) str += (str ? "/" : "") + this.node(i).type.name + "_" + this.index(i - 1);
       return str + ":" + this.parentOffset;
     }
   }], [{
@@ -9217,13 +9201,11 @@ var ResolvedPos = function () {
       if (!(pos >= 0 && pos <= doc.content.size)) throw new RangeError("Position " + pos + " out of range");
       var path = [];
       var start = 0,
-          parentOffset = pos;
-
+        parentOffset = pos;
       for (var node = doc;;) {
         var _node$content$findInd = node.content.findIndex(parentOffset),
-            index = _node$content$findInd.index,
-            offset = _node$content$findInd.offset;
-
+          index = _node$content$findInd.index,
+          offset = _node$content$findInd.offset;
         var rem = parentOffset - offset;
         path.push(node, index, start + offset);
         if (!rem) break;
@@ -9232,7 +9214,6 @@ var ResolvedPos = function () {
         parentOffset = rem - 1;
         start += offset + 1;
       }
-
       return new ResolvedPos(pos, path, parentOffset);
     }
   }, {
@@ -9242,29 +9223,23 @@ var ResolvedPos = function () {
         var cached = resolveCache[i];
         if (cached.pos == pos && cached.doc == doc) return cached;
       }
-
       var result = resolveCache[resolveCachePos] = ResolvedPos.resolve(doc, pos);
       resolveCachePos = (resolveCachePos + 1) % resolveCacheSize;
       return result;
     }
   }]);
-
   return ResolvedPos;
 }();
-
 var resolveCache = [],
-    resolveCachePos = 0,
-    resolveCacheSize = 12;
-
+  resolveCachePos = 0,
+  resolveCacheSize = 12;
 var NodeRange = function () {
   function NodeRange($from, $to, depth) {
     _classCallCheck(this, NodeRange);
-
     this.$from = $from;
     this.$to = $to;
     this.depth = depth;
   }
-
   _createClass(NodeRange, [{
     key: "start",
     get: function get() {
@@ -9291,24 +9266,18 @@ var NodeRange = function () {
       return this.$to.indexAfter(this.depth);
     }
   }]);
-
   return NodeRange;
 }();
-
 var emptyAttrs = Object.create(null);
-
 var Node = function () {
   function Node(type, attrs, content) {
     var marks = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : Mark.none;
-
     _classCallCheck(this, Node);
-
     this.type = type;
     this.attrs = attrs;
     this.marks = marks;
     this.content = content || Fragment.empty;
   }
-
   _createClass(Node, [{
     key: "nodeSize",
     get: function get() {
@@ -9406,10 +9375,10 @@ var Node = function () {
       var includeParents = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : false;
       if (from == to) return Slice.empty;
       var $from = this.resolve(from),
-          $to = this.resolve(to);
+        $to = this.resolve(to);
       var depth = includeParents ? 0 : $from.sharedDepth(to);
       var start = $from.start(depth),
-          node = $from.node(depth);
+        node = $from.node(depth);
       var content = node.content.cut($from.pos - start, $to.pos - start);
       return new Slice(content, $from.depth - depth, $to.depth - depth);
     }
@@ -9423,9 +9392,8 @@ var Node = function () {
     value: function nodeAt(pos) {
       for (var node = this;;) {
         var _node$content$findInd2 = node.content.findIndex(pos),
-            index = _node$content$findInd2.index,
-            offset = _node$content$findInd2.offset;
-
+          index = _node$content$findInd2.index,
+          offset = _node$content$findInd2.offset;
         node = node.maybeChild(index);
         if (!node) return null;
         if (offset == pos || node.isText) return node;
@@ -9436,9 +9404,8 @@ var Node = function () {
     key: "childAfter",
     value: function childAfter(pos) {
       var _this$content$findInd = this.content.findIndex(pos),
-          index = _this$content$findInd.index,
-          offset = _this$content$findInd.offset;
-
+        index = _this$content$findInd.index,
+        offset = _this$content$findInd.offset;
       return {
         node: this.content.maybeChild(index),
         index: index,
@@ -9453,11 +9420,9 @@ var Node = function () {
         index: 0,
         offset: 0
       };
-
       var _this$content$findInd2 = this.content.findIndex(pos),
-          index = _this$content$findInd2.index,
-          offset = _this$content$findInd2.offset;
-
+        index = _this$content$findInd2.index,
+        offset = _this$content$findInd2.offset;
       if (offset < pos) return {
         node: this.content.child(index),
         index: index,
@@ -9549,11 +9514,7 @@ var Node = function () {
       var one = this.contentMatchAt(from).matchFragment(replacement, start, end);
       var two = one && one.matchFragment(this.content, to);
       if (!two || !two.validEnd) return false;
-
-      for (var i = start; i < end; i++) {
-        if (!this.type.allowsMarks(replacement.child(i).marks)) return false;
-      }
-
+      for (var i = start; i < end; i++) if (!this.type.allowsMarks(replacement.child(i).marks)) return false;
       return true;
     }
   }, {
@@ -9574,11 +9535,7 @@ var Node = function () {
     value: function check() {
       this.type.checkContent(this.content);
       var copy = Mark.none;
-
-      for (var i = 0; i < this.marks.length; i++) {
-        copy = this.marks[i].addToSet(copy);
-      }
-
+      for (var i = 0; i < this.marks.length; i++) copy = this.marks[i].addToSet(copy);
       if (!Mark.sameSet(copy, this.marks)) throw new RangeError("Invalid collection of marks for node ".concat(this.type.name, ": ").concat(this.marks.map(function (m) {
         return m.type.name;
       })));
@@ -9592,12 +9549,10 @@ var Node = function () {
       var obj = {
         type: this.type.name
       };
-
       for (var _ in this.attrs) {
         obj.attrs = this.attrs;
         break;
       }
-
       if (this.content.size) obj.content = this.content.toJSON();
       if (this.marks.length) obj.marks = this.marks.map(function (n) {
         return n.toJSON();
@@ -9609,43 +9564,32 @@ var Node = function () {
     value: function fromJSON(schema, json) {
       if (!json) throw new RangeError("Invalid input for Node.fromJSON");
       var marks = null;
-
       if (json.marks) {
         if (!Array.isArray(json.marks)) throw new RangeError("Invalid mark data for Node.fromJSON");
         marks = json.marks.map(schema.markFromJSON);
       }
-
       if (json.type == "text") {
         if (typeof json.text != "string") throw new RangeError("Invalid text node in JSON");
         return schema.text(json.text, marks);
       }
-
       var content = Fragment.fromJSON(schema, json.content);
       return schema.nodeType(json.type).create(json.attrs, content, marks);
     }
   }]);
-
   return Node;
 }();
-
 Node.prototype.text = undefined;
-
 var TextNode = function (_Node) {
   _inherits(TextNode, _Node);
-
   var _super2 = _createSuper(TextNode);
-
   function TextNode(type, attrs, content, marks) {
     var _this;
-
     _classCallCheck(this, TextNode);
-
     _this = _super2.call(this, type, attrs, null, marks);
     if (!content) throw new RangeError("Empty text nodes are not allowed");
     _this.text = content;
     return _this;
   }
-
   _createClass(TextNode, [{
     key: "toString",
     value: function toString() {
@@ -9695,39 +9639,27 @@ var TextNode = function (_Node) {
     key: "toJSON",
     value: function toJSON() {
       var base = _get(_getPrototypeOf(TextNode.prototype), "toJSON", this).call(this);
-
       base.text = this.text;
       return base;
     }
   }]);
-
   return TextNode;
 }(Node);
-
 function wrapMarks(marks, str) {
-  for (var i = marks.length - 1; i >= 0; i--) {
-    str = marks[i].type.name + "(" + str + ")";
-  }
-
+  for (var i = marks.length - 1; i >= 0; i--) str = marks[i].type.name + "(" + str + ")";
   return str;
 }
-
 var ContentMatch = function () {
   function ContentMatch(validEnd) {
     _classCallCheck(this, ContentMatch);
-
     this.validEnd = validEnd;
     this.next = [];
     this.wrapCache = [];
   }
-
   _createClass(ContentMatch, [{
     key: "matchType",
     value: function matchType(type) {
-      for (var i = 0; i < this.next.length; i++) {
-        if (this.next[i].type == type) return this.next[i].next;
-      }
-
+      for (var i = 0; i < this.next.length; i++) if (this.next[i].type == type) return this.next[i].next;
       return null;
     }
   }, {
@@ -9736,11 +9668,7 @@ var ContentMatch = function () {
       var start = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 0;
       var end = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : frag.childCount;
       var cur = this;
-
-      for (var i = start; cur && i < end; i++) {
-        cur = cur.matchType(frag.child(i).type);
-      }
-
+      for (var i = start; cur && i < end; i++) cur = cur.matchType(frag.child(i).type);
       return cur;
     }
   }, {
@@ -9755,18 +9683,12 @@ var ContentMatch = function () {
         var type = this.next[i].type;
         if (!(type.isText || type.hasRequiredAttrs())) return type;
       }
-
       return null;
     }
   }, {
     key: "compatible",
     value: function compatible(other) {
-      for (var i = 0; i < this.next.length; i++) {
-        for (var j = 0; j < other.next.length; j++) {
-          if (this.next[i].type == other.next[j].type) return true;
-        }
-      }
-
+      for (var i = 0; i < this.next.length; i++) for (var j = 0; j < other.next.length; j++) if (this.next[i].type == other.next[j].type) return true;
       return false;
     }
   }, {
@@ -9775,39 +9697,29 @@ var ContentMatch = function () {
       var toEnd = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
       var startIndex = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : 0;
       var seen = [this];
-
       function search(match, types) {
         var finished = match.matchFragment(after, startIndex);
         if (finished && (!toEnd || finished.validEnd)) return Fragment.from(types.map(function (tp) {
           return tp.createAndFill();
         }));
-
         for (var i = 0; i < match.next.length; i++) {
           var _match$next$i = match.next[i],
-              type = _match$next$i.type,
-              next = _match$next$i.next;
-
+            type = _match$next$i.type,
+            next = _match$next$i.next;
           if (!(type.isText || type.hasRequiredAttrs()) && seen.indexOf(next) == -1) {
             seen.push(next);
-
             var _found = search(next, types.concat(type));
-
             if (_found) return _found;
           }
         }
-
         return null;
       }
-
       return search(this, []);
     }
   }, {
     key: "findWrapping",
     value: function findWrapping(target) {
-      for (var i = 0; i < this.wrapCache.length; i += 2) {
-        if (this.wrapCache[i] == target) return this.wrapCache[i + 1];
-      }
-
+      for (var i = 0; i < this.wrapCache.length; i += 2) if (this.wrapCache[i] == target) return this.wrapCache[i + 1];
       var computed = this.computeWrapping(target);
       this.wrapCache.push(target, computed);
       return computed;
@@ -9816,31 +9728,23 @@ var ContentMatch = function () {
     key: "computeWrapping",
     value: function computeWrapping(target) {
       var seen = Object.create(null),
-          active = [{
-        match: this,
-        type: null,
-        via: null
-      }];
-
+        active = [{
+          match: this,
+          type: null,
+          via: null
+        }];
       while (active.length) {
         var current = active.shift(),
-            match = current.match;
-
+          match = current.match;
         if (match.matchType(target)) {
           var result = [];
-
-          for (var obj = current; obj.type; obj = obj.via) {
-            result.push(obj.type);
-          }
-
+          for (var obj = current; obj.type; obj = obj.via) result.push(obj.type);
           return result.reverse();
         }
-
         for (var i = 0; i < match.next.length; i++) {
           var _match$next$i2 = match.next[i],
-              type = _match$next$i2.type,
-              next = _match$next$i2.next;
-
+            type = _match$next$i2.type,
+            next = _match$next$i2.next;
           if (!type.isLeaf && !type.hasRequiredAttrs() && !(type.name in seen) && (!current.type || next.validEnd)) {
             active.push({
               match: type.contentMatch,
@@ -9851,7 +9755,6 @@ var ContentMatch = function () {
           }
         }
       }
-
       return null;
     }
   }, {
@@ -9869,23 +9772,14 @@ var ContentMatch = function () {
     key: "toString",
     value: function toString() {
       var seen = [];
-
       function scan(m) {
         seen.push(m);
-
-        for (var i = 0; i < m.next.length; i++) {
-          if (seen.indexOf(m.next[i].next) == -1) scan(m.next[i].next);
-        }
+        for (var i = 0; i < m.next.length; i++) if (seen.indexOf(m.next[i].next) == -1) scan(m.next[i].next);
       }
-
       scan(this);
       return seen.map(function (m, i) {
         var out = i + (m.validEnd ? "*" : " ") + " ";
-
-        for (var _i = 0; _i < m.next.length; _i++) {
-          out += (_i ? ", " : "") + m.next[_i].type.name + "->" + seen.indexOf(m.next[_i].next);
-        }
-
+        for (var _i = 0; _i < m.next.length; _i++) out += (_i ? ", " : "") + m.next[_i].type.name + "->" + seen.indexOf(m.next[_i].next);
         return out;
       }).join("\n");
     }
@@ -9901,16 +9795,12 @@ var ContentMatch = function () {
       return match;
     }
   }]);
-
   return ContentMatch;
 }();
-
 ContentMatch.empty = new ContentMatch(true);
-
 var TokenStream = function () {
   function TokenStream(string, nodeTypes) {
     _classCallCheck(this, TokenStream);
-
     this.string = string;
     this.nodeTypes = nodeTypes;
     this.inline = null;
@@ -9919,7 +9809,6 @@ var TokenStream = function () {
     if (this.tokens[this.tokens.length - 1] == "") this.tokens.pop();
     if (this.tokens[0] == "") this.tokens.shift();
   }
-
   _createClass(TokenStream, [{
     key: "next",
     get: function get() {
@@ -9936,39 +9825,30 @@ var TokenStream = function () {
       throw new SyntaxError(str + " (in content expression '" + this.string + "')");
     }
   }]);
-
   return TokenStream;
 }();
-
 function parseExpr(stream) {
   var exprs = [];
-
   do {
     exprs.push(parseExprSeq(stream));
   } while (stream.eat("|"));
-
   return exprs.length == 1 ? exprs[0] : {
     type: "choice",
     exprs: exprs
   };
 }
-
 function parseExprSeq(stream) {
   var exprs = [];
-
   do {
     exprs.push(parseExprSubscript(stream));
   } while (stream.next && stream.next != ")" && stream.next != "|");
-
   return exprs.length == 1 ? exprs[0] : {
     type: "seq",
     exprs: exprs
   };
 }
-
 function parseExprSubscript(stream) {
   var expr = parseExprAtom(stream);
-
   for (;;) {
     if (stream.eat("+")) expr = {
       type: "plus",
@@ -9981,25 +9861,20 @@ function parseExprSubscript(stream) {
       expr: expr
     };else if (stream.eat("{")) expr = parseExprRange(stream, expr);else break;
   }
-
   return expr;
 }
-
 function parseNum(stream) {
   if (/\D/.test(stream.next)) stream.err("Expected number, got '" + stream.next + "'");
   var result = Number(stream.next);
   stream.pos++;
   return result;
 }
-
 function parseExprRange(stream, expr) {
   var min = parseNum(stream),
-      max = min;
-
+    max = min;
   if (stream.eat(",")) {
     if (stream.next != "}") max = parseNum(stream);else max = -1;
   }
-
   if (!stream.eat("}")) stream.err("Unclosed braced range");
   return {
     type: "range",
@@ -10008,22 +9883,18 @@ function parseExprRange(stream, expr) {
     expr: expr
   };
 }
-
 function resolveName(stream, name) {
   var types = stream.nodeTypes,
-      type = types[name];
+    type = types[name];
   if (type) return [type];
   var result = [];
-
   for (var typeName in types) {
     var _type = types[typeName];
     if (_type.groups.indexOf(name) > -1) result.push(_type);
   }
-
   if (result.length == 0) stream.err("No node type or group '" + name + "' found");
   return result;
 }
-
 function parseExprAtom(stream) {
   if (stream.eat("(")) {
     var expr = parseExpr(stream);
@@ -10046,16 +9917,13 @@ function parseExprAtom(stream) {
     stream.err("Unexpected token '" + stream.next + "'");
   }
 }
-
 function nfa(expr) {
   var nfa = [[]];
   connect(compile(expr, 0), node());
   return nfa;
-
   function node() {
     return nfa.push([]) - 1;
   }
-
   function edge(from, to, term) {
     var edge = {
       term: term,
@@ -10064,13 +9932,11 @@ function nfa(expr) {
     nfa[from].push(edge);
     return edge;
   }
-
   function connect(edges, to) {
     edges.forEach(function (edge) {
       return edge.to = to;
     });
   }
-
   function compile(expr, from) {
     if (expr.type == "choice") {
       return expr.exprs.reduce(function (out, expr) {
@@ -10089,7 +9955,6 @@ function nfa(expr) {
       return [edge(loop)];
     } else if (expr.type == "plus") {
       var _loop = node();
-
       connect(compile(expr.expr, from), _loop);
       connect(compile(expr.expr, _loop), _loop);
       return [edge(_loop)];
@@ -10097,26 +9962,21 @@ function nfa(expr) {
       return [edge(from)].concat(compile(expr.expr, from));
     } else if (expr.type == "range") {
       var cur = from;
-
       for (var _i2 = 0; _i2 < expr.min; _i2++) {
         var _next = node();
-
         connect(compile(expr.expr, cur), _next);
         cur = _next;
       }
-
       if (expr.max == -1) {
         connect(compile(expr.expr, cur), cur);
       } else {
         for (var _i3 = expr.min; _i3 < expr.max; _i3++) {
           var _next2 = node();
-
           edge(cur, _next2);
           connect(compile(expr.expr, cur), _next2);
           cur = _next2;
         }
       }
-
       return [edge(cur)];
     } else if (expr.type == "name") {
       return [edge(from, undefined, expr.value)];
@@ -10125,47 +9985,37 @@ function nfa(expr) {
     }
   }
 }
-
 function cmp(a, b) {
   return b - a;
 }
-
 function nullFrom(nfa, node) {
   var result = [];
   scan(node);
   return result.sort(cmp);
-
   function scan(node) {
     var edges = nfa[node];
     if (edges.length == 1 && !edges[0].term) return scan(edges[0].to);
     result.push(node);
-
     for (var i = 0; i < edges.length; i++) {
       var _edges$i = edges[i],
-          term = _edges$i.term,
-          to = _edges$i.to;
+        term = _edges$i.term,
+        to = _edges$i.to;
       if (!term && result.indexOf(to) == -1) scan(to);
     }
   }
 }
-
 function dfa(nfa) {
   var labeled = Object.create(null);
   return explore(nullFrom(nfa, 0));
-
   function explore(states) {
     var out = [];
     states.forEach(function (node) {
       nfa[node].forEach(function (_ref) {
         var term = _ref.term,
-            to = _ref.to;
+          to = _ref.to;
         if (!term) return;
         var set;
-
-        for (var i = 0; i < out.length; i++) {
-          if (out[i][0] == term) set = out[i][1];
-        }
-
+        for (var i = 0; i < out.length; i++) if (out[i][0] == term) set = out[i][1];
         nullFrom(nfa, to).forEach(function (node) {
           if (!set) out.push([term, set = []]);
           if (set.indexOf(node) == -1) set.push(node);
@@ -10173,80 +10023,61 @@ function dfa(nfa) {
       });
     });
     var state = labeled[states.join(",")] = new ContentMatch(states.indexOf(nfa.length - 1) > -1);
-
     for (var i = 0; i < out.length; i++) {
       var _states = out[i][1].sort(cmp);
-
       state.next.push({
         type: out[i][0],
         next: labeled[_states.join(",")] || explore(_states)
       });
     }
-
     return state;
   }
 }
-
 function checkForDeadEnds(match, stream) {
   for (var i = 0, work = [match]; i < work.length; i++) {
     var state = work[i],
-        dead = !state.validEnd,
-        nodes = [];
-
+      dead = !state.validEnd,
+      nodes = [];
     for (var j = 0; j < state.next.length; j++) {
       var _state$next$j = state.next[j],
-          type = _state$next$j.type,
-          next = _state$next$j.next;
+        type = _state$next$j.type,
+        next = _state$next$j.next;
       nodes.push(type.name);
       if (dead && !(type.isText || type.hasRequiredAttrs())) dead = false;
       if (work.indexOf(next) == -1) work.push(next);
     }
-
     if (dead) stream.err("Only non-generatable nodes (" + nodes.join(", ") + ") in a required position (see https://prosemirror.net/docs/guide/#generatable)");
   }
 }
-
 function defaultAttrs(attrs) {
   var defaults = Object.create(null);
-
   for (var attrName in attrs) {
     var attr = attrs[attrName];
     if (!attr.hasDefault) return null;
     defaults[attrName] = attr["default"];
   }
-
   return defaults;
 }
-
 function _computeAttrs(attrs, value) {
   var built = Object.create(null);
-
   for (var name in attrs) {
     var given = value && value[name];
-
     if (given === undefined) {
       var attr = attrs[name];
       if (attr.hasDefault) given = attr["default"];else throw new RangeError("No value supplied for attribute " + name);
     }
-
     built[name] = given;
   }
-
   return built;
 }
-
 function initAttrs(attrs) {
   var result = Object.create(null);
-  if (attrs) for (var name in attrs) {
-    result[name] = new Attribute(attrs[name]);
-  }
+  if (attrs) for (var name in attrs) result[name] = new Attribute(attrs[name]);
   return result;
 }
-
 var NodeType = function () {
   function NodeType(name, schema, spec) {
     _classCallCheck(this, NodeType);
-
     this.name = name;
     this.schema = schema;
     this.spec = spec;
@@ -10259,7 +10090,6 @@ var NodeType = function () {
     this.isBlock = !(spec.inline || name == "text");
     this.isText = name == "text";
   }
-
   _createClass(NodeType, [{
     key: "isInline",
     get: function get() {
@@ -10288,10 +10118,7 @@ var NodeType = function () {
   }, {
     key: "hasRequiredAttrs",
     value: function hasRequiredAttrs() {
-      for (var n in this.attrs) {
-        if (this.attrs[n].isRequired) return true;
-      }
-
+      for (var n in this.attrs) if (this.attrs[n].isRequired) return true;
       return false;
     }
   }, {
@@ -10331,13 +10158,11 @@ var NodeType = function () {
       var marks = arguments.length > 2 ? arguments[2] : undefined;
       attrs = this.computeAttrs(attrs);
       content = Fragment.from(content);
-
       if (content.size) {
         var before = this.contentMatch.fillBefore(content);
         if (!before) return null;
         content = before.append(content);
       }
-
       var matched = this.contentMatch.matchFragment(content);
       var after = matched && matched.fillBefore(Fragment.empty, true);
       if (!after) return null;
@@ -10348,11 +10173,7 @@ var NodeType = function () {
     value: function validContent(content) {
       var result = this.contentMatch.matchFragment(content);
       if (!result || !result.validEnd) return false;
-
-      for (var i = 0; i < content.childCount; i++) {
-        if (!this.allowsMarks(content.child(i).marks)) return false;
-      }
-
+      for (var i = 0; i < content.childCount; i++) if (!this.allowsMarks(content.child(i).marks)) return false;
       return true;
     }
   }, {
@@ -10369,11 +10190,7 @@ var NodeType = function () {
     key: "allowsMarks",
     value: function allowsMarks(marks) {
       if (this.markSet == null) return true;
-
-      for (var i = 0; i < marks.length; i++) {
-        if (!this.allowsMarkType(marks[i].type)) return false;
-      }
-
+      for (var i = 0; i < marks.length; i++) if (!this.allowsMarkType(marks[i].type)) return false;
       return true;
     }
   }, {
@@ -10381,7 +10198,6 @@ var NodeType = function () {
     value: function allowedMarks(marks) {
       if (this.markSet == null) return marks;
       var copy;
-
       for (var i = 0; i < marks.length; i++) {
         if (!this.allowsMarkType(marks[i].type)) {
           if (!copy) copy = marks.slice(0, i);
@@ -10389,7 +10205,6 @@ var NodeType = function () {
           copy.push(marks[i]);
         }
       }
-
       return !copy ? marks : copy.length ? copy : Mark.none;
     }
   }], [{
@@ -10402,40 +10217,29 @@ var NodeType = function () {
       var topType = schema.spec.topNode || "doc";
       if (!result[topType]) throw new RangeError("Schema is missing its top node type ('" + topType + "')");
       if (!result.text) throw new RangeError("Every schema needs a 'text' type");
-
-      for (var _ in result.text.attrs) {
-        throw new RangeError("The text node type should not have attributes");
-      }
-
+      for (var _ in result.text.attrs) throw new RangeError("The text node type should not have attributes");
       return result;
     }
   }]);
-
   return NodeType;
 }();
-
 var Attribute = function () {
   function Attribute(options) {
     _classCallCheck(this, Attribute);
-
     this.hasDefault = Object.prototype.hasOwnProperty.call(options, "default");
     this["default"] = options["default"];
   }
-
   _createClass(Attribute, [{
     key: "isRequired",
     get: function get() {
       return !this.hasDefault;
     }
   }]);
-
   return Attribute;
 }();
-
 var MarkType = function () {
   function MarkType(name, rank, schema, spec) {
     _classCallCheck(this, MarkType);
-
     this.name = name;
     this.rank = rank;
     this.schema = schema;
@@ -10445,7 +10249,6 @@ var MarkType = function () {
     var defaults = defaultAttrs(this.attrs);
     this.instance = defaults ? new Mark(this, defaults) : null;
   }
-
   _createClass(MarkType, [{
     key: "create",
     value: function create() {
@@ -10456,21 +10259,16 @@ var MarkType = function () {
   }, {
     key: "removeFromSet",
     value: function removeFromSet(set) {
-      for (var i = 0; i < set.length; i++) {
-        if (set[i].type == this) {
-          set = set.slice(0, i).concat(set.slice(i + 1));
-          i--;
-        }
+      for (var i = 0; i < set.length; i++) if (set[i].type == this) {
+        set = set.slice(0, i).concat(set.slice(i + 1));
+        i--;
       }
-
       return set;
     }
   }, {
     key: "isInSet",
     value: function isInSet(set) {
-      for (var i = 0; i < set.length; i++) {
-        if (set[i].type == this) return set[i];
-      }
+      for (var i = 0; i < set.length; i++) if (set[i].type == this) return set[i];
     }
   }, {
     key: "excludes",
@@ -10481,54 +10279,43 @@ var MarkType = function () {
     key: "compile",
     value: function compile(marks, schema) {
       var result = Object.create(null),
-          rank = 0;
+        rank = 0;
       marks.forEach(function (name, spec) {
         return result[name] = new MarkType(name, rank++, schema, spec);
       });
       return result;
     }
   }]);
-
   return MarkType;
 }();
-
 var Schema = function () {
   function Schema(spec) {
     _classCallCheck(this, Schema);
-
     this.cached = Object.create(null);
     var instanceSpec = this.spec = {};
-
-    for (var prop in spec) {
-      instanceSpec[prop] = spec[prop];
-    }
-
-    instanceSpec.nodes = OrderedMap__default["default"].from(spec.nodes), instanceSpec.marks = OrderedMap__default["default"].from(spec.marks || {}), this.nodes = NodeType.compile(this.spec.nodes, this);
+    for (var prop in spec) instanceSpec[prop] = spec[prop];
+    instanceSpec.nodes = OrderedMap.from(spec.nodes), instanceSpec.marks = OrderedMap.from(spec.marks || {}), this.nodes = NodeType.compile(this.spec.nodes, this);
     this.marks = MarkType.compile(this.spec.marks, this);
     var contentExprCache = Object.create(null);
-
     for (var _prop in this.nodes) {
       if (_prop in this.marks) throw new RangeError(_prop + " can not be both a node and a mark");
       var type = this.nodes[_prop],
-          contentExpr = type.spec.content || "",
-          markExpr = type.spec.marks;
+        contentExpr = type.spec.content || "",
+        markExpr = type.spec.marks;
       type.contentMatch = contentExprCache[contentExpr] || (contentExprCache[contentExpr] = ContentMatch.parse(contentExpr, this.nodes));
       type.inlineContent = type.contentMatch.inlineContent;
       type.markSet = markExpr == "_" ? null : markExpr ? gatherMarks(this, markExpr.split(" ")) : markExpr == "" || !type.inlineContent ? [] : null;
     }
-
     for (var _prop2 in this.marks) {
       var _type2 = this.marks[_prop2],
-          excl = _type2.spec.excludes;
+        excl = _type2.spec.excludes;
       _type2.excluded = excl == null ? [_type2] : excl == "" ? [] : gatherMarks(this, excl.split(" "));
     }
-
     this.nodeFromJSON = this.nodeFromJSON.bind(this);
     this.markFromJSON = this.markFromJSON.bind(this);
     this.topNodeType = this.nodes[this.spec.topNode || "doc"];
     this.cached.wrappings = Object.create(null);
   }
-
   _createClass(Schema, [{
     key: "node",
     value: function node(type) {
@@ -10568,18 +10355,14 @@ var Schema = function () {
       return found;
     }
   }]);
-
   return Schema;
 }();
-
 function gatherMarks(schema, marks) {
   var found = [];
-
   for (var i = 0; i < marks.length; i++) {
     var name = marks[i],
-        mark = schema.marks[name],
-        ok = mark;
-
+      mark = schema.marks[name],
+      ok = mark;
     if (mark) {
       found.push(mark);
     } else {
@@ -10588,19 +10371,14 @@ function gatherMarks(schema, marks) {
         if (name == "_" || _mark.spec.group && _mark.spec.group.split(" ").indexOf(name) > -1) found.push(ok = _mark);
       }
     }
-
     if (!ok) throw new SyntaxError("Unknown mark type: '" + marks[i] + "'");
   }
-
   return found;
 }
-
 var DOMParser = function () {
   function DOMParser(schema, rules) {
     var _this2 = this;
-
     _classCallCheck(this, DOMParser);
-
     this.schema = schema;
     this.rules = rules;
     this.tags = [];
@@ -10614,7 +10392,6 @@ var DOMParser = function () {
       return node.contentMatch.matchType(node);
     });
   }
-
   _createClass(DOMParser, [{
     key: "parse",
     value: function parse(dom) {
@@ -10636,14 +10413,12 @@ var DOMParser = function () {
     value: function matchTag(dom, context, after) {
       for (var i = after ? this.tags.indexOf(after) + 1 : 0; i < this.tags.length; i++) {
         var rule = this.tags[i];
-
         if (matches(dom, rule.tag) && (rule.namespace === undefined || dom.namespaceURI == rule.namespace) && (!rule.context || context.matchesContext(rule.context))) {
           if (rule.getAttrs) {
             var result = rule.getAttrs(dom);
             if (result === false) continue;
             rule.attrs = result || undefined;
           }
-
           return rule;
         }
       }
@@ -10653,15 +10428,13 @@ var DOMParser = function () {
     value: function matchStyle(prop, value, context, after) {
       for (var i = after ? this.styles.indexOf(after) + 1 : 0; i < this.styles.length; i++) {
         var rule = this.styles[i],
-            style = rule.style;
+          style = rule.style;
         if (style.indexOf(prop) != 0 || rule.context && !context.matchesContext(rule.context) || style.length > prop.length && (style.charCodeAt(prop.length) != 61 || style.slice(prop.length + 1) != value)) continue;
-
         if (rule.getAttrs) {
           var result = rule.getAttrs(value);
           if (result === false) continue;
           rule.attrs = result || undefined;
         }
-
         return rule;
       }
     }
@@ -10669,20 +10442,16 @@ var DOMParser = function () {
     key: "schemaRules",
     value: function schemaRules(schema) {
       var result = [];
-
       function insert(rule) {
         var priority = rule.priority == null ? 50 : rule.priority,
-            i = 0;
-
+          i = 0;
         for (; i < result.length; i++) {
           var next = result[i],
-              nextPriority = next.priority == null ? 50 : next.priority;
+            nextPriority = next.priority == null ? 50 : next.priority;
           if (nextPriority < priority) break;
         }
-
         result.splice(i, 0, rule);
       }
-
       var _loop2 = function _loop2(name) {
         var rules = schema.marks[name].spec.parseDOM;
         if (rules) rules.forEach(function (rule) {
@@ -10690,11 +10459,9 @@ var DOMParser = function () {
           if (!(rule.mark || rule.ignore || rule.clearMark)) rule.mark = name;
         });
       };
-
       for (var name in schema.marks) {
         _loop2(name);
       }
-
       var _loop3 = function _loop3(_name) {
         var rules = schema.nodes[_name].spec.parseDOM;
         if (rules) rules.forEach(function (rule) {
@@ -10702,11 +10469,9 @@ var DOMParser = function () {
           if (!(rule.node || rule.ignore || rule.mark)) rule.node = _name;
         });
       };
-
       for (var _name in schema.nodes) {
         _loop3(_name);
       }
-
       return result;
     }
   }, {
@@ -10715,10 +10480,8 @@ var DOMParser = function () {
       return schema.cached.domParser || (schema.cached.domParser = new DOMParser(schema, DOMParser.schemaRules(schema)));
     }
   }]);
-
   return DOMParser;
 }();
-
 var blockTags = {
   address: true,
   article: true,
@@ -10766,18 +10529,15 @@ var listTags = {
   ul: true
 };
 var OPT_PRESERVE_WS = 1,
-    OPT_PRESERVE_WS_FULL = 2,
-    OPT_OPEN_LEFT = 4;
-
+  OPT_PRESERVE_WS_FULL = 2,
+  OPT_OPEN_LEFT = 4;
 function wsOptionsFor(type, preserveWhitespace, base) {
   if (preserveWhitespace != null) return (preserveWhitespace ? OPT_PRESERVE_WS : 0) | (preserveWhitespace === "full" ? OPT_PRESERVE_WS_FULL : 0);
   return type && type.whitespace == "pre" ? OPT_PRESERVE_WS | OPT_PRESERVE_WS_FULL : base & ~OPT_OPEN_LEFT;
 }
-
 var NodeContext = function () {
   function NodeContext(type, attrs, marks, pendingMarks, solid, match, options) {
     _classCallCheck(this, NodeContext);
-
     this.type = type;
     this.attrs = attrs;
     this.marks = marks;
@@ -10789,20 +10549,17 @@ var NodeContext = function () {
     this.stashMarks = [];
     this.match = match || (options & OPT_OPEN_LEFT ? null : type.contentMatch);
   }
-
   _createClass(NodeContext, [{
     key: "findWrapping",
     value: function findWrapping(node) {
       if (!this.match) {
         if (!this.type) return [];
         var fill = this.type.contentMatch.fillBefore(Fragment.from(node));
-
         if (fill) {
           this.match = this.type.contentMatch.matchFragment(fill);
         } else {
           var start = this.type.contentMatch,
-              wrap;
-
+            wrap;
           if (wrap = start.findWrapping(node.type)) {
             this.match = start;
             return wrap;
@@ -10811,7 +10568,6 @@ var NodeContext = function () {
           }
         }
       }
-
       return this.match.findWrapping(node.type);
     }
   }, {
@@ -10819,14 +10575,12 @@ var NodeContext = function () {
     value: function finish(openEnd) {
       if (!(this.options & OPT_PRESERVE_WS)) {
         var last = this.content[this.content.length - 1],
-            m;
-
+          m;
         if (last && last.isText && (m = /[ \t\r\n\u000c]+$/.exec(last.text))) {
           var text = last;
           if (last.text.length == m[0].length) this.content.pop();else this.content[this.content.length - 1] = text.withText(text.text.slice(0, text.text.length - m[0].length));
         }
       }
-
       var content = Fragment.from(this.content);
       if (!openEnd && this.match) content = content.append(this.match.fillBefore(Fragment.empty, true));
       return this.type ? this.type.create(this.attrs, content, this.marks) : content;
@@ -10834,16 +10588,13 @@ var NodeContext = function () {
   }, {
     key: "popFromStashMark",
     value: function popFromStashMark(mark) {
-      for (var i = this.stashMarks.length - 1; i >= 0; i--) {
-        if (mark.eq(this.stashMarks[i])) return this.stashMarks.splice(i, 1)[0];
-      }
+      for (var i = this.stashMarks.length - 1; i >= 0; i--) if (mark.eq(this.stashMarks[i])) return this.stashMarks.splice(i, 1)[0];
     }
   }, {
     key: "applyPending",
     value: function applyPending(nextType) {
       for (var i = 0, pending = this.pendingMarks; i < pending.length; i++) {
         var mark = pending[i];
-
         if ((this.type ? this.type.allowsMarkType(mark.type) : markMayApply(mark.type, nextType)) && !mark.isInSet(this.activeMarks)) {
           this.activeMarks = mark.addToSet(this.activeMarks);
           this.pendingMarks = mark.removeFromSet(this.pendingMarks);
@@ -10858,27 +10609,23 @@ var NodeContext = function () {
       return node.parentNode && !blockTags.hasOwnProperty(node.parentNode.nodeName.toLowerCase());
     }
   }]);
-
   return NodeContext;
 }();
-
 var ParseContext = function () {
   function ParseContext(parser, options, isOpen) {
     _classCallCheck(this, ParseContext);
-
     this.parser = parser;
     this.options = options;
     this.isOpen = isOpen;
     this.open = 0;
     var topNode = options.topNode,
-        topContext;
+      topContext;
     var topOptions = wsOptionsFor(null, options.preserveWhitespace, 0) | (isOpen ? OPT_OPEN_LEFT : 0);
     if (topNode) topContext = new NodeContext(topNode.type, topNode.attrs, Mark.none, Mark.none, true, options.topMatch || topNode.type.contentMatch, topOptions);else if (isOpen) topContext = new NodeContext(null, null, Mark.none, Mark.none, true, null, topOptions);else topContext = new NodeContext(parser.schema.topNodeType, null, Mark.none, Mark.none, true, null, topOptions);
     this.nodes = [topContext];
     this.find = options.findPositions;
     this.needsBlock = false;
   }
-
   _createClass(ParseContext, [{
     key: "top",
     get: function get() {
@@ -10896,40 +10643,24 @@ var ParseContext = function () {
       if (!style) return f();
       var marks = this.readStyles(parseStyles(style));
       if (!marks) return;
-
       var _marks = _slicedToArray(marks, 2),
-          addMarks = _marks[0],
-          removeMarks = _marks[1],
-          top = this.top;
-
-      for (var i = 0; i < removeMarks.length; i++) {
-        this.removePendingMark(removeMarks[i], top);
-      }
-
-      for (var _i4 = 0; _i4 < addMarks.length; _i4++) {
-        this.addPendingMark(addMarks[_i4]);
-      }
-
+        addMarks = _marks[0],
+        removeMarks = _marks[1],
+        top = this.top;
+      for (var i = 0; i < removeMarks.length; i++) this.removePendingMark(removeMarks[i], top);
+      for (var _i4 = 0; _i4 < addMarks.length; _i4++) this.addPendingMark(addMarks[_i4]);
       f();
-
-      for (var _i5 = 0; _i5 < addMarks.length; _i5++) {
-        this.removePendingMark(addMarks[_i5], top);
-      }
-
-      for (var _i6 = 0; _i6 < removeMarks.length; _i6++) {
-        this.addPendingMark(removeMarks[_i6]);
-      }
+      for (var _i5 = 0; _i5 < addMarks.length; _i5++) this.removePendingMark(addMarks[_i5], top);
+      for (var _i6 = 0; _i6 < removeMarks.length; _i6++) this.addPendingMark(removeMarks[_i6]);
     }
   }, {
     key: "addTextNode",
     value: function addTextNode(dom) {
       var value = dom.nodeValue;
       var top = this.top;
-
       if (top.options & OPT_PRESERVE_WS_FULL || top.inlineContext(dom) || /[^ \t\r\n\u000c]/.test(value)) {
         if (!(top.options & OPT_PRESERVE_WS)) {
           value = value.replace(/[ \t\r\n\u000c]+/g, " ");
-
           if (/^[ \t\r\n\u000c]/.test(value) && this.open == this.nodes.length - 1) {
             var nodeBefore = top.content[top.content.length - 1];
             var domNodeBefore = dom.previousSibling;
@@ -10940,7 +10671,6 @@ var ParseContext = function () {
         } else {
           value = value.replace(/\r\n?/g, "\n");
         }
-
         if (value) this.insertNode(this.parser.schema.text(value));
         this.findInText(dom);
       } else {
@@ -10951,34 +10681,29 @@ var ParseContext = function () {
     key: "addElement",
     value: function addElement(dom, matchAfter) {
       var _this3 = this;
-
       var name = dom.nodeName.toLowerCase(),
-          ruleID;
+        ruleID;
       if (listTags.hasOwnProperty(name) && this.parser.normalizeLists) normalizeList(dom);
       var rule = this.options.ruleFromNode && this.options.ruleFromNode(dom) || (ruleID = this.parser.matchTag(dom, this, matchAfter));
-
       if (rule ? rule.ignore : ignoreTags.hasOwnProperty(name)) {
         this.findInside(dom);
         this.ignoreFallback(dom);
       } else if (!rule || rule.skip || rule.closeParent) {
         if (rule && rule.closeParent) this.open = Math.max(0, this.open - 1);else if (rule && rule.skip.nodeType) dom = rule.skip;
         var sync,
-            top = this.top,
-            oldNeedsBlock = this.needsBlock;
-
+          top = this.top,
+          oldNeedsBlock = this.needsBlock;
         if (blockTags.hasOwnProperty(name)) {
           if (top.content.length && top.content[0].isInline && this.open) {
             this.open--;
             top = this.top;
           }
-
           sync = true;
           if (!top.type) this.needsBlock = true;
         } else if (!dom.firstChild) {
           this.leafFallback(dom);
           return;
         }
-
         if (rule && rule.skip) this.addAll(dom);else this.withStyleRules(dom, function () {
           return _this3.addAll(dom);
         });
@@ -11004,61 +10729,47 @@ var ParseContext = function () {
     key: "readStyles",
     value: function readStyles(styles) {
       var _this4 = this;
-
       var add = Mark.none,
-          remove = Mark.none;
-
+        remove = Mark.none;
       for (var i = 0; i < styles.length; i += 2) {
         var _loop4 = function _loop4(_after) {
-          var rule = _this4.parser.matchStyle(styles[i], styles[i + 1], _this4, _after);
-
-          if (!rule) {
-            after = _after;
-            return "break";
-          }
-
-          if (rule.ignore) {
-            after = _after;
-            return {
+            var rule = _this4.parser.matchStyle(styles[i], styles[i + 1], _this4, _after);
+            if (!rule) {
+              after = _after;
+              return 0;
+            }
+            if (rule.ignore) return {
               v: null
             };
-          }
-
-          if (rule.clearMark) {
-            _this4.top.pendingMarks.concat(_this4.top.activeMarks).forEach(function (m) {
-              if (rule.clearMark(m)) remove = m.addToSet(remove);
-            });
-          } else {
-            add = _this4.parser.schema.marks[rule.mark].create(rule.attrs).addToSet(add);
-          }
-
-          if (rule.consuming === false) _after = rule;else {
+            if (rule.clearMark) {
+              _this4.top.pendingMarks.concat(_this4.top.activeMarks).forEach(function (m) {
+                if (rule.clearMark(m)) remove = m.addToSet(remove);
+              });
+            } else {
+              add = _this4.parser.schema.marks[rule.mark].create(rule.attrs).addToSet(add);
+            }
+            if (rule.consuming === false) _after = rule;else {
+              after = _after;
+              return 0;
+            }
             after = _after;
-            return "break";
-          }
-          after = _after;
-        };
-
+          },
+          _ret;
         for (var after = undefined;;) {
-          var _ret = _loop4(after);
-
-          if (_ret === "break") break;
-          if (_typeof(_ret) === "object") return _ret.v;
+          _ret = _loop4(after);
+          if (_ret === 0) break;
+          if (_ret) return _ret.v;
         }
       }
-
       return [add, remove];
     }
   }, {
     key: "addElementByRule",
     value: function addElementByRule(dom, rule, continueAfter) {
       var _this5 = this;
-
       var sync, nodeType, mark;
-
       if (rule.node) {
         nodeType = this.parser.schema.nodes[rule.node];
-
         if (!nodeType.isLeaf) {
           sync = this.enter(nodeType, rule.attrs || null, rule.preserveWhitespace);
         } else if (!this.insertNode(nodeType.create(rule.attrs))) {
@@ -11069,9 +10780,7 @@ var ParseContext = function () {
         mark = markType.create(rule.attrs);
         this.addPendingMark(mark);
       }
-
       var startIn = this.top;
-
       if (nodeType && nodeType.isLeaf) {
         this.findInside(dom);
       } else if (continueAfter) {
@@ -11087,7 +10796,6 @@ var ParseContext = function () {
         this.findAround(dom, contentDOM, true);
         this.addAll(contentDOM);
       }
-
       if (sync && this.sync(startIn)) this.open--;
       if (mark) this.removePendingMark(mark, startIn);
     }
@@ -11095,40 +10803,29 @@ var ParseContext = function () {
     key: "addAll",
     value: function addAll(parent, startIndex, endIndex) {
       var index = startIndex || 0;
-
       for (var dom = startIndex ? parent.childNodes[startIndex] : parent.firstChild, end = endIndex == null ? null : parent.childNodes[endIndex]; dom != end; dom = dom.nextSibling, ++index) {
         this.findAtPoint(parent, index);
         this.addDOM(dom);
       }
-
       this.findAtPoint(parent, index);
     }
   }, {
     key: "findPlace",
     value: function findPlace(node) {
       var route, sync;
-
       for (var depth = this.open; depth >= 0; depth--) {
         var cx = this.nodes[depth];
-
         var _found2 = cx.findWrapping(node);
-
         if (_found2 && (!route || route.length > _found2.length)) {
           route = _found2;
           sync = cx;
           if (!_found2.length) break;
         }
-
         if (cx.solid) break;
       }
-
       if (!route) return false;
       this.sync(sync);
-
-      for (var i = 0; i < route.length; i++) {
-        this.enterInner(route[i], null, false);
-      }
-
+      for (var i = 0; i < route.length; i++) this.enterInner(route[i], null, false);
       return true;
     }
   }, {
@@ -11138,22 +10835,16 @@ var ParseContext = function () {
         var block = this.textblockFromContext();
         if (block) this.enterInner(block);
       }
-
       if (this.findPlace(node)) {
         this.closeExtra();
         var top = this.top;
         top.applyPending(node.type);
         if (top.match) top.match = top.match.matchType(node.type);
         var marks = top.activeMarks;
-
-        for (var i = 0; i < node.marks.length; i++) {
-          if (!top.type || top.type.allowsMarkType(node.marks[i].type)) marks = node.marks[i].addToSet(marks);
-        }
-
+        for (var i = 0; i < node.marks.length; i++) if (!top.type || top.type.allowsMarkType(node.marks[i].type)) marks = node.marks[i].addToSet(marks);
         top.content.push(node.mark(marks));
         return true;
       }
-
       return false;
     }
   }, {
@@ -11183,12 +10874,8 @@ var ParseContext = function () {
     value: function closeExtra() {
       var openEnd = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : false;
       var i = this.nodes.length - 1;
-
       if (i > this.open) {
-        for (; i > this.open; i--) {
-          this.nodes[i - 1].content.push(this.nodes[i].finish(openEnd));
-        }
-
+        for (; i > this.open; i--) this.nodes[i - 1].content.push(this.nodes[i].finish(openEnd));
         this.nodes.length = this.open + 1;
       }
     }
@@ -11202,13 +10889,10 @@ var ParseContext = function () {
   }, {
     key: "sync",
     value: function sync(to) {
-      for (var i = this.open; i >= 0; i--) {
-        if (this.nodes[i] == to) {
-          this.open = i;
-          return true;
-        }
+      for (var i = this.open; i >= 0; i--) if (this.nodes[i] == to) {
+        this.open = i;
+        return true;
       }
-
       return false;
     }
   }, {
@@ -11216,17 +10900,11 @@ var ParseContext = function () {
     get: function get() {
       this.closeExtra();
       var pos = 0;
-
       for (var i = this.open; i >= 0; i--) {
         var content = this.nodes[i].content;
-
-        for (var j = content.length - 1; j >= 0; j--) {
-          pos += content[j].nodeSize;
-        }
-
+        for (var j = content.length - 1; j >= 0; j--) pos += content[j].nodeSize;
         if (i) pos++;
       }
-
       return pos;
     }
   }, {
@@ -11264,24 +10942,17 @@ var ParseContext = function () {
     key: "matchesContext",
     value: function matchesContext(context) {
       var _this6 = this;
-
       if (context.indexOf("|") > -1) return context.split(/\s*\|\s*/).some(this.matchesContext, this);
       var parts = context.split("/");
       var option = this.options.context;
       var useRoot = !this.isOpen && (!option || option.parent.type == this.nodes[0].type);
       var minDepth = -(option ? option.depth + 1 : 0) + (useRoot ? 0 : 1);
-
       var match = function match(i, depth) {
         for (; i >= 0; i--) {
           var part = parts[i];
-
           if (part == "") {
             if (i == parts.length - 1 || i == 0) continue;
-
-            for (; depth >= minDepth; depth--) {
-              if (match(i - 1, depth)) return true;
-            }
-
+            for (; depth >= minDepth; depth--) if (match(i - 1, depth)) return true;
             return false;
           } else {
             var next = depth > 0 || depth == 0 && useRoot ? _this6.nodes[depth].type : option && depth >= minDepth ? option.node(depth - minDepth).type : null;
@@ -11289,10 +10960,8 @@ var ParseContext = function () {
             depth--;
           }
         }
-
         return true;
       };
-
       return match(parts.length - 1, this.open);
     }
   }, {
@@ -11303,7 +10972,6 @@ var ParseContext = function () {
         var deflt = $context.node(d).contentMatchAt($context.indexAfter(d)).defaultType;
         if (deflt && deflt.isTextblock && deflt.defaultAttrs) return deflt;
       }
-
       for (var name in this.parser.schema.nodes) {
         var type = this.parser.schema.nodes[name];
         if (type.isTextblock && type.defaultAttrs) return type;
@@ -11321,9 +10989,7 @@ var ParseContext = function () {
     value: function removePendingMark(mark, upto) {
       for (var depth = this.open; depth >= 0; depth--) {
         var level = this.nodes[depth];
-
         var _found3 = level.pendingMarks.lastIndexOf(mark);
-
         if (_found3 > -1) {
           level.pendingMarks = mark.removeFromSet(level.pendingMarks);
         } else {
@@ -11331,19 +10997,15 @@ var ParseContext = function () {
           var stashMark = level.popFromStashMark(mark);
           if (stashMark && level.type && level.type.allowsMarkType(stashMark.type)) level.activeMarks = stashMark.addToSet(level.activeMarks);
         }
-
         if (level == upto) break;
       }
     }
   }]);
-
   return ParseContext;
 }();
-
 function normalizeList(dom) {
   for (var child = dom.firstChild, prevItem = null; child; child = child.nextSibling) {
     var name = child.nodeType == 1 ? child.nodeName.toLowerCase() : null;
-
     if (name && listTags.hasOwnProperty(name) && prevItem) {
       prevItem.appendChild(child);
       child = prevItem;
@@ -11354,118 +11016,86 @@ function normalizeList(dom) {
     }
   }
 }
-
 function matches(dom, selector) {
   return (dom.matches || dom.msMatchesSelector || dom.webkitMatchesSelector || dom.mozMatchesSelector).call(dom, selector);
 }
-
 function parseStyles(style) {
   var re = /\s*([\w-]+)\s*:\s*([^;]+)/g,
-      m,
-      result = [];
-
-  while (m = re.exec(style)) {
-    result.push(m[1], m[2].trim());
-  }
-
+    m,
+    result = [];
+  while (m = re.exec(style)) result.push(m[1], m[2].trim());
   return result;
 }
-
 function copy(obj) {
   var copy = {};
-
-  for (var prop in obj) {
-    copy[prop] = obj[prop];
-  }
-
+  for (var prop in obj) copy[prop] = obj[prop];
   return copy;
 }
-
 function markMayApply(markType, nodeType) {
   var nodes = nodeType.schema.nodes;
-
-  var _loop5 = function _loop5(name) {
-    var parent = nodes[name];
-    if (!parent.allowsMarkType(markType)) return "continue";
-
-    var seen = [],
+  var _loop5 = function _loop5() {
+      var parent = nodes[name];
+      if (!parent.allowsMarkType(markType)) return 0;
+      var seen = [],
         scan = function scan(match) {
-      seen.push(match);
-
-      for (var i = 0; i < match.edgeCount; i++) {
-        var _match$edge = match.edge(i),
-            type = _match$edge.type,
-            next = _match$edge.next;
-
-        if (type == nodeType) return true;
-        if (seen.indexOf(next) < 0 && scan(next)) return true;
-      }
-    };
-
-    if (scan(parent.contentMatch)) return {
-      v: true
-    };
-  };
-
+          seen.push(match);
+          for (var i = 0; i < match.edgeCount; i++) {
+            var _match$edge = match.edge(i),
+              type = _match$edge.type,
+              next = _match$edge.next;
+            if (type == nodeType) return true;
+            if (seen.indexOf(next) < 0 && scan(next)) return true;
+          }
+        };
+      if (scan(parent.contentMatch)) return {
+        v: true
+      };
+    },
+    _ret2;
   for (var name in nodes) {
-    var _ret2 = _loop5(name);
-
-    if (_ret2 === "continue") continue;
-    if (_typeof(_ret2) === "object") return _ret2.v;
+    _ret2 = _loop5();
+    if (_ret2 === 0) continue;
+    if (_ret2) return _ret2.v;
   }
 }
-
 function findSameMarkInSet(mark, set) {
   for (var i = 0; i < set.length; i++) {
     if (mark.eq(set[i])) return set[i];
   }
 }
-
 var DOMSerializer = function () {
   function DOMSerializer(nodes, marks) {
     _classCallCheck(this, DOMSerializer);
-
     this.nodes = nodes;
     this.marks = marks;
   }
-
   _createClass(DOMSerializer, [{
     key: "serializeFragment",
     value: function serializeFragment(fragment) {
       var _this7 = this;
-
       var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
       var target = arguments.length > 2 ? arguments[2] : undefined;
       if (!target) target = doc(options).createDocumentFragment();
       var top = target,
-          active = [];
+        active = [];
       fragment.forEach(function (node) {
         if (active.length || node.marks.length) {
           var keep = 0,
-              rendered = 0;
-
+            rendered = 0;
           while (keep < active.length && rendered < node.marks.length) {
             var next = node.marks[rendered];
-
             if (!_this7.marks[next.type.name]) {
               rendered++;
               continue;
             }
-
             if (!next.eq(active[keep][0]) || next.type.spec.spanning === false) break;
             keep++;
             rendered++;
           }
-
-          while (keep < active.length) {
-            top = active.pop()[1];
-          }
-
+          while (keep < active.length) top = active.pop()[1];
           while (rendered < node.marks.length) {
             var add = node.marks[rendered++];
-
             var markDOM = _this7.serializeMark(add, node.isInline, options);
-
             if (markDOM) {
               active.push([add, top]);
               top.appendChild(markDOM.dom);
@@ -11473,7 +11103,6 @@ var DOMSerializer = function () {
             }
           }
         }
-
         top.appendChild(_this7.serializeNodeInner(node, options));
       });
       return target;
@@ -11482,14 +11111,12 @@ var DOMSerializer = function () {
     key: "serializeNodeInner",
     value: function serializeNodeInner(node, options) {
       var _DOMSerializer$render = DOMSerializer.renderSpec(doc(options), this.nodes[node.type.name](node)),
-          dom = _DOMSerializer$render.dom,
-          contentDOM = _DOMSerializer$render.contentDOM;
-
+        dom = _DOMSerializer$render.dom,
+        contentDOM = _DOMSerializer$render.contentDOM;
       if (contentDOM) {
         if (node.isLeaf) throw new RangeError("Content hole not allowed in a leaf node spec");
         this.serializeFragment(node.content, options, contentDOM);
       }
-
       return dom;
     }
   }, {
@@ -11497,16 +11124,13 @@ var DOMSerializer = function () {
     value: function serializeNode(node) {
       var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
       var dom = this.serializeNodeInner(node, options);
-
       for (var i = node.marks.length - 1; i >= 0; i--) {
         var wrap = this.serializeMark(node.marks[i], node.isInline, options);
-
         if (wrap) {
           (wrap.contentDOM || wrap.dom).appendChild(dom);
           dom = wrap.dom;
         }
       }
-
       return dom;
     }
   }, {
@@ -11528,33 +11152,24 @@ var DOMSerializer = function () {
       };
       if (structure.dom && structure.dom.nodeType != null) return structure;
       var tagName = structure[0],
-          space = tagName.indexOf(" ");
-
+        space = tagName.indexOf(" ");
       if (space > 0) {
         xmlNS = tagName.slice(0, space);
         tagName = tagName.slice(space + 1);
       }
-
       var contentDOM;
       var dom = xmlNS ? doc.createElementNS(xmlNS, tagName) : doc.createElement(tagName);
       var attrs = structure[1],
-          start = 1;
-
+        start = 1;
       if (attrs && _typeof(attrs) == "object" && attrs.nodeType == null && !Array.isArray(attrs)) {
         start = 2;
-
-        for (var name in attrs) {
-          if (attrs[name] != null) {
-            var _space = name.indexOf(" ");
-
-            if (_space > 0) dom.setAttributeNS(name.slice(0, _space), name.slice(_space + 1), attrs[name]);else dom.setAttribute(name, attrs[name]);
-          }
+        for (var name in attrs) if (attrs[name] != null) {
+          var _space = name.indexOf(" ");
+          if (_space > 0) dom.setAttributeNS(name.slice(0, _space), name.slice(_space + 1), attrs[name]);else dom.setAttribute(name, attrs[name]);
         }
       }
-
       for (var i = start; i < structure.length; i++) {
         var child = structure[i];
-
         if (child === 0) {
           if (i < structure.length - 1 || i > start) throw new RangeError("Content hole must be the only child of its parent node");
           return {
@@ -11563,18 +11178,15 @@ var DOMSerializer = function () {
           };
         } else {
           var _DOMSerializer$render2 = DOMSerializer.renderSpec(doc, child, xmlNS),
-              inner = _DOMSerializer$render2.dom,
-              innerContent = _DOMSerializer$render2.contentDOM;
-
+            inner = _DOMSerializer$render2.dom,
+            innerContent = _DOMSerializer$render2.contentDOM;
           dom.appendChild(inner);
-
           if (innerContent) {
             if (contentDOM) throw new RangeError("Multiple content holes");
             contentDOM = innerContent;
           }
         }
       }
-
       return {
         dom: dom,
         contentDOM: contentDOM
@@ -11600,25 +11212,19 @@ var DOMSerializer = function () {
       return gatherToDOM(schema.marks);
     }
   }]);
-
   return DOMSerializer;
 }();
-
 function gatherToDOM(obj) {
   var result = {};
-
   for (var name in obj) {
     var toDOM = obj[name].spec.toDOM;
     if (toDOM) result[name] = toDOM;
   }
-
   return result;
 }
-
 function doc(options) {
   return options.document || window.document;
 }
-
 exports.ContentMatch = ContentMatch;
 exports.DOMParser = DOMParser;
 exports.DOMSerializer = DOMSerializer;
@@ -15098,75 +14704,51 @@ exports.replaceStep = replaceStep;
 },{"prosemirror-model":41}],45:[function(require,module,exports){
 'use strict';
 
-function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
-
 function _createForOfIteratorHelper(o, allowArrayLike) { var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"]; if (!it) { if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") { if (it) o = it; var i = 0; var F = function F() {}; return { s: F, n: function n() { if (i >= o.length) return { done: true }; return { done: false, value: o[i++] }; }, e: function e(_e) { throw _e; }, f: F }; } throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); } var normalCompletion = true, didErr = false, err; return { s: function s() { it = it.call(o); }, n: function n() { var step = it.next(); normalCompletion = step.done; return step; }, e: function e(_e2) { didErr = true; err = _e2; }, f: function f() { try { if (!normalCompletion && it["return"] != null) it["return"](); } finally { if (didErr) throw err; } } }; }
-
 function _unsupportedIterableToArray(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen); }
-
-function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) { arr2[i] = arr[i]; } return arr2; }
-
-function _get() { if (typeof Reflect !== "undefined" && Reflect.get) { _get = Reflect.get; } else { _get = function _get(target, property, receiver) { var base = _superPropBase(target, property); if (!base) return; var desc = Object.getOwnPropertyDescriptor(base, property); if (desc.get) { return desc.get.call(arguments.length < 3 ? target : receiver); } return desc.value; }; } return _get.apply(this, arguments); }
-
+function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i]; return arr2; }
+function _get() { if (typeof Reflect !== "undefined" && Reflect.get) { _get = Reflect.get.bind(); } else { _get = function _get(target, property, receiver) { var base = _superPropBase(target, property); if (!base) return; var desc = Object.getOwnPropertyDescriptor(base, property); if (desc.get) { return desc.get.call(arguments.length < 3 ? target : receiver); } return desc.value; }; } return _get.apply(this, arguments); }
 function _superPropBase(object, property) { while (!Object.prototype.hasOwnProperty.call(object, property)) { object = _getPrototypeOf(object); if (object === null) break; } return object; }
-
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function"); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, writable: true, configurable: true } }); Object.defineProperty(subClass, "prototype", { writable: false }); if (superClass) _setPrototypeOf(subClass, superClass); }
-
-function _setPrototypeOf(o, p) { _setPrototypeOf = Object.setPrototypeOf || function _setPrototypeOf(o, p) { o.__proto__ = p; return o; }; return _setPrototypeOf(o, p); }
-
+function _setPrototypeOf(o, p) { _setPrototypeOf = Object.setPrototypeOf ? Object.setPrototypeOf.bind() : function _setPrototypeOf(o, p) { o.__proto__ = p; return o; }; return _setPrototypeOf(o, p); }
 function _createSuper(Derived) { var hasNativeReflectConstruct = _isNativeReflectConstruct(); return function _createSuperInternal() { var Super = _getPrototypeOf(Derived), result; if (hasNativeReflectConstruct) { var NewTarget = _getPrototypeOf(this).constructor; result = Reflect.construct(Super, arguments, NewTarget); } else { result = Super.apply(this, arguments); } return _possibleConstructorReturn(this, result); }; }
-
 function _possibleConstructorReturn(self, call) { if (call && (_typeof(call) === "object" || typeof call === "function")) { return call; } else if (call !== void 0) { throw new TypeError("Derived constructors may only return object or undefined"); } return _assertThisInitialized(self); }
-
 function _assertThisInitialized(self) { if (self === void 0) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return self; }
-
 function _isNativeReflectConstruct() { if (typeof Reflect === "undefined" || !Reflect.construct) return false; if (Reflect.construct.sham) return false; if (typeof Proxy === "function") return true; try { Boolean.prototype.valueOf.call(Reflect.construct(Boolean, [], function () {})); return true; } catch (e) { return false; } }
-
-function _getPrototypeOf(o) { _getPrototypeOf = Object.setPrototypeOf ? Object.getPrototypeOf : function _getPrototypeOf(o) { return o.__proto__ || Object.getPrototypeOf(o); }; return _getPrototypeOf(o); }
-
+function _getPrototypeOf(o) { _getPrototypeOf = Object.setPrototypeOf ? Object.getPrototypeOf.bind() : function _getPrototypeOf(o) { return o.__proto__ || Object.getPrototypeOf(o); }; return _getPrototypeOf(o); }
+function _typeof(o) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) { return typeof o; } : function (o) { return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o; }, _typeof(o); }
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } }
-
+function _defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, _toPropertyKey(descriptor.key), descriptor); } }
 function _createClass(Constructor, protoProps, staticProps) { if (protoProps) _defineProperties(Constructor.prototype, protoProps); if (staticProps) _defineProperties(Constructor, staticProps); Object.defineProperty(Constructor, "prototype", { writable: false }); return Constructor; }
-
+function _toPropertyKey(arg) { var key = _toPrimitive(arg, "string"); return _typeof(key) === "symbol" ? key : String(key); }
+function _toPrimitive(input, hint) { if (_typeof(input) !== "object" || input === null) return input; var prim = input[Symbol.toPrimitive]; if (prim !== undefined) { var res = prim.call(input, hint || "default"); if (_typeof(res) !== "object") return res; throw new TypeError("@@toPrimitive must return a primitive value."); } return (hint === "string" ? String : Number)(input); }
 var prosemirrorState = require('prosemirror-state');
-
 var prosemirrorModel = require('prosemirror-model');
-
 var prosemirrorTransform = require('prosemirror-transform');
-
 var domIndex = function domIndex(node) {
   for (var index = 0;; index++) {
     node = node.previousSibling;
     if (!node) return index;
   }
 };
-
 var parentNode = function parentNode(node) {
   var parent = node.assignedSlot || node.parentNode;
   return parent && parent.nodeType == 11 ? parent.host : parent;
 };
-
 var reusedRange = null;
-
 var textRange = function textRange(node, from, to) {
   var range = reusedRange || (reusedRange = document.createRange());
   range.setEnd(node, to == null ? node.nodeValue.length : to);
   range.setStart(node, from || 0);
   return range;
 };
-
 var isEquivalentPosition = function isEquivalentPosition(node, off, targetNode, targetOff) {
   return targetNode && (scanFor(node, off, targetNode, targetOff, -1) || scanFor(node, off, targetNode, targetOff, 1));
 };
-
 var atomElements = /^(img|br|input|textarea|hr)$/i;
-
 function scanFor(node, off, targetNode, targetOff, dir) {
   for (;;) {
     if (node == targetNode && off == targetOff) return true;
-
     if (off == (dir < 0 ? 0 : nodeSize(node))) {
       var parent = node.parentNode;
       if (!parent || parent.nodeType != 1 || hasBlockDesc(node) || atomElements.test(node.nodeName) || node.contentEditable == "false") return false;
@@ -15181,11 +14763,9 @@ function scanFor(node, off, targetNode, targetOff, dir) {
     }
   }
 }
-
 function nodeSize(node) {
   return node.nodeType == 3 ? node.nodeValue.length : node.childNodes.length;
 }
-
 function isOnEdge(node, offset, parent) {
   for (var atStart = offset == 0, atEnd = offset == nodeSize(node); atStart || atEnd;) {
     if (node == parent) return true;
@@ -15196,21 +14776,14 @@ function isOnEdge(node, offset, parent) {
     atEnd = atEnd && index == nodeSize(node);
   }
 }
-
 function hasBlockDesc(dom) {
   var desc;
-
-  for (var cur = dom; cur; cur = cur.parentNode) {
-    if (desc = cur.pmViewDesc) break;
-  }
-
+  for (var cur = dom; cur; cur = cur.parentNode) if (desc = cur.pmViewDesc) break;
   return desc && desc.node && desc.node.isBlock && (desc.dom == dom || desc.contentDOM == dom);
 }
-
 var selectionCollapsed = function selectionCollapsed(domSel) {
   return domSel.focusNode && isEquivalentPosition(domSel.focusNode, domSel.focusOffset, domSel.anchorNode, domSel.anchorOffset);
 };
-
 function keyEvent(keyCode, key) {
   var event = document.createEvent("Event");
   event.initEvent("keydown", true, true);
@@ -15218,17 +14791,11 @@ function keyEvent(keyCode, key) {
   event.key = event.code = key;
   return event;
 }
-
 function deepActiveElement(doc) {
   var elt = doc.activeElement;
-
-  while (elt && elt.shadowRoot) {
-    elt = elt.shadowRoot.activeElement;
-  }
-
+  while (elt && elt.shadowRoot) elt = elt.shadowRoot.activeElement;
   return elt;
 }
-
 function caretFromPoint(doc, x, y) {
   if (doc.caretPositionFromPoint) {
     try {
@@ -15239,7 +14806,6 @@ function caretFromPoint(doc, x, y) {
       };
     } catch (_) {}
   }
-
   if (doc.caretRangeFromPoint) {
     var range = doc.caretRangeFromPoint(x, y);
     if (range) return {
@@ -15248,7 +14814,6 @@ function caretFromPoint(doc, x, y) {
     };
   }
 }
-
 var nav = typeof navigator != "undefined" ? navigator : null;
 var doc = typeof document != "undefined" ? document : null;
 var agent = nav && nav.userAgent || "";
@@ -15259,9 +14824,7 @@ var ie = !!(ie_upto10 || ie_11up || ie_edge);
 var ie_version = ie_upto10 ? document.documentMode : ie_11up ? +ie_11up[1] : ie_edge ? +ie_edge[1] : 0;
 var gecko = !ie && /gecko\/(\d+)/i.test(agent);
 gecko && +(/Firefox\/(\d+)/.exec(agent) || [0, 0])[1];
-
 var _chrome = !ie && /Chrome\/(\d+)/.exec(agent);
-
 var chrome = !!_chrome;
 var chrome_version = _chrome ? +_chrome[1] : 0;
 var safari = !ie && !!nav && /Apple Computer/.test(nav.vendor);
@@ -15271,7 +14834,6 @@ var windows = nav ? /Win/.test(nav.platform) : false;
 var android = /Android \d/.test(agent);
 var webkit = !!doc && "webkitFontSmoothing" in doc.documentElement.style;
 var webkit_version = webkit ? +(/\bAppleWebKit\/(\d+)/.exec(navigator.userAgent) || [0, 0])[1] : 0;
-
 function windowRect(doc) {
   return {
     left: 0,
@@ -15280,11 +14842,9 @@ function windowRect(doc) {
     bottom: doc.documentElement.clientHeight
   };
 }
-
 function getSide(value, side) {
   return typeof value == "number" ? value : value[side];
 }
-
 function clientRect(node) {
   var rect = node.getBoundingClientRect();
   var scaleX = rect.width / node.offsetWidth || 1;
@@ -15296,12 +14856,10 @@ function clientRect(node) {
     bottom: rect.top + node.clientHeight * scaleY
   };
 }
-
 function scrollRectIntoView(view, rect, startDOM) {
   var scrollThreshold = view.someProp("scrollThreshold") || 0,
-      scrollMargin = view.someProp("scrollMargin") || 5;
+    scrollMargin = view.someProp("scrollMargin") || 5;
   var doc = view.dom.ownerDocument;
-
   for (var parent = startDOM || view.dom;; parent = parentNode(parent)) {
     if (!parent) break;
     if (parent.nodeType != 1) continue;
@@ -15309,20 +14867,19 @@ function scrollRectIntoView(view, rect, startDOM) {
     var atTop = elt == doc.body;
     var bounding = atTop ? windowRect(doc) : clientRect(elt);
     var moveX = 0,
-        moveY = 0;
+      moveY = 0;
     if (rect.top < bounding.top + getSide(scrollThreshold, "top")) moveY = -(bounding.top - rect.top + getSide(scrollMargin, "top"));else if (rect.bottom > bounding.bottom - getSide(scrollThreshold, "bottom")) moveY = rect.bottom - rect.top > bounding.bottom - bounding.top ? rect.top + getSide(scrollMargin, "top") - bounding.top : rect.bottom - bounding.bottom + getSide(scrollMargin, "bottom");
     if (rect.left < bounding.left + getSide(scrollThreshold, "left")) moveX = -(bounding.left - rect.left + getSide(scrollMargin, "left"));else if (rect.right > bounding.right - getSide(scrollThreshold, "right")) moveX = rect.right - bounding.right + getSide(scrollMargin, "right");
-
     if (moveX || moveY) {
       if (atTop) {
         doc.defaultView.scrollBy(moveX, moveY);
       } else {
         var startX = elt.scrollLeft,
-            startY = elt.scrollTop;
+          startY = elt.scrollTop;
         if (moveY) elt.scrollTop += moveY;
         if (moveX) elt.scrollLeft += moveX;
         var dX = elt.scrollLeft - startX,
-            dY = elt.scrollTop - startY;
+          dY = elt.scrollTop - startY;
         rect = {
           left: rect.left - dX,
           top: rect.top - dY,
@@ -15331,39 +14888,32 @@ function scrollRectIntoView(view, rect, startDOM) {
         };
       }
     }
-
     if (atTop || /^(fixed|sticky)$/.test(getComputedStyle(parent).position)) break;
   }
 }
-
 function storeScrollPos(view) {
   var rect = view.dom.getBoundingClientRect(),
-      startY = Math.max(0, rect.top);
+    startY = Math.max(0, rect.top);
   var refDOM, refTop;
-
   for (var x = (rect.left + rect.right) / 2, y = startY + 1; y < Math.min(innerHeight, rect.bottom); y += 5) {
     var dom = view.root.elementFromPoint(x, y);
     if (!dom || dom == view.dom || !view.dom.contains(dom)) continue;
     var localRect = dom.getBoundingClientRect();
-
     if (localRect.top >= startY - 20) {
       refDOM = dom;
       refTop = localRect.top;
       break;
     }
   }
-
   return {
     refDOM: refDOM,
     refTop: refTop,
     stack: scrollStack(view.dom)
   };
 }
-
 function scrollStack(dom) {
   var stack = [],
-      doc = dom.ownerDocument;
-
+    doc = dom.ownerDocument;
   for (var cur = dom; cur; cur = parentNode(cur)) {
     stack.push({
       dom: cur,
@@ -15372,31 +14922,26 @@ function scrollStack(dom) {
     });
     if (dom == doc) break;
   }
-
   return stack;
 }
-
 function resetScrollPos(_ref) {
   var refDOM = _ref.refDOM,
-      refTop = _ref.refTop,
-      stack = _ref.stack;
+    refTop = _ref.refTop,
+    stack = _ref.stack;
   var newRefTop = refDOM ? refDOM.getBoundingClientRect().top : 0;
   restoreScrollStack(stack, newRefTop == 0 ? 0 : newRefTop - refTop);
 }
-
 function restoreScrollStack(stack, dTop) {
   for (var i = 0; i < stack.length; i++) {
     var _stack$i = stack[i],
-        dom = _stack$i.dom,
-        top = _stack$i.top,
-        left = _stack$i.left;
+      dom = _stack$i.dom,
+      top = _stack$i.top,
+      left = _stack$i.left;
     if (dom.scrollTop != top + dTop) dom.scrollTop = top + dTop;
     if (dom.scrollLeft != left) dom.scrollLeft = left;
   }
 }
-
 var preventScrollSupported = null;
-
 function focusPreventScroll(dom) {
   if (dom.setActive) return dom.setActive();
   if (preventScrollSupported) return dom.focus(preventScrollSupported);
@@ -15408,36 +14953,29 @@ function focusPreventScroll(dom) {
       };
       return true;
     }
-
   } : undefined);
-
   if (!preventScrollSupported) {
     preventScrollSupported = false;
     restoreScrollStack(stored, 0);
   }
 }
-
 function findOffsetInNode(node, coords) {
   var closest,
-      dxClosest = 2e8,
-      coordsClosest,
-      offset = 0;
+    dxClosest = 2e8,
+    coordsClosest,
+    offset = 0;
   var rowBot = coords.top,
-      rowTop = coords.top;
+    rowTop = coords.top;
   var firstBelow, coordsBelow;
-
   for (var child = node.firstChild, childIndex = 0; child; child = child.nextSibling, childIndex++) {
     var rects = void 0;
     if (child.nodeType == 1) rects = child.getClientRects();else if (child.nodeType == 3) rects = textRange(child).getClientRects();else continue;
-
     for (var i = 0; i < rects.length; i++) {
       var rect = rects[i];
-
       if (rect.top <= rowBot && rect.bottom >= rowTop) {
         rowBot = Math.max(rect.bottom, rowBot);
         rowTop = Math.min(rect.top, rowTop);
         var dx = rect.left > coords.left ? rect.left - coords.left : rect.right < coords.left ? coords.left - rect.right : 0;
-
         if (dx < dxClosest) {
           closest = child;
           dxClosest = dx;
@@ -15455,17 +14993,14 @@ function findOffsetInNode(node, coords) {
           top: rect.top
         };
       }
-
       if (!closest && (coords.left >= rect.right && coords.top >= rect.top || coords.left >= rect.left && coords.top >= rect.bottom)) offset = childIndex + 1;
     }
   }
-
   if (!closest && firstBelow) {
     closest = firstBelow;
     coordsClosest = coordsBelow;
     dxClosest = 0;
   }
-
   if (closest && closest.nodeType == 3) return findOffsetInText(closest, coordsClosest);
   if (!closest || dxClosest && closest.nodeType == 1) return {
     node: node,
@@ -15473,11 +15008,9 @@ function findOffsetInNode(node, coords) {
   };
   return findOffsetInNode(closest, coordsClosest);
 }
-
 function findOffsetInText(node, coords) {
   var len = node.nodeValue.length;
   var range = document.createRange();
-
   for (var i = 0; i < len; i++) {
     range.setEnd(node, i + 1);
     range.setStart(node, i);
@@ -15488,134 +15021,102 @@ function findOffsetInText(node, coords) {
       offset: i + (coords.left >= (rect.left + rect.right) / 2 ? 1 : 0)
     };
   }
-
   return {
     node: node,
     offset: 0
   };
 }
-
 function inRect(coords, rect) {
   return coords.left >= rect.left - 1 && coords.left <= rect.right + 1 && coords.top >= rect.top - 1 && coords.top <= rect.bottom + 1;
 }
-
 function targetKludge(dom, coords) {
   var parent = dom.parentNode;
   if (parent && /^li$/i.test(parent.nodeName) && coords.left < dom.getBoundingClientRect().left) return parent;
   return dom;
 }
-
 function posFromElement(view, elt, coords) {
   var _findOffsetInNode = findOffsetInNode(elt, coords),
-      node = _findOffsetInNode.node,
-      offset = _findOffsetInNode.offset,
-      bias = -1;
-
+    node = _findOffsetInNode.node,
+    offset = _findOffsetInNode.offset,
+    bias = -1;
   if (node.nodeType == 1 && !node.firstChild) {
     var rect = node.getBoundingClientRect();
     bias = rect.left != rect.right && coords.left > (rect.left + rect.right) / 2 ? 1 : -1;
   }
-
   return view.docView.posFromDOM(node, offset, bias);
 }
-
 function posFromCaret(view, node, offset, coords) {
   var outsideBlock = -1;
-
   for (var cur = node, sawBlock = false;;) {
     if (cur == view.dom) break;
     var desc = view.docView.nearestDesc(cur, true);
     if (!desc) return null;
-
     if (desc.dom.nodeType == 1 && (desc.node.isBlock && desc.parent && !sawBlock || !desc.contentDOM)) {
       var rect = desc.dom.getBoundingClientRect();
-
       if (desc.node.isBlock && desc.parent && !sawBlock) {
         sawBlock = true;
         if (rect.left > coords.left || rect.top > coords.top) outsideBlock = desc.posBefore;else if (rect.right < coords.left || rect.bottom < coords.top) outsideBlock = desc.posAfter;
       }
-
       if (!desc.contentDOM && outsideBlock < 0 && !desc.node.isText) {
         var before = desc.node.isBlock ? coords.top < (rect.top + rect.bottom) / 2 : coords.left < (rect.left + rect.right) / 2;
         return before ? desc.posBefore : desc.posAfter;
       }
     }
-
     cur = desc.dom.parentNode;
   }
-
   return outsideBlock > -1 ? outsideBlock : view.docView.posFromDOM(node, offset, -1);
 }
-
 function elementFromPoint(element, coords, box) {
   var len = element.childNodes.length;
-
   if (len && box.top < box.bottom) {
     for (var startI = Math.max(0, Math.min(len - 1, Math.floor(len * (coords.top - box.top) / (box.bottom - box.top)) - 2)), i = startI;;) {
       var child = element.childNodes[i];
-
       if (child.nodeType == 1) {
         var rects = child.getClientRects();
-
         for (var j = 0; j < rects.length; j++) {
           var rect = rects[j];
           if (inRect(coords, rect)) return elementFromPoint(child, coords, rect);
         }
       }
-
       if ((i = (i + 1) % len) == startI) break;
     }
   }
-
   return element;
 }
-
 function _posAtCoords(view, coords) {
   var doc = view.dom.ownerDocument,
-      node,
-      offset = 0;
+    node,
+    offset = 0;
   var caret = caretFromPoint(doc, coords.left, coords.top);
-
   if (caret) {
     node = caret.node;
     offset = caret.offset;
   }
-
   var elt = (view.root.elementFromPoint ? view.root : doc).elementFromPoint(coords.left, coords.top);
   var pos;
-
   if (!elt || !view.dom.contains(elt.nodeType != 1 ? elt.parentNode : elt)) {
     var box = view.dom.getBoundingClientRect();
     if (!inRect(coords, box)) return null;
     elt = elementFromPoint(view.dom, coords, box);
     if (!elt) return null;
   }
-
   if (safari) {
-    for (var p = elt; node && p; p = parentNode(p)) {
-      if (p.draggable) node = undefined;
-    }
+    for (var p = elt; node && p; p = parentNode(p)) if (p.draggable) node = undefined;
   }
-
   elt = targetKludge(elt, coords);
-
   if (node) {
     if (gecko && node.nodeType == 1) {
       offset = Math.min(offset, node.childNodes.length);
-
       if (offset < node.childNodes.length) {
         var next = node.childNodes[offset],
-            _box;
-
+          _box;
         if (next.nodeName == "IMG" && (_box = next.getBoundingClientRect()).right <= coords.left && _box.bottom > coords.top) offset++;
       }
     }
-
     var prev;
     if (webkit && offset && node.nodeType == 1 && (prev = node.childNodes[offset - 1]).nodeType == 1 && prev.contentEditable == "false" && prev.getBoundingClientRect().top >= coords.top) offset--;
     if (node == view.dom && offset == node.childNodes.length - 1 && node.lastChild.nodeType == 1 && coords.top > node.lastChild.getBoundingClientRect().bottom) pos = view.state.doc.content.size;else if (offset == 0 || node.nodeType != 1 || node.childNodes[offset - 1].nodeName != "BR") pos = posFromCaret(view, node, offset, coords);
   }
-
   if (pos == null) pos = posFromElement(view, elt, coords);
   var desc = view.docView.nearestDesc(elt, true);
   return {
@@ -15623,51 +15124,39 @@ function _posAtCoords(view, coords) {
     inside: desc ? desc.posAtStart - desc.border : -1
   };
 }
-
 function nonZero(rect) {
   return rect.top < rect.bottom || rect.left < rect.right;
 }
-
 function singleRect(target, bias) {
   var rects = target.getClientRects();
-
   if (rects.length) {
     var first = rects[bias < 0 ? 0 : rects.length - 1];
     if (nonZero(first)) return first;
   }
-
   return Array.prototype.find.call(rects, nonZero) || target.getBoundingClientRect();
 }
-
 var BIDI = /[\u0590-\u05f4\u0600-\u06ff\u0700-\u08ac]/;
-
 function _coordsAtPos(view, pos, side) {
   var _view$docView$domFrom = view.docView.domFromPos(pos, side < 0 ? -1 : 1),
-      node = _view$docView$domFrom.node,
-      offset = _view$docView$domFrom.offset,
-      atom = _view$docView$domFrom.atom;
-
+    node = _view$docView$domFrom.node,
+    offset = _view$docView$domFrom.offset,
+    atom = _view$docView$domFrom.atom;
   var supportEmptyRange = webkit || gecko;
-
   if (node.nodeType == 3) {
     if (supportEmptyRange && (BIDI.test(node.nodeValue) || (side < 0 ? !offset : offset == node.nodeValue.length))) {
       var rect = singleRect(textRange(node, offset, offset), side);
-
       if (gecko && offset && /\s/.test(node.nodeValue[offset - 1]) && offset < node.nodeValue.length) {
         var rectBefore = singleRect(textRange(node, offset - 1, offset - 1), -1);
-
         if (rectBefore.top == rect.top) {
           var rectAfter = singleRect(textRange(node, offset, offset + 1), -1);
           if (rectAfter.top != rect.top) return flattenV(rectAfter, rectAfter.left < rectBefore.left);
         }
       }
-
       return rect;
     } else {
       var from = offset,
-          to = offset,
-          takeSide = side < 0 ? 1 : -1;
-
+        to = offset,
+        takeSide = side < 0 ? 1 : -1;
       if (side < 0 && !offset) {
         to++;
         takeSide = -1;
@@ -15679,48 +15168,34 @@ function _coordsAtPos(view, pos, side) {
       } else {
         to++;
       }
-
       return flattenV(singleRect(textRange(node, from, to), takeSide), takeSide < 0);
     }
   }
-
   var $dom = view.state.doc.resolve(pos - (atom || 0));
-
   if (!$dom.parent.inlineContent) {
     if (atom == null && offset && (side < 0 || offset == nodeSize(node))) {
       var before = node.childNodes[offset - 1];
       if (before.nodeType == 1) return flattenH(before.getBoundingClientRect(), false);
     }
-
     if (atom == null && offset < nodeSize(node)) {
       var after = node.childNodes[offset];
       if (after.nodeType == 1) return flattenH(after.getBoundingClientRect(), true);
     }
-
     return flattenH(node.getBoundingClientRect(), side >= 0);
   }
-
   if (atom == null && offset && (side < 0 || offset == nodeSize(node))) {
     var _before = node.childNodes[offset - 1];
     var target = _before.nodeType == 3 ? textRange(_before, nodeSize(_before) - (supportEmptyRange ? 0 : 1)) : _before.nodeType == 1 && (_before.nodeName != "BR" || !_before.nextSibling) ? _before : null;
     if (target) return flattenV(singleRect(target, 1), false);
   }
-
   if (atom == null && offset < nodeSize(node)) {
     var _after = node.childNodes[offset];
-
-    while (_after.pmViewDesc && _after.pmViewDesc.ignoreForCoords) {
-      _after = _after.nextSibling;
-    }
-
+    while (_after.pmViewDesc && _after.pmViewDesc.ignoreForCoords) _after = _after.nextSibling;
     var _target = !_after ? null : _after.nodeType == 3 ? textRange(_after, 0, supportEmptyRange ? 0 : 1) : _after.nodeType == 1 ? _after : null;
-
     if (_target) return flattenV(singleRect(_target, -1), true);
   }
-
   return flattenV(singleRect(node.nodeType == 3 ? textRange(node) : node, -side), side >= 0);
 }
-
 function flattenV(rect, left) {
   if (rect.width == 0) return rect;
   var x = left ? rect.left : rect.right;
@@ -15731,7 +15206,6 @@ function flattenV(rect, left) {
     right: x
   };
 }
-
 function flattenH(rect, top) {
   if (rect.height == 0) return rect;
   var y = top ? rect.top : rect.bottom;
@@ -15742,13 +15216,11 @@ function flattenH(rect, top) {
     right: rect.right
   };
 }
-
 function withFlushedState(view, state, f) {
   var viewState = view.state,
-      active = view.root.activeElement;
+    active = view.root.activeElement;
   if (viewState != state) view.updateState(state);
   if (active != view.dom) view.focus();
-
   try {
     return f();
   } finally {
@@ -15756,99 +15228,79 @@ function withFlushedState(view, state, f) {
     if (active != view.dom && active) active.focus();
   }
 }
-
 function endOfTextblockVertical(view, state, dir) {
   var sel = state.selection;
   var $pos = dir == "up" ? sel.$from : sel.$to;
   return withFlushedState(view, state, function () {
     var _view$docView$domFrom2 = view.docView.domFromPos($pos.pos, dir == "up" ? -1 : 1),
-        dom = _view$docView$domFrom2.node;
-
+      dom = _view$docView$domFrom2.node;
     for (;;) {
       var nearest = view.docView.nearestDesc(dom, true);
       if (!nearest) break;
-
       if (nearest.node.isBlock) {
         dom = nearest.contentDOM || nearest.dom;
         break;
       }
-
       dom = nearest.dom.parentNode;
     }
-
     var coords = _coordsAtPos(view, $pos.pos, 1);
-
     for (var child = dom.firstChild; child; child = child.nextSibling) {
       var boxes = void 0;
       if (child.nodeType == 1) boxes = child.getClientRects();else if (child.nodeType == 3) boxes = textRange(child, 0, child.nodeValue.length).getClientRects();else continue;
-
       for (var i = 0; i < boxes.length; i++) {
         var box = boxes[i];
         if (box.bottom > box.top + 1 && (dir == "up" ? coords.top - box.top > (box.bottom - coords.top) * 2 : box.bottom - coords.bottom > (coords.bottom - box.top) * 2)) return false;
       }
     }
-
     return true;
   });
 }
-
 var maybeRTL = /[\u0590-\u08ac]/;
-
 function endOfTextblockHorizontal(view, state, dir) {
   var $head = state.selection.$head;
   if (!$head.parent.isTextblock) return false;
   var offset = $head.parentOffset,
-      atStart = !offset,
-      atEnd = offset == $head.parent.content.size;
+    atStart = !offset,
+    atEnd = offset == $head.parent.content.size;
   var sel = view.domSelection();
   if (!maybeRTL.test($head.parent.textContent) || !sel.modify) return dir == "left" || dir == "backward" ? atStart : atEnd;
   return withFlushedState(view, state, function () {
     var _view$domSelectionRan = view.domSelectionRange(),
-        oldNode = _view$domSelectionRan.focusNode,
-        oldOff = _view$domSelectionRan.focusOffset,
-        anchorNode = _view$domSelectionRan.anchorNode,
-        anchorOffset = _view$domSelectionRan.anchorOffset;
-
+      oldNode = _view$domSelectionRan.focusNode,
+      oldOff = _view$domSelectionRan.focusOffset,
+      anchorNode = _view$domSelectionRan.anchorNode,
+      anchorOffset = _view$domSelectionRan.anchorOffset;
     var oldBidiLevel = sel.caretBidiLevel;
     sel.modify("move", dir, "character");
     var parentDOM = $head.depth ? view.docView.domAfterPos($head.before()) : view.dom;
-
     var _view$domSelectionRan2 = view.domSelectionRange(),
-        newNode = _view$domSelectionRan2.focusNode,
-        newOff = _view$domSelectionRan2.focusOffset;
-
+      newNode = _view$domSelectionRan2.focusNode,
+      newOff = _view$domSelectionRan2.focusOffset;
     var result = newNode && !parentDOM.contains(newNode.nodeType == 1 ? newNode : newNode.parentNode) || oldNode == newNode && oldOff == newOff;
-
     try {
       sel.collapse(anchorNode, anchorOffset);
       if (oldNode && (oldNode != anchorNode || oldOff != anchorOffset) && sel.extend) sel.extend(oldNode, oldOff);
     } catch (_) {}
-
     if (oldBidiLevel != null) sel.caretBidiLevel = oldBidiLevel;
     return result;
   });
 }
-
 var cachedState = null;
 var cachedDir = null;
 var cachedResult = false;
-
 function _endOfTextblock(view, state, dir) {
   if (cachedState == state && cachedDir == dir) return cachedResult;
   cachedState = state;
   cachedDir = dir;
   return cachedResult = dir == "up" || dir == "down" ? endOfTextblockVertical(view, state, dir) : endOfTextblockHorizontal(view, state, dir);
 }
-
 var NOT_DIRTY = 0,
-    CHILD_DIRTY = 1,
-    CONTENT_DIRTY = 2,
-    NODE_DIRTY = 3;
-
+  CHILD_DIRTY = 1,
+  CONTENT_DIRTY = 2,
+  NODE_DIRTY = 3;
 var ViewDesc = function () {
   function ViewDesc(parent, children, dom, contentDOM) {
     _classCallCheck(this, ViewDesc);
-
     this.parent = parent;
     this.children = children;
     this.dom = dom;
@@ -15856,7 +15308,6 @@ var ViewDesc = function () {
     this.dirty = NOT_DIRTY;
     dom.pmViewDesc = this;
   }
-
   _createClass(ViewDesc, [{
     key: "matchesWidget",
     value: function matchesWidget(widget) {
@@ -15891,11 +15342,7 @@ var ViewDesc = function () {
     key: "size",
     get: function get() {
       var size = 0;
-
-      for (var i = 0; i < this.children.length; i++) {
-        size += this.children[i].size;
-      }
-
+      for (var i = 0; i < this.children.length; i++) size += this.children[i].size;
       return size;
     }
   }, {
@@ -15908,10 +15355,7 @@ var ViewDesc = function () {
     value: function destroy() {
       this.parent = undefined;
       if (this.dom.pmViewDesc == this) this.dom.pmViewDesc = undefined;
-
-      for (var i = 0; i < this.children.length; i++) {
-        this.children[i].destroy();
-      }
+      for (var i = 0; i < this.children.length; i++) this.children[i].destroy();
     }
   }, {
     key: "posBeforeChild",
@@ -15948,45 +15392,27 @@ var ViewDesc = function () {
       if (this.contentDOM && this.contentDOM.contains(dom.nodeType == 1 ? dom : dom.parentNode)) {
         if (bias < 0) {
           var domBefore, desc;
-
           if (dom == this.contentDOM) {
             domBefore = dom.childNodes[offset - 1];
           } else {
-            while (dom.parentNode != this.contentDOM) {
-              dom = dom.parentNode;
-            }
-
+            while (dom.parentNode != this.contentDOM) dom = dom.parentNode;
             domBefore = dom.previousSibling;
           }
-
-          while (domBefore && !((desc = domBefore.pmViewDesc) && desc.parent == this)) {
-            domBefore = domBefore.previousSibling;
-          }
-
+          while (domBefore && !((desc = domBefore.pmViewDesc) && desc.parent == this)) domBefore = domBefore.previousSibling;
           return domBefore ? this.posBeforeChild(desc) + desc.size : this.posAtStart;
         } else {
           var domAfter, _desc;
-
           if (dom == this.contentDOM) {
             domAfter = dom.childNodes[offset];
           } else {
-            while (dom.parentNode != this.contentDOM) {
-              dom = dom.parentNode;
-            }
-
+            while (dom.parentNode != this.contentDOM) dom = dom.parentNode;
             domAfter = dom.nextSibling;
           }
-
-          while (domAfter && !((_desc = domAfter.pmViewDesc) && _desc.parent == this)) {
-            domAfter = domAfter.nextSibling;
-          }
-
+          while (domAfter && !((_desc = domAfter.pmViewDesc) && _desc.parent == this)) domAfter = domAfter.nextSibling;
           return domAfter ? this.posBeforeChild(_desc) : this.posAtEnd;
         }
       }
-
       var atEnd;
-
       if (dom == this.dom && this.contentDOM) {
         atEnd = offset > domIndex(this.contentDOM);
       } else if (this.contentDOM && this.contentDOM != this.dom && this.dom.contains(this.contentDOM)) {
@@ -15997,7 +15423,6 @@ var ViewDesc = function () {
             atEnd = false;
             break;
           }
-
           if (search.previousSibling) break;
         }
         if (atEnd == null && offset == dom.childNodes.length) for (var _search = dom;; _search = _search.parentNode) {
@@ -16005,22 +15430,18 @@ var ViewDesc = function () {
             atEnd = true;
             break;
           }
-
           if (_search.nextSibling) break;
         }
       }
-
       return (atEnd == null ? bias > 0 : atEnd) ? this.posAtEnd : this.posAtStart;
     }
   }, {
     key: "nearestDesc",
     value: function nearestDesc(dom) {
       var onlyNodes = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
-
       for (var first = true, cur = dom; cur; cur = cur.parentNode) {
         var desc = this.getDesc(cur),
-            nodeDOM = void 0;
-
+          nodeDOM = void 0;
         if (desc && (!onlyNodes || desc.node)) {
           if (first && (nodeDOM = desc.nodeDOM) && !(nodeDOM.nodeType == 1 ? nodeDOM.contains(dom.nodeType == 1 ? dom : dom.parentNode) : nodeDOM == dom)) first = false;else return desc;
         }
@@ -16030,10 +15451,7 @@ var ViewDesc = function () {
     key: "getDesc",
     value: function getDesc(dom) {
       var desc = dom.pmViewDesc;
-
-      for (var cur = desc; cur; cur = cur.parent) {
-        if (cur == this) return desc;
-      }
+      for (var cur = desc; cur; cur = cur.parent) if (cur == this) return desc;
     }
   }, {
     key: "posFromDOM",
@@ -16042,7 +15460,6 @@ var ViewDesc = function () {
         var desc = this.getDesc(scan);
         if (desc) return desc.localPosFromDOM(dom, offset, bias);
       }
-
       return -1;
     }
   }, {
@@ -16050,16 +15467,11 @@ var ViewDesc = function () {
     value: function descAt(pos) {
       for (var i = 0, offset = 0; i < this.children.length; i++) {
         var child = this.children[i],
-            end = offset + child.size;
-
+          end = offset + child.size;
         if (offset == pos && end != offset) {
-          while (!child.border && child.children.length) {
-            child = child.children[0];
-          }
-
+          while (!child.border && child.children.length) child = child.children[0];
           return child;
         }
-
         if (pos < end) return child.descAt(pos - offset - child.border);
         offset = end;
       }
@@ -16073,33 +15485,25 @@ var ViewDesc = function () {
         atom: pos + 1
       };
       var i = 0,
-          offset = 0;
-
+        offset = 0;
       for (var curPos = 0; i < this.children.length; i++) {
         var child = this.children[i],
-            end = curPos + child.size;
-
+          end = curPos + child.size;
         if (end > pos || child instanceof TrailingHackViewDesc) {
           offset = pos - curPos;
           break;
         }
-
         curPos = end;
       }
-
       if (offset) return this.children[i].domFromPos(offset - this.children[i].border, side);
-
       for (var prev; i && !(prev = this.children[i - 1]).size && prev instanceof WidgetViewDesc && prev.side >= 0; i--) {}
-
       if (side <= 0) {
         var _prev,
-            enter = true;
-
+          enter = true;
         for (;; i--, enter = false) {
           _prev = i ? this.children[i - 1] : null;
           if (!_prev || _prev.dom.parentNode == this.contentDOM) break;
         }
-
         if (_prev && side && enter && !_prev.border && !_prev.domAtom) return _prev.domFromPos(_prev.size, side);
         return {
           node: this.contentDOM,
@@ -16107,13 +15511,11 @@ var ViewDesc = function () {
         };
       } else {
         var next,
-            _enter = true;
-
+          _enter = true;
         for (;; i++, _enter = false) {
           next = i < this.children.length ? this.children[i] : null;
           if (!next || next.dom.parentNode == this.contentDOM) break;
         }
-
         if (next && _enter && !next.border && !next.domAtom) return next.domFromPos(0, side);
         return {
           node: this.contentDOM,
@@ -16133,52 +15535,39 @@ var ViewDesc = function () {
         toOffset: this.contentDOM.childNodes.length
       };
       var fromOffset = -1,
-          toOffset = -1;
-
+        toOffset = -1;
       for (var offset = base, i = 0;; i++) {
         var child = this.children[i],
-            end = offset + child.size;
-
+          end = offset + child.size;
         if (fromOffset == -1 && from <= end) {
           var childBase = offset + child.border;
           if (from >= childBase && to <= end - child.border && child.node && child.contentDOM && this.contentDOM.contains(child.contentDOM)) return child.parseRange(from, to, childBase);
           from = offset;
-
           for (var j = i; j > 0; j--) {
             var prev = this.children[j - 1];
-
             if (prev.size && prev.dom.parentNode == this.contentDOM && !prev.emptyChildAt(1)) {
               fromOffset = domIndex(prev.dom) + 1;
               break;
             }
-
             from -= prev.size;
           }
-
           if (fromOffset == -1) fromOffset = 0;
         }
-
         if (fromOffset > -1 && (end > to || i == this.children.length - 1)) {
           to = end;
-
           for (var _j = i + 1; _j < this.children.length; _j++) {
             var next = this.children[_j];
-
             if (next.size && next.dom.parentNode == this.contentDOM && !next.emptyChildAt(-1)) {
               toOffset = domIndex(next.dom);
               break;
             }
-
             to += next.size;
           }
-
           if (toOffset == -1) toOffset = this.contentDOM.childNodes.length;
           break;
         }
-
         offset = end;
       }
-
       return {
         node: this.contentDOM,
         from: from,
@@ -16198,9 +15587,8 @@ var ViewDesc = function () {
     key: "domAfterPos",
     value: function domAfterPos(pos) {
       var _this$domFromPos = this.domFromPos(pos, 0),
-          node = _this$domFromPos.node,
-          offset = _this$domFromPos.offset;
-
+        node = _this$domFromPos.node,
+        offset = _this$domFromPos.offset;
       if (node.nodeType != 1 || offset == node.childNodes.length) throw new RangeError("No node after pos " + pos);
       return node.childNodes[offset];
     }
@@ -16209,28 +15597,23 @@ var ViewDesc = function () {
     value: function setSelection(anchor, head, root) {
       var force = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : false;
       var from = Math.min(anchor, head),
-          to = Math.max(anchor, head);
-
+        to = Math.max(anchor, head);
       for (var i = 0, offset = 0; i < this.children.length; i++) {
         var child = this.children[i],
-            end = offset + child.size;
+          end = offset + child.size;
         if (from > offset && to < end) return child.setSelection(anchor - offset - child.border, head - offset - child.border, root, force);
         offset = end;
       }
-
       var anchorDOM = this.domFromPos(anchor, anchor ? -1 : 1);
       var headDOM = head == anchor ? anchorDOM : this.domFromPos(head, head ? -1 : 1);
       var domSel = root.getSelection();
       var brKludge = false;
-
       if ((gecko || safari) && anchor == head) {
         var _anchorDOM = anchorDOM,
-            node = _anchorDOM.node,
-            _offset = _anchorDOM.offset;
-
+          node = _anchorDOM.node,
+          _offset = _anchorDOM.offset;
         if (node.nodeType == 3) {
           brKludge = !!(_offset && node.nodeValue[_offset - 1] == "\n");
-
           if (brKludge && _offset == node.nodeValue.length) {
             for (var scan = node, after; scan; scan = scan.parentNode) {
               if (after = scan.nextSibling) {
@@ -16240,7 +15623,6 @@ var ViewDesc = function () {
                 };
                 break;
               }
-
               var desc = scan.pmViewDesc;
               if (desc && desc.node && desc.node.isBlock) break;
             }
@@ -16250,31 +15632,25 @@ var ViewDesc = function () {
           brKludge = prev && (prev.nodeName == "BR" || prev.contentEditable == "false");
         }
       }
-
       if (gecko && domSel.focusNode && domSel.focusNode != headDOM.node && domSel.focusNode.nodeType == 1) {
         var _after2 = domSel.focusNode.childNodes[domSel.focusOffset];
         if (_after2 && _after2.contentEditable == "false") force = true;
       }
-
       if (!(force || brKludge && safari) && isEquivalentPosition(anchorDOM.node, anchorDOM.offset, domSel.anchorNode, domSel.anchorOffset) && isEquivalentPosition(headDOM.node, headDOM.offset, domSel.focusNode, domSel.focusOffset)) return;
       var domSelExtended = false;
-
       if ((domSel.extend || anchor == head) && !brKludge) {
         domSel.collapse(anchorDOM.node, anchorDOM.offset);
-
         try {
           if (anchor != head) domSel.extend(headDOM.node, headDOM.offset);
           domSelExtended = true;
         } catch (_) {}
       }
-
       if (!domSelExtended) {
         if (anchor > head) {
           var tmp = anchorDOM;
           anchorDOM = headDOM;
           headDOM = tmp;
         }
-
         var range = document.createRange();
         range.setEnd(headDOM.node, headDOM.offset);
         range.setStart(anchorDOM.node, anchorDOM.offset);
@@ -16297,12 +15673,10 @@ var ViewDesc = function () {
     value: function markDirty(from, to) {
       for (var offset = 0, i = 0; i < this.children.length; i++) {
         var child = this.children[i],
-            end = offset + child.size;
-
+          end = offset + child.size;
         if (offset == end ? from <= end && to >= offset : from < end && to > offset) {
           var startInside = offset + child.border,
-              endInside = end - child.border;
-
+            endInside = end - child.border;
           if (from >= startInside && to <= endInside) {
             this.dirty = from == offset || to == end ? CONTENT_DIRTY : CHILD_DIRTY;
             if (from == startInside && to == endInside && (child.contentLost || child.dom.parentNode != this.contentDOM)) child.dirty = NODE_DIRTY;else child.markDirty(from - startInside, to - startInside);
@@ -16311,17 +15685,14 @@ var ViewDesc = function () {
             child.dirty = child.dom == child.contentDOM && child.dom.parentNode == this.contentDOM && !child.children.length ? CONTENT_DIRTY : NODE_DIRTY;
           }
         }
-
         offset = end;
       }
-
       this.dirty = CONTENT_DIRTY;
     }
   }, {
     key: "markParentsDirty",
     value: function markParentsDirty() {
       var level = 1;
-
       for (var node = this.parent; node; node = node.parent, level++) {
         var dirty = level == 1 ? CONTENT_DIRTY : CHILD_DIRTY;
         if (node.dirty < dirty) node.dirty = dirty;
@@ -16338,45 +15709,35 @@ var ViewDesc = function () {
       return false;
     }
   }]);
-
   return ViewDesc;
 }();
-
 var WidgetViewDesc = function (_ViewDesc) {
   _inherits(WidgetViewDesc, _ViewDesc);
-
   var _super = _createSuper(WidgetViewDesc);
-
   function WidgetViewDesc(parent, widget, view, pos) {
     var _this;
-
     _classCallCheck(this, WidgetViewDesc);
-
     var self,
-        dom = widget.type.toDOM;
+      dom = widget.type.toDOM;
     if (typeof dom == "function") dom = dom(view, function () {
       if (!self) return pos;
       if (self.parent) return self.parent.posBeforeChild(self);
     });
-
     if (!widget.type.spec.raw) {
       if (dom.nodeType != 1) {
         var wrap = document.createElement("span");
         wrap.appendChild(dom);
         dom = wrap;
       }
-
       dom.contentEditable = "false";
       dom.classList.add("ProseMirror-widget");
     }
-
     _this = _super.call(this, parent, [], dom, null);
     _this.widget = widget;
     _this.widget = widget;
     self = _assertThisInitialized(_this);
     return _this;
   }
-
   _createClass(WidgetViewDesc, [{
     key: "matchesWidget",
     value: function matchesWidget(widget) {
@@ -16404,7 +15765,6 @@ var WidgetViewDesc = function (_ViewDesc) {
     key: "destroy",
     value: function destroy() {
       this.widget.type.destroy(this.dom);
-
       _get(_getPrototypeOf(WidgetViewDesc.prototype), "destroy", this).call(this);
     }
   }, {
@@ -16418,26 +15778,19 @@ var WidgetViewDesc = function (_ViewDesc) {
       return this.widget.type.side;
     }
   }]);
-
   return WidgetViewDesc;
 }(ViewDesc);
-
 var CompositionViewDesc = function (_ViewDesc2) {
   _inherits(CompositionViewDesc, _ViewDesc2);
-
   var _super2 = _createSuper(CompositionViewDesc);
-
   function CompositionViewDesc(parent, dom, textDOM, text) {
     var _this2;
-
     _classCallCheck(this, CompositionViewDesc);
-
     _this2 = _super2.call(this, parent, [], dom, null);
     _this2.textDOM = textDOM;
     _this2.text = text;
     return _this2;
   }
-
   _createClass(CompositionViewDesc, [{
     key: "size",
     get: function get() {
@@ -16463,25 +15816,18 @@ var CompositionViewDesc = function (_ViewDesc2) {
       return mut.type === 'characterData' && mut.target.nodeValue == mut.oldValue;
     }
   }]);
-
   return CompositionViewDesc;
 }(ViewDesc);
-
 var MarkViewDesc = function (_ViewDesc3) {
   _inherits(MarkViewDesc, _ViewDesc3);
-
   var _super3 = _createSuper(MarkViewDesc);
-
   function MarkViewDesc(parent, mark, dom, contentDOM) {
     var _this3;
-
     _classCallCheck(this, MarkViewDesc);
-
     _this3 = _super3.call(this, parent, [], dom, contentDOM);
     _this3.mark = mark;
     return _this3;
   }
-
   _createClass(MarkViewDesc, [{
     key: "parseRule",
     value: function parseRule() {
@@ -16501,14 +15847,9 @@ var MarkViewDesc = function (_ViewDesc3) {
     key: "markDirty",
     value: function markDirty(from, to) {
       _get(_getPrototypeOf(MarkViewDesc.prototype), "markDirty", this).call(this, from, to);
-
       if (this.dirty != NOT_DIRTY) {
         var parent = this.parent;
-
-        while (!parent.node) {
-          parent = parent.parent;
-        }
-
+        while (!parent.node) parent = parent.parent;
         if (parent.dirty < this.dirty) parent.dirty = this.dirty;
         this.dirty = NOT_DIRTY;
       }
@@ -16518,14 +15859,10 @@ var MarkViewDesc = function (_ViewDesc3) {
     value: function slice(from, to, view) {
       var copy = MarkViewDesc.create(this.parent, this.mark, true, view);
       var nodes = this.children,
-          size = this.size;
+        size = this.size;
       if (to < size) nodes = replaceNodes(nodes, to, size, view);
       if (from > 0) nodes = replaceNodes(nodes, 0, from, view);
-
-      for (var i = 0; i < nodes.length; i++) {
-        nodes[i].parent = copy;
-      }
-
+      for (var i = 0; i < nodes.length; i++) nodes[i].parent = copy;
       copy.children = nodes;
       return copy;
     }
@@ -16538,20 +15875,14 @@ var MarkViewDesc = function (_ViewDesc3) {
       return new MarkViewDesc(parent, mark, spec.dom, spec.contentDOM || spec.dom);
     }
   }]);
-
   return MarkViewDesc;
 }(ViewDesc);
-
 var NodeViewDesc = function (_ViewDesc4) {
   _inherits(NodeViewDesc, _ViewDesc4);
-
   var _super4 = _createSuper(NodeViewDesc);
-
   function NodeViewDesc(parent, node, outerDeco, innerDeco, dom, contentDOM, nodeDOM, view, pos) {
     var _this4;
-
     _classCallCheck(this, NodeViewDesc);
-
     _this4 = _super4.call(this, parent, [], dom, contentDOM);
     _this4.node = node;
     _this4.outerDeco = outerDeco;
@@ -16559,19 +15890,16 @@ var NodeViewDesc = function (_ViewDesc4) {
     _this4.nodeDOM = nodeDOM;
     return _this4;
   }
-
   _createClass(NodeViewDesc, [{
     key: "parseRule",
     value: function parseRule() {
       var _this5 = this;
-
       if (this.node.type.spec.reparseInView) return null;
       var rule = {
         node: this.node.type.name,
         attrs: this.node.attrs
       };
       if (this.node.type.whitespace == "pre") rule.preserveWhitespace = "full";
-
       if (!this.contentDOM) {
         rule.getContent = function () {
           return _this5.node.content;
@@ -16581,18 +15909,15 @@ var NodeViewDesc = function (_ViewDesc4) {
       } else {
         for (var i = this.children.length - 1; i >= 0; i--) {
           var child = this.children[i];
-
           if (this.dom.contains(child.dom.parentNode)) {
             rule.contentElement = child.dom.parentNode;
             break;
           }
         }
-
         if (!rule.contentElement) rule.getContent = function () {
           return prosemirrorModel.Fragment.empty;
         };
       }
-
       return rule;
     }
   }, {
@@ -16614,9 +15939,8 @@ var NodeViewDesc = function (_ViewDesc4) {
     key: "updateChildren",
     value: function updateChildren(view, pos) {
       var _this6 = this;
-
       var inline = this.node.inlineContent,
-          off = pos;
+        off = pos;
       var composition = view.composing ? this.localCompositionInfo(view, pos) : null;
       var localComposition = composition && composition.pos > -1 ? composition : null;
       var compositionInChild = composition && composition.pos < 0;
@@ -16635,7 +15959,6 @@ var NodeViewDesc = function (_ViewDesc4) {
       updater.syncToMarks([], inline, view);
       if (this.node.isTextblock) updater.addTextblockHacks();
       updater.destroyRest();
-
       if (updater.changed || this.dirty == CONTENT_DIRTY) {
         if (localComposition) this.protectLocalComposition(view, localComposition);
         renderDescs(this.contentDOM, this.children, view);
@@ -16646,13 +15969,12 @@ var NodeViewDesc = function (_ViewDesc4) {
     key: "localCompositionInfo",
     value: function localCompositionInfo(view, pos) {
       var _view$state$selection = view.state.selection,
-          from = _view$state$selection.from,
-          to = _view$state$selection.to;
+        from = _view$state$selection.from,
+        to = _view$state$selection.to;
       if (!(view.state.selection instanceof prosemirrorState.TextSelection) || from < pos || to > pos + this.node.content.size) return null;
       var sel = view.domSelectionRange();
       var textNode = nearbyTextNode(sel.focusNode, sel.focusOffset);
       if (!textNode || !this.dom.contains(textNode.parentNode)) return null;
-
       if (this.node.inlineContent) {
         var text = textNode.nodeValue;
         var textPos = findTextInFragment(this.node.content, text, from - pos, to - pos);
@@ -16673,25 +15995,16 @@ var NodeViewDesc = function (_ViewDesc4) {
     key: "protectLocalComposition",
     value: function protectLocalComposition(view, _ref2) {
       var node = _ref2.node,
-          pos = _ref2.pos,
-          text = _ref2.text;
+        pos = _ref2.pos,
+        text = _ref2.text;
       if (this.getDesc(node)) return;
       var topNode = node;
-
       for (;; topNode = topNode.parentNode) {
         if (topNode.parentNode == this.contentDOM) break;
-
-        while (topNode.previousSibling) {
-          topNode.parentNode.removeChild(topNode.previousSibling);
-        }
-
-        while (topNode.nextSibling) {
-          topNode.parentNode.removeChild(topNode.nextSibling);
-        }
-
+        while (topNode.previousSibling) topNode.parentNode.removeChild(topNode.previousSibling);
+        while (topNode.nextSibling) topNode.parentNode.removeChild(topNode.nextSibling);
         if (topNode.pmViewDesc) topNode.pmViewDesc = undefined;
       }
-
       var desc = new CompositionViewDesc(this, topNode, node, text);
       view.input.compositionNodes.push(desc);
       this.children = replaceNodes(this.children, pos, pos + text.length, view, desc);
@@ -16719,12 +16032,10 @@ var NodeViewDesc = function (_ViewDesc4) {
       var needsWrap = this.nodeDOM.nodeType != 1;
       var oldDOM = this.dom;
       this.dom = patchOuterDeco(this.dom, this.nodeDOM, computeOuterDeco(this.outerDeco, this.node, needsWrap), computeOuterDeco(outerDeco, this.node, needsWrap));
-
       if (this.dom != oldDOM) {
         oldDOM.pmViewDesc = undefined;
         this.dom.pmViewDesc = this;
       }
-
       this.outerDeco = outerDeco;
     }
   }, {
@@ -16748,64 +16059,49 @@ var NodeViewDesc = function (_ViewDesc4) {
     key: "create",
     value: function create(parent, node, outerDeco, innerDeco, view, pos) {
       var custom = view.nodeViews[node.type.name],
-          descObj;
+        descObj;
       var spec = custom && custom(node, view, function () {
         if (!descObj) return pos;
         if (descObj.parent) return descObj.parent.posBeforeChild(descObj);
       }, outerDeco, innerDeco);
       var dom = spec && spec.dom,
-          contentDOM = spec && spec.contentDOM;
-
+        contentDOM = spec && spec.contentDOM;
       if (node.isText) {
         if (!dom) dom = document.createTextNode(node.text);else if (dom.nodeType != 3) throw new RangeError("Text must be rendered as a DOM text node");
       } else if (!dom) {
         var _prosemirrorModel$DOM = prosemirrorModel.DOMSerializer.renderSpec(document, node.type.spec.toDOM(node));
-
         dom = _prosemirrorModel$DOM.dom;
         contentDOM = _prosemirrorModel$DOM.contentDOM;
       }
-
       if (!contentDOM && !node.isText && dom.nodeName != "BR") {
         if (!dom.hasAttribute("contenteditable")) dom.contentEditable = "false";
         if (node.type.spec.draggable) dom.draggable = true;
       }
-
       var nodeDOM = dom;
       dom = applyOuterDeco(dom, outerDeco, node);
       if (spec) return descObj = new CustomNodeViewDesc(parent, node, outerDeco, innerDeco, dom, contentDOM || null, nodeDOM, spec, view, pos + 1);else if (node.isText) return new TextViewDesc(parent, node, outerDeco, innerDeco, dom, nodeDOM, view);else return new NodeViewDesc(parent, node, outerDeco, innerDeco, dom, contentDOM || null, nodeDOM, view, pos + 1);
     }
   }]);
-
   return NodeViewDesc;
 }(ViewDesc);
-
 function docViewDesc(doc, outerDeco, innerDeco, dom, view) {
   applyOuterDeco(dom, outerDeco, doc);
   var docView = new NodeViewDesc(undefined, doc, outerDeco, innerDeco, dom, dom, dom, view, 0);
   if (docView.contentDOM) docView.updateChildren(view, 0);
   return docView;
 }
-
 var TextViewDesc = function (_NodeViewDesc) {
   _inherits(TextViewDesc, _NodeViewDesc);
-
   var _super5 = _createSuper(TextViewDesc);
-
   function TextViewDesc(parent, node, outerDeco, innerDeco, dom, nodeDOM, view) {
     _classCallCheck(this, TextViewDesc);
-
     return _super5.call(this, parent, node, outerDeco, innerDeco, dom, null, nodeDOM, view, 0);
   }
-
   _createClass(TextViewDesc, [{
     key: "parseRule",
     value: function parseRule() {
       var skip = this.nodeDOM.parentNode;
-
-      while (skip && skip != this.dom && !skip.pmIsDeco) {
-        skip = skip.parentNode;
-      }
-
+      while (skip && skip != this.dom && !skip.pmIsDeco) skip = skip.parentNode;
       return {
         skip: skip || true
       };
@@ -16815,12 +16111,10 @@ var TextViewDesc = function (_NodeViewDesc) {
     value: function update(node, outerDeco, innerDeco, view) {
       if (this.dirty == NODE_DIRTY || this.dirty != NOT_DIRTY && !this.inParent() || !node.sameMarkup(this.node)) return false;
       this.updateOuterDeco(outerDeco);
-
       if ((this.dirty != NOT_DIRTY || node.text != this.node.text) && node.text != this.nodeDOM.nodeValue) {
         this.nodeDOM.nodeValue = node.text;
         if (view.trackWrites == this.nodeDOM) view.trackWrites = null;
       }
-
       this.node = node;
       this.dirty = NOT_DIRTY;
       return true;
@@ -16829,11 +16123,7 @@ var TextViewDesc = function (_NodeViewDesc) {
     key: "inParent",
     value: function inParent() {
       var parentDOM = this.parent.contentDOM;
-
-      for (var n = this.nodeDOM; n; n = n.parentNode) {
-        if (n == parentDOM) return true;
-      }
-
+      for (var n = this.nodeDOM; n; n = n.parentNode) if (n == parentDOM) return true;
       return false;
     }
   }, {
@@ -16859,14 +16149,13 @@ var TextViewDesc = function (_NodeViewDesc) {
     key: "slice",
     value: function slice(from, to, view) {
       var node = this.node.cut(from, to),
-          dom = document.createTextNode(node.text);
+        dom = document.createTextNode(node.text);
       return new TextViewDesc(this.parent, node, this.outerDeco, this.innerDeco, dom, dom, view);
     }
   }, {
     key: "markDirty",
     value: function markDirty(from, to) {
       _get(_getPrototypeOf(TextViewDesc.prototype), "markDirty", this).call(this, from, to);
-
       if (this.dom != this.nodeDOM && (from == 0 || to == this.nodeDOM.nodeValue.length)) this.dirty = NODE_DIRTY;
     }
   }, {
@@ -16875,21 +16164,15 @@ var TextViewDesc = function (_NodeViewDesc) {
       return false;
     }
   }]);
-
   return TextViewDesc;
 }(NodeViewDesc);
-
 var TrailingHackViewDesc = function (_ViewDesc5) {
   _inherits(TrailingHackViewDesc, _ViewDesc5);
-
   var _super6 = _createSuper(TrailingHackViewDesc);
-
   function TrailingHackViewDesc() {
     _classCallCheck(this, TrailingHackViewDesc);
-
     return _super6.apply(this, arguments);
   }
-
   _createClass(TrailingHackViewDesc, [{
     key: "parseRule",
     value: function parseRule() {
@@ -16913,30 +16196,22 @@ var TrailingHackViewDesc = function (_ViewDesc5) {
       return this.dom.nodeName == "IMG";
     }
   }]);
-
   return TrailingHackViewDesc;
 }(ViewDesc);
-
 var CustomNodeViewDesc = function (_NodeViewDesc2) {
   _inherits(CustomNodeViewDesc, _NodeViewDesc2);
-
   var _super7 = _createSuper(CustomNodeViewDesc);
-
   function CustomNodeViewDesc(parent, node, outerDeco, innerDeco, dom, contentDOM, nodeDOM, spec, view, pos) {
     var _this7;
-
     _classCallCheck(this, CustomNodeViewDesc);
-
     _this7 = _super7.call(this, parent, node, outerDeco, innerDeco, dom, contentDOM, nodeDOM, view, pos);
     _this7.spec = spec;
     return _this7;
   }
-
   _createClass(CustomNodeViewDesc, [{
     key: "update",
     value: function update(node, outerDeco, innerDeco, view) {
       if (this.dirty == NODE_DIRTY) return false;
-
       if (this.spec.update) {
         var result = this.spec.update(node, outerDeco, innerDeco);
         if (result) this.updateInner(node, outerDeco, innerDeco, view);
@@ -16966,7 +16241,6 @@ var CustomNodeViewDesc = function (_NodeViewDesc2) {
     key: "destroy",
     value: function destroy() {
       if (this.spec.destroy) this.spec.destroy();
-
       _get(_getPrototypeOf(CustomNodeViewDesc.prototype), "destroy", this).call(this);
     }
   }, {
@@ -16980,62 +16254,49 @@ var CustomNodeViewDesc = function (_NodeViewDesc2) {
       return this.spec.ignoreMutation ? this.spec.ignoreMutation(mutation) : _get(_getPrototypeOf(CustomNodeViewDesc.prototype), "ignoreMutation", this).call(this, mutation);
     }
   }]);
-
   return CustomNodeViewDesc;
 }(NodeViewDesc);
-
 function renderDescs(parentDOM, descs, view) {
   var dom = parentDOM.firstChild,
-      written = false;
-
+    written = false;
   for (var i = 0; i < descs.length; i++) {
     var desc = descs[i],
-        childDOM = desc.dom;
-
+      childDOM = desc.dom;
     if (childDOM.parentNode == parentDOM) {
       while (childDOM != dom) {
         dom = rm(dom);
         written = true;
       }
-
       dom = dom.nextSibling;
     } else {
       written = true;
       parentDOM.insertBefore(childDOM, dom);
     }
-
     if (desc instanceof MarkViewDesc) {
       var pos = dom ? dom.previousSibling : parentDOM.lastChild;
       renderDescs(desc.contentDOM, desc.children, view);
       dom = pos ? pos.nextSibling : parentDOM.firstChild;
     }
   }
-
   while (dom) {
     dom = rm(dom);
     written = true;
   }
-
   if (written && view.trackWrites == parentDOM) view.trackWrites = null;
 }
-
 var OuterDecoLevel = function OuterDecoLevel(nodeName) {
   if (nodeName) this.nodeName = nodeName;
 };
-
 OuterDecoLevel.prototype = Object.create(null);
 var noDeco = [new OuterDecoLevel()];
-
 function computeOuterDeco(outerDeco, node, needsWrap) {
   if (outerDeco.length == 0) return noDeco;
   var top = needsWrap ? noDeco[0] : new OuterDecoLevel(),
-      result = [top];
-
+    result = [top];
   for (var i = 0; i < outerDeco.length; i++) {
     var attrs = outerDeco[i].type.attrs;
     if (!attrs) continue;
     if (attrs.nodeName) result.push(top = new OuterDecoLevel(attrs.nodeName));
-
     for (var name in attrs) {
       var val = attrs[name];
       if (val == null) continue;
@@ -17043,21 +16304,16 @@ function computeOuterDeco(outerDeco, node, needsWrap) {
       if (name == "class") top["class"] = (top["class"] ? top["class"] + " " : "") + val;else if (name == "style") top.style = (top.style ? top.style + ";" : "") + val;else if (name != "nodeName") top[name] = val;
     }
   }
-
   return result;
 }
-
 function patchOuterDeco(outerDOM, nodeDOM, prevComputed, curComputed) {
   if (prevComputed == noDeco && curComputed == noDeco) return nodeDOM;
   var curDOM = nodeDOM;
-
   for (var i = 0; i < curComputed.length; i++) {
     var deco = curComputed[i],
-        prev = prevComputed[i];
-
+      prev = prevComputed[i];
     if (i) {
       var parent = void 0;
-
       if (prev && prev.nodeName == deco.nodeName && curDOM != outerDOM && (parent = curDOM.parentNode) && parent.nodeName.toLowerCase() == deco.nodeName) {
         curDOM = parent;
       } else {
@@ -17068,75 +16324,45 @@ function patchOuterDeco(outerDOM, nodeDOM, prevComputed, curComputed) {
         curDOM = parent;
       }
     }
-
     patchAttributes(curDOM, prev || noDeco[0], deco);
   }
-
   return curDOM;
 }
-
 function patchAttributes(dom, prev, cur) {
-  for (var name in prev) {
-    if (name != "class" && name != "style" && name != "nodeName" && !(name in cur)) dom.removeAttribute(name);
-  }
-
-  for (var _name in cur) {
-    if (_name != "class" && _name != "style" && _name != "nodeName" && cur[_name] != prev[_name]) dom.setAttribute(_name, cur[_name]);
-  }
-
+  for (var name in prev) if (name != "class" && name != "style" && name != "nodeName" && !(name in cur)) dom.removeAttribute(name);
+  for (var _name in cur) if (_name != "class" && _name != "style" && _name != "nodeName" && cur[_name] != prev[_name]) dom.setAttribute(_name, cur[_name]);
   if (prev["class"] != cur["class"]) {
     var prevList = prev["class"] ? prev["class"].split(" ").filter(Boolean) : [];
     var curList = cur["class"] ? cur["class"].split(" ").filter(Boolean) : [];
-
-    for (var i = 0; i < prevList.length; i++) {
-      if (curList.indexOf(prevList[i]) == -1) dom.classList.remove(prevList[i]);
-    }
-
-    for (var _i = 0; _i < curList.length; _i++) {
-      if (prevList.indexOf(curList[_i]) == -1) dom.classList.add(curList[_i]);
-    }
-
+    for (var i = 0; i < prevList.length; i++) if (curList.indexOf(prevList[i]) == -1) dom.classList.remove(prevList[i]);
+    for (var _i = 0; _i < curList.length; _i++) if (prevList.indexOf(curList[_i]) == -1) dom.classList.add(curList[_i]);
     if (dom.classList.length == 0) dom.removeAttribute("class");
   }
-
   if (prev.style != cur.style) {
     if (prev.style) {
       var prop = /\s*([\w\-\xa1-\uffff]+)\s*:(?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|\(.*?\)|[^;])*/g,
-          m;
-
-      while (m = prop.exec(prev.style)) {
-        dom.style.removeProperty(m[1]);
-      }
+        m;
+      while (m = prop.exec(prev.style)) dom.style.removeProperty(m[1]);
     }
-
     if (cur.style) dom.style.cssText += cur.style;
   }
 }
-
 function applyOuterDeco(dom, deco, node) {
   return patchOuterDeco(dom, dom, noDeco, computeOuterDeco(deco, node, dom.nodeType != 1));
 }
-
 function sameOuterDeco(a, b) {
   if (a.length != b.length) return false;
-
-  for (var i = 0; i < a.length; i++) {
-    if (!a[i].type.eq(b[i].type)) return false;
-  }
-
+  for (var i = 0; i < a.length; i++) if (!a[i].type.eq(b[i].type)) return false;
   return true;
 }
-
 function rm(dom) {
   var next = dom.nextSibling;
   dom.parentNode.removeChild(dom);
   return next;
 }
-
 var ViewTreeUpdater = function () {
   function ViewTreeUpdater(top, lock, view) {
     _classCallCheck(this, ViewTreeUpdater);
-
     this.lock = lock;
     this.view = view;
     this.index = 0;
@@ -17145,16 +16371,11 @@ var ViewTreeUpdater = function () {
     this.top = top;
     this.preMatch = preMatch(top.node.content, top);
   }
-
   _createClass(ViewTreeUpdater, [{
     key: "destroyBetween",
     value: function destroyBetween(start, end) {
       if (start == end) return;
-
-      for (var i = start; i < end; i++) {
-        this.top.children[i].destroy();
-      }
-
+      for (var i = start; i < end; i++) this.top.children[i].destroy();
       this.top.children.splice(start, end - start);
       this.changed = true;
     }
@@ -17167,13 +16388,9 @@ var ViewTreeUpdater = function () {
     key: "syncToMarks",
     value: function syncToMarks(marks, inline, view) {
       var keep = 0,
-          depth = this.stack.length >> 1;
+        depth = this.stack.length >> 1;
       var maxKeep = Math.min(depth, marks.length);
-
-      while (keep < maxKeep && (keep == depth - 1 ? this.top : this.stack[keep + 1 << 1]).matchesMark(marks[keep]) && marks[keep].type.spec.spanning !== false) {
-        keep++;
-      }
-
+      while (keep < maxKeep && (keep == depth - 1 ? this.top : this.stack[keep + 1 << 1]).matchesMark(marks[keep]) && marks[keep].type.spec.spanning !== false) keep++;
       while (keep < depth) {
         this.destroyRest();
         this.top.dirty = NOT_DIRTY;
@@ -17181,26 +16398,21 @@ var ViewTreeUpdater = function () {
         this.top = this.stack.pop();
         depth--;
       }
-
       while (depth < marks.length) {
         this.stack.push(this.top, this.index + 1);
         var found = -1;
-
         for (var i = this.index; i < Math.min(this.index + 3, this.top.children.length); i++) {
           var next = this.top.children[i];
-
           if (next.matchesMark(marks[depth]) && !this.isLocked(next.dom)) {
             found = i;
             break;
           }
         }
-
         if (found > -1) {
           if (found > this.index) {
             this.changed = true;
             this.destroyBetween(this.index, found);
           }
-
           this.top = this.top.children[this.index];
         } else {
           var markDesc = MarkViewDesc.create(this.top, marks[depth], inline, view);
@@ -17208,7 +16420,6 @@ var ViewTreeUpdater = function () {
           this.top = markDesc;
           this.changed = true;
         }
-
         this.index = 0;
         depth++;
       }
@@ -17217,21 +16428,18 @@ var ViewTreeUpdater = function () {
     key: "findNodeMatch",
     value: function findNodeMatch(node, outerDeco, innerDeco, index) {
       var found = -1,
-          targetDesc;
-
+        targetDesc;
       if (index >= this.preMatch.index && (targetDesc = this.preMatch.matches[index - this.preMatch.index]).parent == this.top && targetDesc.matchesNode(node, outerDeco, innerDeco)) {
         found = this.top.children.indexOf(targetDesc, this.index);
       } else {
         for (var i = this.index, e = Math.min(this.top.children.length, i + 5); i < e; i++) {
           var child = this.top.children[i];
-
           if (child.matchesNode(node, outerDeco, innerDeco) && !this.preMatch.matched.has(child)) {
             found = i;
             break;
           }
         }
       }
-
       if (found < 0) return false;
       this.destroyBetween(this.index, found);
       this.index++;
@@ -17253,7 +16461,6 @@ var ViewTreeUpdater = function () {
       for (;;) {
         var parent = domNode.parentNode;
         if (!parent) return -1;
-
         if (parent == this.top.contentDOM) {
           var desc = domNode.pmViewDesc;
           if (desc) for (var i = this.index; i < this.top.children.length; i++) {
@@ -17261,7 +16468,6 @@ var ViewTreeUpdater = function () {
           }
           return -1;
         }
-
         domNode = parent;
       }
     }
@@ -17270,15 +16476,12 @@ var ViewTreeUpdater = function () {
     value: function updateNextNode(node, outerDeco, innerDeco, view, index, pos) {
       for (var i = this.index; i < this.top.children.length; i++) {
         var next = this.top.children[i];
-
         if (next instanceof NodeViewDesc) {
           var _preMatch = this.preMatch.matched.get(next);
-
           if (_preMatch != null && _preMatch != index) return false;
           var nextDOM = next.dom,
-              updated = void 0;
+            updated = void 0;
           var locked = this.isLocked(nextDOM) && !(node.isText && next.node && next.node.isText && next.nodeDOM.nodeValue == node.text && next.dirty != NODE_DIRTY && sameOuterDeco(outerDeco, next.outerDeco));
-
           if (!locked && next.update(node, outerDeco, innerDeco, view)) {
             this.destroyBetween(this.index, i);
             if (next.dom != nextDOM) this.changed = true;
@@ -17286,22 +16489,18 @@ var ViewTreeUpdater = function () {
             return true;
           } else if (!locked && (updated = this.recreateWrapper(next, node, outerDeco, innerDeco, view, pos))) {
             this.top.children[this.index] = updated;
-
             if (updated.contentDOM) {
               updated.dirty = CONTENT_DIRTY;
               updated.updateChildren(view, pos + 1);
               updated.dirty = NOT_DIRTY;
             }
-
             this.changed = true;
             this.index++;
             return true;
           }
-
           break;
         }
       }
-
       return false;
     }
   }, {
@@ -17309,14 +16508,11 @@ var ViewTreeUpdater = function () {
     value: function recreateWrapper(next, node, outerDeco, innerDeco, view, pos) {
       if (next.dirty || node.isAtom || !next.children.length || !next.node.content.eq(node.content)) return null;
       var wrapper = NodeViewDesc.create(this.top, node, outerDeco, innerDeco, view, pos);
-
       if (wrapper.contentDOM) {
         wrapper.children = next.children;
         next.children = [];
-
         var _iterator = _createForOfIteratorHelper(wrapper.children),
-            _step;
-
+          _step;
         try {
           for (_iterator.s(); !(_step = _iterator.n()).done;) {
             var ch = _step.value;
@@ -17328,7 +16524,6 @@ var ViewTreeUpdater = function () {
           _iterator.f();
         }
       }
-
       next.destroy();
       return wrapper;
     }
@@ -17344,7 +16539,6 @@ var ViewTreeUpdater = function () {
     key: "placeWidget",
     value: function placeWidget(widget, view, pos) {
       var next = this.index < this.top.children.length ? this.top.children[this.index] : null;
-
       if (next && next.matchesWidget(widget) && (widget == next.widget || !next.widget.type.toDOM.parentNode)) {
         this.index++;
       } else {
@@ -17357,13 +16551,11 @@ var ViewTreeUpdater = function () {
     key: "addTextblockHacks",
     value: function addTextblockHacks() {
       var lastChild = this.top.children[this.index - 1],
-          parent = this.top;
-
+        parent = this.top;
       while (lastChild instanceof MarkViewDesc) {
         parent = lastChild;
         lastChild = parent.children[parent.children.length - 1];
       }
-
       if (!lastChild || !(lastChild instanceof TextViewDesc) || /\n$/.test(lastChild.node.text) || this.view.requiresGeckoHackNode && /\s$/.test(lastChild.node.text)) {
         if ((safari || chrome) && lastChild && lastChild.dom.contentEditable == "false") this.addHackNode("IMG", parent);
         this.addHackNode("BR", this.top);
@@ -17376,12 +16568,10 @@ var ViewTreeUpdater = function () {
         this.index++;
       } else {
         var dom = document.createElement(nodeName);
-
         if (nodeName == "IMG") {
           dom.className = "ProseMirror-separator";
           dom.alt = "";
         }
-
         if (nodeName == "BR") dom.className = "ProseMirror-trailingBreak";
         var hack = new TrailingHackViewDesc(this.top, [], dom, null);
         if (parent != this.top) parent.children.push(hack);else parent.children.splice(this.index++, 0, hack);
@@ -17394,24 +16584,19 @@ var ViewTreeUpdater = function () {
       return this.lock && (node == this.lock || node.nodeType == 1 && node.contains(this.lock.parentNode));
     }
   }]);
-
   return ViewTreeUpdater;
 }();
-
 function preMatch(frag, parentDesc) {
   var curDesc = parentDesc,
-      descI = curDesc.children.length;
+    descI = curDesc.children.length;
   var fI = frag.childCount,
-      matched = new Map(),
-      matches = [];
-
+    matched = new Map(),
+    matches = [];
   outer: while (fI > 0) {
     var desc = void 0;
-
     for (;;) {
       if (descI) {
         var next = curDesc.children[descI - 1];
-
         if (next instanceof MarkViewDesc) {
           curDesc = next;
           descI = next.children.length;
@@ -17427,7 +16612,6 @@ function preMatch(frag, parentDesc) {
         curDesc = curDesc.parent;
       }
     }
-
     var node = desc.node;
     if (!node) continue;
     if (node != frag.child(fI - 1)) break;
@@ -17435,63 +16619,48 @@ function preMatch(frag, parentDesc) {
     matched.set(desc, fI);
     matches.push(desc);
   }
-
   return {
     index: fI,
     matched: matched,
     matches: matches.reverse()
   };
 }
-
 function compareSide(a, b) {
   return a.type.side - b.type.side;
 }
-
 function iterDeco(parent, deco, onWidget, onNode) {
   var locals = deco.locals(parent),
-      offset = 0;
-
+    offset = 0;
   if (locals.length == 0) {
     for (var i = 0; i < parent.childCount; i++) {
       var child = parent.child(i);
       onNode(child, locals, deco.forChild(offset, child), i);
       offset += child.nodeSize;
     }
-
     return;
   }
-
   var decoIndex = 0,
-      active = [],
-      restNode = null;
-
+    active = [],
+    restNode = null;
   for (var parentIndex = 0;;) {
     var widget = void 0,
-        widgets = void 0;
-
+      widgets = void 0;
     while (decoIndex < locals.length && locals[decoIndex].to == offset) {
       var next = locals[decoIndex++];
-
       if (next.widget) {
         if (!widget) widget = next;else (widgets || (widgets = [widget])).push(next);
       }
     }
-
     if (widget) {
       if (widgets) {
         widgets.sort(compareSide);
-
-        for (var _i2 = 0; _i2 < widgets.length; _i2++) {
-          onWidget(widgets[_i2], parentIndex, !!restNode);
-        }
+        for (var _i2 = 0; _i2 < widgets.length; _i2++) onWidget(widgets[_i2], parentIndex, !!restNode);
       } else {
         onWidget(widget, parentIndex, !!restNode);
       }
     }
-
     var _child = void 0,
-        index = void 0;
-
+      index = void 0;
     if (restNode) {
       index = -1;
       _child = restNode;
@@ -17502,33 +16671,22 @@ function iterDeco(parent, deco, onWidget, onNode) {
     } else {
       break;
     }
-
-    for (var _i3 = 0; _i3 < active.length; _i3++) {
-      if (active[_i3].to <= offset) active.splice(_i3--, 1);
-    }
-
-    while (decoIndex < locals.length && locals[decoIndex].from <= offset && locals[decoIndex].to > offset) {
-      active.push(locals[decoIndex++]);
-    }
-
+    for (var _i3 = 0; _i3 < active.length; _i3++) if (active[_i3].to <= offset) active.splice(_i3--, 1);
+    while (decoIndex < locals.length && locals[decoIndex].from <= offset && locals[decoIndex].to > offset) active.push(locals[decoIndex++]);
     var end = offset + _child.nodeSize;
-
     if (_child.isText) {
       var cutAt = end;
       if (decoIndex < locals.length && locals[decoIndex].from < cutAt) cutAt = locals[decoIndex].from;
-
-      for (var _i4 = 0; _i4 < active.length; _i4++) {
-        if (active[_i4].to < cutAt) cutAt = active[_i4].to;
-      }
-
+      for (var _i4 = 0; _i4 < active.length; _i4++) if (active[_i4].to < cutAt) cutAt = active[_i4].to;
       if (cutAt < end) {
         restNode = _child.cut(cutAt - offset);
         _child = _child.cut(0, cutAt - offset);
         end = cutAt;
         index = -1;
       }
+    } else {
+      while (decoIndex < locals.length && locals[decoIndex].to < end) decoIndex++;
     }
-
     var outerDeco = _child.isInline && !_child.isLeaf ? active.filter(function (d) {
       return !d.inline;
     }) : active.slice();
@@ -17536,7 +16694,6 @@ function iterDeco(parent, deco, onWidget, onNode) {
     offset = end;
   }
 }
-
 function iosHacks(dom) {
   if (dom.nodeName == "UL" || dom.nodeName == "OL") {
     var oldCSS = dom.style.cssText;
@@ -17545,11 +16702,9 @@ function iosHacks(dom) {
     dom.style.cssText = oldCSS;
   }
 }
-
 function nearbyTextNode(node, offset) {
   for (;;) {
     if (node.nodeType == 3) return node;
-
     if (node.nodeType == 1 && offset > 0) {
       if (node.childNodes.length > offset && node.childNodes[offset].nodeType == 3) return node.childNodes[offset];
       node = node.childNodes[offset - 1];
@@ -17562,22 +16717,19 @@ function nearbyTextNode(node, offset) {
     }
   }
 }
-
 function findTextInFragment(frag, text, from, to) {
   for (var i = 0, pos = 0; i < frag.childCount && pos <= to;) {
     var child = frag.child(i++),
-        childStart = pos;
+      childStart = pos;
     pos += child.nodeSize;
     if (!child.isText) continue;
     var str = child.text;
-
     while (i < frag.childCount) {
       var next = frag.child(i++);
       pos += next.nodeSize;
       if (!next.isText) break;
       str += next.text;
     }
-
     if (pos >= from) {
       if (pos >= to && str.slice(to - text.length - childStart, to - childStart) == text) return to - text.length;
       var found = childStart < to ? str.lastIndexOf(text, to - childStart - 1) : -1;
@@ -17585,57 +16737,43 @@ function findTextInFragment(frag, text, from, to) {
       if (from == to && str.length >= to + text.length - childStart && str.slice(to - childStart, to - childStart + text.length) == text) return to;
     }
   }
-
   return -1;
 }
-
 function replaceNodes(nodes, from, to, view, replacement) {
   var result = [];
-
   for (var i = 0, off = 0; i < nodes.length; i++) {
     var child = nodes[i],
-        start = off,
-        end = off += child.size;
-
+      start = off,
+      end = off += child.size;
     if (start >= to || end <= from) {
       result.push(child);
     } else {
       if (start < from) result.push(child.slice(0, from - start, view));
-
       if (replacement) {
         result.push(replacement);
         replacement = undefined;
       }
-
       if (end > to) result.push(child.slice(to - start, child.size, view));
     }
   }
-
   return result;
 }
-
 function selectionFromDOM(view) {
   var origin = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : null;
   var domSel = view.domSelectionRange(),
-      doc = view.state.doc;
+    doc = view.state.doc;
   if (!domSel.focusNode) return null;
   var nearestDesc = view.docView.nearestDesc(domSel.focusNode),
-      inWidget = nearestDesc && nearestDesc.size == 0;
+    inWidget = nearestDesc && nearestDesc.size == 0;
   var head = view.docView.posFromDOM(domSel.focusNode, domSel.focusOffset, 1);
   if (head < 0) return null;
   var $head = doc.resolve(head),
-      $anchor,
-      selection;
-
+    $anchor,
+    selection;
   if (selectionCollapsed(domSel)) {
     $anchor = $head;
-
-    while (nearestDesc && !nearestDesc.node) {
-      nearestDesc = nearestDesc.parent;
-    }
-
+    while (nearestDesc && !nearestDesc.node) nearestDesc = nearestDesc.parent;
     var nearestDescNode = nearestDesc.node;
-
     if (nearestDesc && nearestDescNode.isAtom && prosemirrorState.NodeSelection.isSelectable(nearestDescNode) && nearestDesc.parent && !(nearestDescNode.isInline && isOnEdge(domSel.focusNode, domSel.focusOffset, nearestDesc.dom))) {
       var pos = nearestDesc.posBefore;
       selection = new prosemirrorState.NodeSelection(head == pos ? $head : doc.resolve(pos));
@@ -17645,58 +16783,46 @@ function selectionFromDOM(view) {
     if (anchor < 0) return null;
     $anchor = doc.resolve(anchor);
   }
-
   if (!selection) {
     var bias = origin == "pointer" || view.state.selection.head < $head.pos && !inWidget ? 1 : -1;
     selection = selectionBetween(view, $anchor, $head, bias);
   }
-
   return selection;
 }
-
 function editorOwnsSelection(view) {
   return view.editable ? view.hasFocus() : hasSelection(view) && document.activeElement && document.activeElement.contains(view.dom);
 }
-
 function selectionToDOM(view) {
   var force = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
   var sel = view.state.selection;
   syncNodeSelection(view, sel);
   if (!editorOwnsSelection(view)) return;
-
   if (!force && view.input.mouseDown && view.input.mouseDown.allowDefault && chrome) {
     var domSel = view.domSelectionRange(),
-        curSel = view.domObserver.currentSelection;
-
+      curSel = view.domObserver.currentSelection;
     if (domSel.anchorNode && curSel.anchorNode && isEquivalentPosition(domSel.anchorNode, domSel.anchorOffset, curSel.anchorNode, curSel.anchorOffset)) {
       view.input.mouseDown.delayedSelectionSync = true;
       view.domObserver.setCurSelection();
       return;
     }
   }
-
   view.domObserver.disconnectSelection();
-
   if (view.cursorWrapper) {
     selectCursorWrapper(view);
   } else {
     var anchor = sel.anchor,
-        head = sel.head,
-        resetEditableFrom,
-        resetEditableTo;
-
+      head = sel.head,
+      resetEditableFrom,
+      resetEditableTo;
     if (brokenSelectBetweenUneditable && !(sel instanceof prosemirrorState.TextSelection)) {
       if (!sel.$from.parent.inlineContent) resetEditableFrom = temporarilyEditableNear(view, sel.from);
       if (!sel.empty && !sel.$from.parent.inlineContent) resetEditableTo = temporarilyEditableNear(view, sel.to);
     }
-
     view.docView.setSelection(anchor, head, view.root, force);
-
     if (brokenSelectBetweenUneditable) {
       if (resetEditableFrom) resetEditable(resetEditableFrom);
       if (resetEditableTo) resetEditable(resetEditableTo);
     }
-
     if (sel.visible) {
       view.dom.classList.remove("ProseMirror-hideselection");
     } else {
@@ -17704,53 +16830,42 @@ function selectionToDOM(view) {
       if ("onselectionchange" in document) removeClassOnSelectionChange(view);
     }
   }
-
   view.domObserver.setCurSelection();
   view.domObserver.connectSelection();
 }
-
 var brokenSelectBetweenUneditable = safari || chrome && chrome_version < 63;
-
 function temporarilyEditableNear(view, pos) {
   var _view$docView$domFrom3 = view.docView.domFromPos(pos, 0),
-      node = _view$docView$domFrom3.node,
-      offset = _view$docView$domFrom3.offset;
-
+    node = _view$docView$domFrom3.node,
+    offset = _view$docView$domFrom3.offset;
   var after = offset < node.childNodes.length ? node.childNodes[offset] : null;
   var before = offset ? node.childNodes[offset - 1] : null;
   if (safari && after && after.contentEditable == "false") return setEditable(after);
-
   if ((!after || after.contentEditable == "false") && (!before || before.contentEditable == "false")) {
     if (after) return setEditable(after);else if (before) return setEditable(before);
   }
 }
-
 function setEditable(element) {
   element.contentEditable = "true";
-
   if (safari && element.draggable) {
     element.draggable = false;
     element.wasDraggable = true;
   }
-
   return element;
 }
-
 function resetEditable(element) {
   element.contentEditable = "false";
-
   if (element.wasDraggable) {
     element.draggable = true;
     element.wasDraggable = null;
   }
 }
-
 function removeClassOnSelectionChange(view) {
   var doc = view.dom.ownerDocument;
   doc.removeEventListener("selectionchange", view.input.hideSelectionGuard);
   var domSel = view.domSelectionRange();
   var node = domSel.anchorNode,
-      offset = domSel.anchorOffset;
+    offset = domSel.anchorOffset;
   doc.addEventListener("selectionchange", view.input.hideSelectionGuard = function () {
     if (domSel.anchorNode != node || domSel.anchorOffset != offset) {
       doc.removeEventListener("selectionchange", view.input.hideSelectionGuard);
@@ -17760,27 +16875,23 @@ function removeClassOnSelectionChange(view) {
     }
   });
 }
-
 function selectCursorWrapper(view) {
   var domSel = view.domSelection(),
-      range = document.createRange();
+    range = document.createRange();
   var node = view.cursorWrapper.dom,
-      img = node.nodeName == "IMG";
+    img = node.nodeName == "IMG";
   if (img) range.setEnd(node.parentNode, domIndex(node) + 1);else range.setEnd(node, 0);
   range.collapse(false);
   domSel.removeAllRanges();
   domSel.addRange(range);
-
   if (!img && !view.state.selection.visible && ie && ie_version <= 11) {
     node.disabled = true;
     node.disabled = false;
   }
 }
-
 function syncNodeSelection(view, sel) {
   if (sel instanceof prosemirrorState.NodeSelection) {
     var desc = view.docView.descAt(sel.from);
-
     if (desc != view.lastSelectedViewDesc) {
       clearNodeSelection(view);
       if (desc) desc.selectNode();
@@ -17790,63 +16901,53 @@ function syncNodeSelection(view, sel) {
     clearNodeSelection(view);
   }
 }
-
 function clearNodeSelection(view) {
   if (view.lastSelectedViewDesc) {
     if (view.lastSelectedViewDesc.parent) view.lastSelectedViewDesc.deselectNode();
     view.lastSelectedViewDesc = undefined;
   }
 }
-
 function selectionBetween(view, $anchor, $head, bias) {
   return view.someProp("createSelectionBetween", function (f) {
     return f(view, $anchor, $head);
   }) || prosemirrorState.TextSelection.between($anchor, $head, bias);
 }
-
 function hasFocusAndSelection(view) {
   if (view.editable && !view.hasFocus()) return false;
   return hasSelection(view);
 }
-
 function hasSelection(view) {
   var sel = view.domSelectionRange();
   if (!sel.anchorNode) return false;
-
   try {
     return view.dom.contains(sel.anchorNode.nodeType == 3 ? sel.anchorNode.parentNode : sel.anchorNode) && (view.editable || view.dom.contains(sel.focusNode.nodeType == 3 ? sel.focusNode.parentNode : sel.focusNode));
   } catch (_) {
     return false;
   }
 }
-
 function anchorInRightPlace(view) {
   var anchorDOM = view.docView.domFromPos(view.state.selection.anchor, 0);
   var domSel = view.domSelectionRange();
   return isEquivalentPosition(anchorDOM.node, anchorDOM.offset, domSel.anchorNode, domSel.anchorOffset);
 }
-
 function moveSelectionBlock(state, dir) {
   var _state$selection = state.selection,
-      $anchor = _state$selection.$anchor,
-      $head = _state$selection.$head;
+    $anchor = _state$selection.$anchor,
+    $head = _state$selection.$head;
   var $side = dir > 0 ? $anchor.max($head) : $anchor.min($head);
   var $start = !$side.parent.inlineContent ? $side : $side.depth ? state.doc.resolve(dir > 0 ? $side.after() : $side.before()) : null;
   return $start && prosemirrorState.Selection.findFrom($start, dir);
 }
-
 function apply(view, sel) {
   view.dispatch(view.state.tr.setSelection(sel).scrollIntoView());
   return true;
 }
-
 function selectHorizontally(view, dir, mods) {
   var sel = view.state.selection;
-
   if (sel instanceof prosemirrorState.TextSelection) {
     if (mods.indexOf("s") > -1) {
       var $head = sel.$head,
-          node = $head.textOffset ? null : dir < 0 ? $head.nodeBefore : $head.nodeAfter;
+        node = $head.textOffset ? null : dir < 0 ? $head.nodeBefore : $head.nodeAfter;
       if (!node || node.isText || !node.isLeaf) return false;
       var $newHead = view.state.doc.resolve($head.pos + node.nodeSize * (dir < 0 ? -1 : 1));
       return apply(view, new prosemirrorState.TextSelection(sel.$anchor, $newHead));
@@ -17858,13 +16959,11 @@ function selectHorizontally(view, dir, mods) {
       return false;
     } else if (!(mac && mods.indexOf("m") > -1)) {
       var _$head = sel.$head,
-          _node = _$head.textOffset ? null : dir < 0 ? _$head.nodeBefore : _$head.nodeAfter,
-          desc;
-
+        _node = _$head.textOffset ? null : dir < 0 ? _$head.nodeBefore : _$head.nodeAfter,
+        desc;
       if (!_node || _node.isText) return false;
       var nodePos = dir < 0 ? _$head.pos - _node.nodeSize : _$head.pos;
       if (!(_node.isAtom || (desc = view.docView.descAt(nodePos)) && !desc.contentDOM)) return false;
-
       if (prosemirrorState.NodeSelection.isSelectable(_node)) {
         return apply(view, new prosemirrorState.NodeSelection(dir < 0 ? view.state.doc.resolve(_$head.pos - _node.nodeSize) : _$head));
       } else if (webkit) {
@@ -17877,42 +16976,35 @@ function selectHorizontally(view, dir, mods) {
     return apply(view, new prosemirrorState.TextSelection(dir > 0 ? sel.$to : sel.$from));
   } else {
     var _next = moveSelectionBlock(view.state, dir);
-
     if (_next) return apply(view, _next);
     return false;
   }
 }
-
 function nodeLen(node) {
   return node.nodeType == 3 ? node.nodeValue.length : node.childNodes.length;
 }
-
 function isIgnorable(dom, dir) {
   var desc = dom.pmViewDesc;
   return desc && desc.size == 0 && (dir < 0 || dom.nextSibling || dom.nodeName != "BR");
 }
-
 function skipIgnoredNodes(view, dir) {
   return dir < 0 ? skipIgnoredNodesBefore(view) : skipIgnoredNodesAfter(view);
 }
-
 function skipIgnoredNodesBefore(view) {
   var sel = view.domSelectionRange();
   var node = sel.focusNode,
-      offset = sel.focusOffset;
+    offset = sel.focusOffset;
   if (!node) return;
   var moveNode,
-      moveOffset,
-      force = false;
+    moveOffset,
+    force = false;
   if (gecko && node.nodeType == 1 && offset < nodeLen(node) && isIgnorable(node.childNodes[offset], -1)) force = true;
-
   for (;;) {
     if (offset > 0) {
       if (node.nodeType != 1) {
         break;
       } else {
         var before = node.childNodes[offset - 1];
-
         if (isIgnorable(before, -1)) {
           moveNode = node;
           moveOffset = --offset;
@@ -17925,13 +17017,11 @@ function skipIgnoredNodesBefore(view) {
       break;
     } else {
       var prev = node.previousSibling;
-
       while (prev && isIgnorable(prev, -1)) {
         moveNode = node.parentNode;
         moveOffset = domIndex(prev);
         prev = prev.previousSibling;
       }
-
       if (!prev) {
         node = node.parentNode;
         if (node == view.dom) break;
@@ -17942,23 +17032,19 @@ function skipIgnoredNodesBefore(view) {
       }
     }
   }
-
   if (force) setSelFocus(view, node, offset);else if (moveNode) setSelFocus(view, moveNode, moveOffset);
 }
-
 function skipIgnoredNodesAfter(view) {
   var sel = view.domSelectionRange();
   var node = sel.focusNode,
-      offset = sel.focusOffset;
+    offset = sel.focusOffset;
   if (!node) return;
   var len = nodeLen(node);
   var moveNode, moveOffset;
-
   for (;;) {
     if (offset < len) {
       if (node.nodeType != 1) break;
       var after = node.childNodes[offset];
-
       if (isIgnorable(after, 1)) {
         moveNode = node;
         moveOffset = ++offset;
@@ -17967,13 +17053,11 @@ function skipIgnoredNodesAfter(view) {
       break;
     } else {
       var next = node.nextSibling;
-
       while (next && isIgnorable(next, 1)) {
         moveNode = next.parentNode;
         moveOffset = domIndex(next) + 1;
         next = next.nextSibling;
       }
-
       if (!next) {
         node = node.parentNode;
         if (node == view.dom) break;
@@ -17985,21 +17069,17 @@ function skipIgnoredNodesAfter(view) {
       }
     }
   }
-
   if (moveNode) setSelFocus(view, moveNode, moveOffset);
 }
-
 function isBlockNode(dom) {
   var desc = dom.pmViewDesc;
   return desc && desc.node && desc.node.isBlock;
 }
-
 function textNodeAfter(node, offset) {
   while (node && offset == node.childNodes.length && !hasBlockDesc(node)) {
     offset = domIndex(node) + 1;
     node = node.parentNode;
   }
-
   while (node && offset < node.childNodes.length) {
     var next = node.childNodes[offset];
     if (next.nodeType == 3) return next;
@@ -18008,13 +17088,11 @@ function textNodeAfter(node, offset) {
     offset = 0;
   }
 }
-
 function textNodeBefore(node, offset) {
   while (node && !offset && !hasBlockDesc(node)) {
     offset = domIndex(node);
     node = node.parentNode;
   }
-
   while (node && offset) {
     var next = node.childNodes[offset - 1];
     if (next.nodeType == 3) return next;
@@ -18023,11 +17101,9 @@ function textNodeBefore(node, offset) {
     offset = node.childNodes.length;
   }
 }
-
 function setSelFocus(view, node, offset) {
   if (node.nodeType != 3) {
     var before, after;
-
     if (after = textNodeAfter(node, offset)) {
       node = after;
       offset = 0;
@@ -18036,9 +17112,7 @@ function setSelFocus(view, node, offset) {
       offset = before.nodeValue.length;
     }
   }
-
   var sel = view.domSelection();
-
   if (selectionCollapsed(sel)) {
     var range = document.createRange();
     range.setEnd(node, offset);
@@ -18048,94 +17122,75 @@ function setSelFocus(view, node, offset) {
   } else if (sel.extend) {
     sel.extend(node, offset);
   }
-
   view.domObserver.setCurSelection();
   var state = view.state;
   setTimeout(function () {
     if (view.state == state) selectionToDOM(view);
   }, 50);
 }
-
 function findDirection(view, pos) {
   var $pos = view.state.doc.resolve(pos);
-
   if (!(chrome || windows) && $pos.parent.inlineContent) {
     var coords = view.coordsAtPos(pos);
-
     if (pos > $pos.start()) {
       var before = view.coordsAtPos(pos - 1);
       var mid = (before.top + before.bottom) / 2;
       if (mid > coords.top && mid < coords.bottom && Math.abs(before.left - coords.left) > 1) return before.left < coords.left ? "ltr" : "rtl";
     }
-
     if (pos < $pos.end()) {
       var after = view.coordsAtPos(pos + 1);
-
       var _mid = (after.top + after.bottom) / 2;
-
       if (_mid > coords.top && _mid < coords.bottom && Math.abs(after.left - coords.left) > 1) return after.left > coords.left ? "ltr" : "rtl";
     }
   }
-
   var computed = getComputedStyle(view.dom).direction;
   return computed == "rtl" ? "rtl" : "ltr";
 }
-
 function selectVertically(view, dir, mods) {
   var sel = view.state.selection;
   if (sel instanceof prosemirrorState.TextSelection && !sel.empty || mods.indexOf("s") > -1) return false;
   if (mac && mods.indexOf("m") > -1) return false;
   var $from = sel.$from,
-      $to = sel.$to;
-
+    $to = sel.$to;
   if (!$from.parent.inlineContent || view.endOfTextblock(dir < 0 ? "up" : "down")) {
     var next = moveSelectionBlock(view.state, dir);
     if (next && next instanceof prosemirrorState.NodeSelection) return apply(view, next);
   }
-
   if (!$from.parent.inlineContent) {
     var side = dir < 0 ? $from : $to;
     var beyond = sel instanceof prosemirrorState.AllSelection ? prosemirrorState.Selection.near(side, dir) : prosemirrorState.Selection.findFrom(side, dir);
     return beyond ? apply(view, beyond) : false;
   }
-
   return false;
 }
-
 function stopNativeHorizontalDelete(view, dir) {
   if (!(view.state.selection instanceof prosemirrorState.TextSelection)) return true;
   var _view$state$selection2 = view.state.selection,
-      $head = _view$state$selection2.$head,
-      $anchor = _view$state$selection2.$anchor,
-      empty = _view$state$selection2.empty;
+    $head = _view$state$selection2.$head,
+    $anchor = _view$state$selection2.$anchor,
+    empty = _view$state$selection2.empty;
   if (!$head.sameParent($anchor)) return true;
   if (!empty) return false;
   if (view.endOfTextblock(dir > 0 ? "forward" : "backward")) return true;
   var nextNode = !$head.textOffset && (dir < 0 ? $head.nodeBefore : $head.nodeAfter);
-
   if (nextNode && !nextNode.isText) {
     var tr = view.state.tr;
     if (dir < 0) tr["delete"]($head.pos - nextNode.nodeSize, $head.pos);else tr["delete"]($head.pos, $head.pos + nextNode.nodeSize);
     view.dispatch(tr);
     return true;
   }
-
   return false;
 }
-
 function switchEditable(view, node, state) {
   view.domObserver.stop();
   node.contentEditable = state;
   view.domObserver.start();
 }
-
 function safariDownArrowBug(view) {
   if (!safari || view.state.selection.$head.parentOffset > 0) return false;
-
   var _view$domSelectionRan3 = view.domSelectionRange(),
-      focusNode = _view$domSelectionRan3.focusNode,
-      focusOffset = _view$domSelectionRan3.focusOffset;
-
+    focusNode = _view$domSelectionRan3.focusNode,
+    focusOffset = _view$domSelectionRan3.focusOffset;
   if (focusNode && focusNode.nodeType == 1 && focusOffset == 0 && focusNode.firstChild && focusNode.firstChild.contentEditable == "false") {
     var child = focusNode.firstChild;
     switchEditable(view, child, "true");
@@ -18143,10 +17198,8 @@ function safariDownArrowBug(view) {
       return switchEditable(view, child, "false");
     }, 20);
   }
-
   return false;
 }
-
 function getMods(event) {
   var result = "";
   if (event.ctrlKey) result += "c";
@@ -18155,11 +17208,9 @@ function getMods(event) {
   if (event.shiftKey) result += "s";
   return result;
 }
-
 function captureKeyDown(view, event) {
   var code = event.keyCode,
-      mods = getMods(event);
-
+    mods = getMods(event);
   if (code == 8 || mac && code == 72 && mods == "c") {
     return stopNativeHorizontalDelete(view, -1) || skipIgnoredNodes(view, -1);
   } else if (code == 46 && !event.shiftKey || mac && code == 68 && mods == "c") {
@@ -18171,7 +17222,6 @@ function captureKeyDown(view, event) {
     return selectHorizontally(view, dir, mods) || skipIgnoredNodes(view, dir);
   } else if (code == 39 || mac && code == 70 && mods == "c") {
     var _dir = code == 39 ? findDirection(view, view.state.selection.from) == "ltr" ? 1 : -1 : 1;
-
     return selectHorizontally(view, _dir, mods) || skipIgnoredNodes(view, _dir);
   } else if (code == 38 || mac && code == 80 && mods == "c") {
     return selectVertically(view, -1, mods) || skipIgnoredNodes(view, -1);
@@ -18180,20 +17230,17 @@ function captureKeyDown(view, event) {
   } else if (mods == (mac ? "m" : "c") && (code == 66 || code == 73 || code == 89 || code == 90)) {
     return true;
   }
-
   return false;
 }
-
 function serializeForClipboard(view, slice) {
   view.someProp("transformCopied", function (f) {
     slice = f(slice, view);
   });
   var context = [],
-      _slice = slice,
-      content = _slice.content,
-      openStart = _slice.openStart,
-      openEnd = _slice.openEnd;
-
+    _slice = slice,
+    content = _slice.content,
+    openStart = _slice.openStart,
+    openEnd = _slice.openEnd;
   while (openStart > 1 && openEnd > 1 && content.childCount == 1 && content.firstChild.childCount == 1) {
     openStart--;
     openEnd--;
@@ -18201,32 +17248,24 @@ function serializeForClipboard(view, slice) {
     context.push(node.type.name, node.attrs != node.type.defaultAttrs ? node.attrs : null);
     content = node.content;
   }
-
   var serializer = view.someProp("clipboardSerializer") || prosemirrorModel.DOMSerializer.fromSchema(view.state.schema);
   var doc = detachedDoc(),
-      wrap = doc.createElement("div");
+    wrap = doc.createElement("div");
   wrap.appendChild(serializer.serializeFragment(content, {
     document: doc
   }));
   var firstChild = wrap.firstChild,
-      needsWrap,
-      wrappers = 0;
-
+    needsWrap,
+    wrappers = 0;
   while (firstChild && firstChild.nodeType == 1 && (needsWrap = wrapMap[firstChild.nodeName.toLowerCase()])) {
     for (var i = needsWrap.length - 1; i >= 0; i--) {
       var wrapper = doc.createElement(needsWrap[i]);
-
-      while (wrap.firstChild) {
-        wrapper.appendChild(wrap.firstChild);
-      }
-
+      while (wrap.firstChild) wrapper.appendChild(wrap.firstChild);
       wrap.appendChild(wrapper);
       wrappers++;
     }
-
     firstChild = wrap.firstChild;
   }
-
   if (firstChild && firstChild.nodeType == 1) firstChild.setAttribute("data-pm-slice", "".concat(openStart, " ").concat(openEnd).concat(wrappers ? " -".concat(wrappers) : "", " ").concat(JSON.stringify(context)));
   var text = view.someProp("clipboardTextSerializer", function (f) {
     return f(slice, view);
@@ -18236,13 +17275,11 @@ function serializeForClipboard(view, slice) {
     text: text
   };
 }
-
 function parseFromClipboard(view, text, html, plainText, $context) {
   var inCode = $context.parent.type.spec.code;
   var dom, slice;
   if (!html && !text) return null;
   var asText = text && (plainText || inCode || !html);
-
   if (asText) {
     view.someProp("transformPastedText", function (f) {
       text = f(text, inCode || plainText, view);
@@ -18251,13 +17288,12 @@ function parseFromClipboard(view, text, html, plainText, $context) {
     var parsed = view.someProp("clipboardTextParser", function (f) {
       return f(text, $context, plainText, view);
     });
-
     if (parsed) {
       slice = parsed;
     } else {
       var marks = $context.marks();
       var schema = view.state.schema,
-          serializer = prosemirrorModel.DOMSerializer.fromSchema(schema);
+        serializer = prosemirrorModel.DOMSerializer.fromSchema(schema);
       dom = document.createElement("div");
       text.split(/(?:\r\n?|\n)+/).forEach(function (block) {
         var p = dom.appendChild(document.createElement("p"));
@@ -18271,20 +17307,14 @@ function parseFromClipboard(view, text, html, plainText, $context) {
     dom = readHTML(html);
     if (webkit) restoreReplacedSpaces(dom);
   }
-
   var contextNode = dom && dom.querySelector("[data-pm-slice]");
   var sliceData = contextNode && /^(\d+) (\d+)(?: -(\d+))? (.*)/.exec(contextNode.getAttribute("data-pm-slice") || "");
   if (sliceData && sliceData[3]) for (var i = +sliceData[3]; i > 0; i--) {
     var child = dom.firstChild;
-
-    while (child && child.nodeType != 1) {
-      child = child.nextSibling;
-    }
-
+    while (child && child.nodeType != 1) child = child.nextSibling;
     if (!child) break;
     dom = child;
   }
-
   if (!slice) {
     var parser = view.someProp("clipboardParser") || view.someProp("domParser") || prosemirrorModel.DOMParser.fromSchema(view.state.schema);
     slice = parser.parseSlice(dom, {
@@ -18298,80 +17328,62 @@ function parseFromClipboard(view, text, html, plainText, $context) {
       }
     });
   }
-
   if (sliceData) {
     slice = addContext(closeSlice(slice, +sliceData[1], +sliceData[2]), sliceData[4]);
   } else {
     slice = prosemirrorModel.Slice.maxOpen(normalizeSiblings(slice.content, $context), true);
-
     if (slice.openStart || slice.openEnd) {
       var openStart = 0,
-          openEnd = 0;
-
+        openEnd = 0;
       for (var node = slice.content.firstChild; openStart < slice.openStart && !node.type.spec.isolating; openStart++, node = node.firstChild) {}
-
       for (var _node2 = slice.content.lastChild; openEnd < slice.openEnd && !_node2.type.spec.isolating; openEnd++, _node2 = _node2.lastChild) {}
-
       slice = closeSlice(slice, openStart, openEnd);
     }
   }
-
   view.someProp("transformPasted", function (f) {
     slice = f(slice, view);
   });
   return slice;
 }
-
 var inlineParents = /^(a|abbr|acronym|b|cite|code|del|em|i|ins|kbd|label|output|q|ruby|s|samp|span|strong|sub|sup|time|u|tt|var)$/i;
-
 function normalizeSiblings(fragment, $context) {
   if (fragment.childCount < 2) return fragment;
-
-  var _loop = function _loop(d) {
-    var parent = $context.node(d);
-    var match = parent.contentMatchAt($context.index(d));
-    var lastWrap = void 0,
+  var _loop = function _loop() {
+      var parent = $context.node(d);
+      var match = parent.contentMatchAt($context.index(d));
+      var lastWrap,
         result = [];
-    fragment.forEach(function (node) {
-      if (!result) return;
-      var wrap = match.findWrapping(node.type),
+      fragment.forEach(function (node) {
+        if (!result) return;
+        var wrap = match.findWrapping(node.type),
           inLast;
-      if (!wrap) return result = null;
-
-      if (inLast = result.length && lastWrap.length && addToSibling(wrap, lastWrap, node, result[result.length - 1], 0)) {
-        result[result.length - 1] = inLast;
-      } else {
-        if (result.length) result[result.length - 1] = closeRight(result[result.length - 1], lastWrap.length);
-        var wrapped = withWrappers(node, wrap);
-        result.push(wrapped);
-        match = match.matchType(wrapped.type);
-        lastWrap = wrap;
-      }
-    });
-    if (result) return {
-      v: prosemirrorModel.Fragment.from(result)
-    };
-  };
-
+        if (!wrap) return result = null;
+        if (inLast = result.length && lastWrap.length && addToSibling(wrap, lastWrap, node, result[result.length - 1], 0)) {
+          result[result.length - 1] = inLast;
+        } else {
+          if (result.length) result[result.length - 1] = closeRight(result[result.length - 1], lastWrap.length);
+          var wrapped = withWrappers(node, wrap);
+          result.push(wrapped);
+          match = match.matchType(wrapped.type);
+          lastWrap = wrap;
+        }
+      });
+      if (result) return {
+        v: prosemirrorModel.Fragment.from(result)
+      };
+    },
+    _ret;
   for (var d = $context.depth; d >= 0; d--) {
-    var _ret = _loop(d);
-
-    if (_typeof(_ret) === "object") return _ret.v;
+    _ret = _loop();
+    if (_ret) return _ret.v;
   }
-
   return fragment;
 }
-
 function withWrappers(node, wrap) {
   var from = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : 0;
-
-  for (var i = wrap.length - 1; i >= from; i--) {
-    node = wrap[i].create(null, prosemirrorModel.Fragment.from(node));
-  }
-
+  for (var i = wrap.length - 1; i >= from; i--) node = wrap[i].create(null, prosemirrorModel.Fragment.from(node));
   return node;
 }
-
 function addToSibling(wrap, lastWrap, node, sibling, depth) {
   if (depth < wrap.length && depth < lastWrap.length && wrap[depth] == lastWrap[depth]) {
     var inner = addToSibling(wrap, lastWrap, node, sibling.lastChild, depth + 1);
@@ -18380,29 +17392,25 @@ function addToSibling(wrap, lastWrap, node, sibling, depth) {
     if (match.matchType(depth == wrap.length - 1 ? node.type : wrap[depth + 1])) return sibling.copy(sibling.content.append(prosemirrorModel.Fragment.from(withWrappers(node, wrap, depth + 1))));
   }
 }
-
 function closeRight(node, depth) {
   if (depth == 0) return node;
   var fragment = node.content.replaceChild(node.childCount - 1, closeRight(node.lastChild, depth - 1));
   var fill = node.contentMatchAt(node.childCount).fillBefore(prosemirrorModel.Fragment.empty, true);
   return node.copy(fragment.append(fill));
 }
-
 function closeRange(fragment, side, from, to, depth, openEnd) {
   var node = side < 0 ? fragment.firstChild : fragment.lastChild,
-      inner = node.content;
+    inner = node.content;
   if (fragment.childCount > 1) openEnd = 0;
   if (depth < to - 1) inner = closeRange(inner, side, from, to, depth + 1, openEnd);
   if (depth >= from) inner = side < 0 ? node.contentMatchAt(0).fillBefore(inner, openEnd <= depth).append(inner) : inner.append(node.contentMatchAt(node.childCount).fillBefore(prosemirrorModel.Fragment.empty, true));
   return fragment.replaceChild(side < 0 ? 0 : fragment.childCount - 1, node.copy(inner));
 }
-
 function closeSlice(slice, openStart, openEnd) {
   if (openStart < slice.openStart) slice = new prosemirrorModel.Slice(closeRange(slice.content, -1, openStart, slice.openStart, 0, slice.openEnd), openStart, slice.openEnd);
   if (openEnd < slice.openEnd) slice = new prosemirrorModel.Slice(closeRange(slice.content, 1, openEnd, slice.openEnd, 0, 0), slice.openStart, openEnd);
   return slice;
 }
-
 var wrapMap = {
   thead: ["table"],
   tbody: ["table"],
@@ -18415,53 +17423,43 @@ var wrapMap = {
   th: ["table", "tbody", "tr"]
 };
 var _detachedDoc = null;
-
 function detachedDoc() {
   return _detachedDoc || (_detachedDoc = document.implementation.createHTMLDocument("title"));
 }
-
 function readHTML(html) {
   var metas = /^(\s*<meta [^>]*>)*/.exec(html);
   if (metas) html = html.slice(metas[0].length);
   var elt = detachedDoc().createElement("div");
   var firstTag = /<([a-z][^>\s]+)/i.exec(html),
-      wrap;
+    wrap;
   if (wrap = firstTag && wrapMap[firstTag[1].toLowerCase()]) html = wrap.map(function (n) {
     return "<" + n + ">";
   }).join("") + html + wrap.map(function (n) {
     return "</" + n + ">";
   }).reverse().join("");
   elt.innerHTML = html;
-  if (wrap) for (var i = 0; i < wrap.length; i++) {
-    elt = elt.querySelector(wrap[i]) || elt;
-  }
+  if (wrap) for (var i = 0; i < wrap.length; i++) elt = elt.querySelector(wrap[i]) || elt;
   return elt;
 }
-
 function restoreReplacedSpaces(dom) {
   var nodes = dom.querySelectorAll(chrome ? "span:not([class]):not([style])" : "span.Apple-converted-space");
-
   for (var i = 0; i < nodes.length; i++) {
     var node = nodes[i];
     if (node.childNodes.length == 1 && node.textContent == "\xA0" && node.parentNode) node.parentNode.replaceChild(dom.ownerDocument.createTextNode(" "), node);
   }
 }
-
 function addContext(slice, context) {
   if (!slice.size) return slice;
   var schema = slice.content.firstChild.type.schema,
-      array;
-
+    array;
   try {
     array = JSON.parse(context);
   } catch (e) {
     return slice;
   }
-
   var content = slice.content,
-      openStart = slice.openStart,
-      openEnd = slice.openEnd;
-
+    openStart = slice.openStart,
+    openEnd = slice.openEnd;
   for (var i = array.length - 2; i >= 0; i -= 2) {
     var type = schema.nodes[array[i]];
     if (!type || type.hasRequiredAttrs()) break;
@@ -18469,20 +17467,16 @@ function addContext(slice, context) {
     openStart++;
     openEnd++;
   }
-
   return new prosemirrorModel.Slice(content, openStart, openEnd);
 }
-
 var handlers = {};
 var editHandlers = {};
 var passiveHandlers = {
   touchstart: true,
   touchmove: true
 };
-
 var InputState = _createClass(function InputState() {
   _classCallCheck(this, InputState);
-
   this.shiftKey = false;
   this.mouseDown = null;
   this.lastKeyCode = null;
@@ -18510,9 +17504,8 @@ var InputState = _createClass(function InputState() {
   this.eventHandlers = Object.create(null);
   this.hideSelectionGuard = null;
 });
-
 function initInput(view) {
-  var _loop2 = function _loop2(event) {
+  var _loop2 = function _loop2() {
     var handler = handlers[event];
     view.dom.addEventListener(event, view.input.eventHandlers[event] = function (event) {
       if (eventBelongsToView(view, event) && !runCustomHandler(view, event) && (view.editable || !(event.type in editHandlers))) handler(view, event);
@@ -18520,65 +17513,46 @@ function initInput(view) {
       passive: true
     } : undefined);
   };
-
   for (var event in handlers) {
-    _loop2(event);
+    _loop2();
   }
-
   if (safari) view.dom.addEventListener("input", function () {
     return null;
   });
   ensureListeners(view);
 }
-
 function setSelectionOrigin(view, origin) {
   view.input.lastSelectionOrigin = origin;
   view.input.lastSelectionTime = Date.now();
 }
-
 function destroyInput(view) {
   view.domObserver.stop();
-
-  for (var type in view.input.eventHandlers) {
-    view.dom.removeEventListener(type, view.input.eventHandlers[type]);
-  }
-
+  for (var type in view.input.eventHandlers) view.dom.removeEventListener(type, view.input.eventHandlers[type]);
   clearTimeout(view.input.composingTimeout);
   clearTimeout(view.input.lastIOSEnterFallbackTimeout);
 }
-
 function ensureListeners(view) {
   view.someProp("handleDOMEvents", function (currentHandlers) {
-    for (var type in currentHandlers) {
-      if (!view.input.eventHandlers[type]) view.dom.addEventListener(type, view.input.eventHandlers[type] = function (event) {
-        return runCustomHandler(view, event);
-      });
-    }
+    for (var type in currentHandlers) if (!view.input.eventHandlers[type]) view.dom.addEventListener(type, view.input.eventHandlers[type] = function (event) {
+      return runCustomHandler(view, event);
+    });
   });
 }
-
 function runCustomHandler(view, event) {
   return view.someProp("handleDOMEvents", function (handlers) {
     var handler = handlers[event.type];
     return handler ? handler(view, event) || event.defaultPrevented : false;
   });
 }
-
 function eventBelongsToView(view, event) {
   if (!event.bubbles) return true;
   if (event.defaultPrevented) return false;
-
-  for (var node = event.target; node != view.dom; node = node.parentNode) {
-    if (!node || node.nodeType == 11 || node.pmViewDesc && node.pmViewDesc.stopEvent(event)) return false;
-  }
-
+  for (var node = event.target; node != view.dom; node = node.parentNode) if (!node || node.nodeType == 11 || node.pmViewDesc && node.pmViewDesc.stopEvent(event)) return false;
   return true;
 }
-
 function _dispatchEvent(view, event) {
   if (!runCustomHandler(view, event) && handlers[event.type] && (view.editable || !(event.type in editHandlers))) handlers[event.type](view, event);
 }
-
 editHandlers.keydown = function (view, _event) {
   var event = _event;
   view.input.shiftKey = event.keyCode == 16 || event.shiftKey;
@@ -18587,7 +17561,6 @@ editHandlers.keydown = function (view, _event) {
   view.input.lastKeyCodeTime = Date.now();
   if (android && chrome && event.keyCode == 13) return;
   if (event.keyCode != 229) view.domObserver.forceFlush();
-
   if (ios && event.keyCode == 13 && !event.ctrlKey && !event.altKey && !event.metaKey) {
     var now = Date.now();
     view.input.lastIOSEnter = now;
@@ -18607,24 +17580,19 @@ editHandlers.keydown = function (view, _event) {
     setSelectionOrigin(view, "key");
   }
 };
-
 editHandlers.keyup = function (view, event) {
   if (event.keyCode == 16) view.input.shiftKey = false;
 };
-
 editHandlers.keypress = function (view, _event) {
   var event = _event;
   if (inOrNearComposition(view, event) || !event.charCode || event.ctrlKey && !event.altKey || mac && event.metaKey) return;
-
   if (view.someProp("handleKeyPress", function (f) {
     return f(view, event);
   })) {
     event.preventDefault();
     return;
   }
-
   var sel = view.state.selection;
-
   if (!(sel instanceof prosemirrorState.TextSelection) || !sel.$from.sameParent(sel.$to)) {
     var text = String.fromCharCode(event.charCode);
     if (!/[\r\n]/.test(text) && !view.someProp("handleTextInput", function (f) {
@@ -18633,78 +17601,64 @@ editHandlers.keypress = function (view, _event) {
     event.preventDefault();
   }
 };
-
 function eventCoords(event) {
   return {
     left: event.clientX,
     top: event.clientY
   };
 }
-
 function isNear(event, click) {
   var dx = click.x - event.clientX,
-      dy = click.y - event.clientY;
+    dy = click.y - event.clientY;
   return dx * dx + dy * dy < 100;
 }
-
 function runHandlerOnContext(view, propName, pos, inside, event) {
   if (inside == -1) return false;
   var $pos = view.state.doc.resolve(inside);
-
   var _loop3 = function _loop3(i) {
-    if (view.someProp(propName, function (f) {
-      return i > $pos.depth ? f(view, pos, $pos.nodeAfter, $pos.before(i), event, true) : f(view, pos, $pos.node(i), $pos.before(i), event, false);
-    })) return {
-      v: true
-    };
-  };
-
+      if (view.someProp(propName, function (f) {
+        return i > $pos.depth ? f(view, pos, $pos.nodeAfter, $pos.before(i), event, true) : f(view, pos, $pos.node(i), $pos.before(i), event, false);
+      })) return {
+        v: true
+      };
+    },
+    _ret2;
   for (var i = $pos.depth + 1; i > 0; i--) {
-    var _ret2 = _loop3(i);
-
-    if (_typeof(_ret2) === "object") return _ret2.v;
+    _ret2 = _loop3(i);
+    if (_ret2) return _ret2.v;
   }
-
   return false;
 }
-
 function updateSelection(view, selection, origin) {
   if (!view.focused) view.focus();
   var tr = view.state.tr.setSelection(selection);
   if (origin == "pointer") tr.setMeta("pointer", true);
   view.dispatch(tr);
 }
-
 function selectClickedLeaf(view, inside) {
   if (inside == -1) return false;
   var $pos = view.state.doc.resolve(inside),
-      node = $pos.nodeAfter;
-
+    node = $pos.nodeAfter;
   if (node && node.isAtom && prosemirrorState.NodeSelection.isSelectable(node)) {
     updateSelection(view, new prosemirrorState.NodeSelection($pos), "pointer");
     return true;
   }
-
   return false;
 }
-
 function selectClickedNode(view, inside) {
   if (inside == -1) return false;
   var sel = view.state.selection,
-      selectedNode,
-      selectAt;
+    selectedNode,
+    selectAt;
   if (sel instanceof prosemirrorState.NodeSelection) selectedNode = sel.node;
   var $pos = view.state.doc.resolve(inside);
-
   for (var i = $pos.depth + 1; i > 0; i--) {
     var node = i > $pos.depth ? $pos.nodeAfter : $pos.node(i);
-
     if (prosemirrorState.NodeSelection.isSelectable(node)) {
       if (selectedNode && sel.$from.depth > 0 && i >= sel.$from.depth && $pos.before(sel.$from.depth + 1) == sel.$from.pos) selectAt = $pos.before(sel.$from.depth);else selectAt = $pos.before(i);
       break;
     }
   }
-
   if (selectAt != null) {
     updateSelection(view, prosemirrorState.NodeSelection.create(view.state.doc, selectAt), "pointer");
     return true;
@@ -18712,40 +17666,32 @@ function selectClickedNode(view, inside) {
     return false;
   }
 }
-
 function handleSingleClick(view, pos, inside, event, selectNode) {
   return runHandlerOnContext(view, "handleClickOn", pos, inside, event) || view.someProp("handleClick", function (f) {
     return f(view, pos, event);
   }) || (selectNode ? selectClickedNode(view, inside) : selectClickedLeaf(view, inside));
 }
-
 function handleDoubleClick(view, pos, inside, event) {
   return runHandlerOnContext(view, "handleDoubleClickOn", pos, inside, event) || view.someProp("handleDoubleClick", function (f) {
     return f(view, pos, event);
   });
 }
-
 function handleTripleClick(view, pos, inside, event) {
   return runHandlerOnContext(view, "handleTripleClickOn", pos, inside, event) || view.someProp("handleTripleClick", function (f) {
     return f(view, pos, event);
   }) || defaultTripleClick(view, inside, event);
 }
-
 function defaultTripleClick(view, inside, event) {
   if (event.button != 0) return false;
   var doc = view.state.doc;
-
   if (inside == -1) {
     if (doc.inlineContent) {
       updateSelection(view, prosemirrorState.TextSelection.create(doc, 0, doc.content.size), "pointer");
       return true;
     }
-
     return false;
   }
-
   var $pos = doc.resolve(inside);
-
   for (var i = $pos.depth + 1; i > 0; i--) {
     var node = i > $pos.depth ? $pos.nodeAfter : $pos.node(i);
     var nodePos = $pos.before(i);
@@ -18753,24 +17699,19 @@ function defaultTripleClick(view, inside, event) {
     return true;
   }
 }
-
 function forceDOMFlush(view) {
   return endComposition(view);
 }
-
 var selectNodeModifier = mac ? "metaKey" : "ctrlKey";
-
 handlers.mousedown = function (view, _event) {
   var event = _event;
   view.input.shiftKey = event.shiftKey;
   var flushed = forceDOMFlush(view);
   var now = Date.now(),
-      type = "singleClick";
-
+    type = "singleClick";
   if (now - view.input.lastClick.time < 500 && isNear(event, view.input.lastClick) && !event[selectNodeModifier]) {
     if (view.input.lastClick.type == "singleClick") type = "doubleClick";else if (view.input.lastClick.type == "doubleClick") type = "tripleClick";
   }
-
   view.input.lastClick = {
     time: now,
     x: event.clientX,
@@ -18779,7 +17720,6 @@ handlers.mousedown = function (view, _event) {
   };
   var pos = view.posAtCoords(eventCoords(event));
   if (!pos) return;
-
   if (type == "singleClick") {
     if (view.input.mouseDown) view.input.mouseDown.done();
     view.input.mouseDown = new MouseDown(view, pos, event, !!flushed);
@@ -18789,13 +17729,10 @@ handlers.mousedown = function (view, _event) {
     setSelectionOrigin(view, "pointer");
   }
 };
-
 var MouseDown = function () {
   function MouseDown(view, pos, event, flushed) {
     var _this8 = this;
-
     _classCallCheck(this, MouseDown);
-
     this.view = view;
     this.pos = pos;
     this.event = event;
@@ -18806,7 +17743,6 @@ var MouseDown = function () {
     this.selectNode = !!event[selectNodeModifier];
     this.allowDefault = event.shiftKey;
     var targetNode, targetPos;
-
     if (pos.inside > -1) {
       targetNode = view.state.doc.nodeAt(pos.inside);
       targetPos = pos.inside;
@@ -18815,7 +17751,6 @@ var MouseDown = function () {
       targetNode = $pos.parent;
       targetPos = $pos.depth ? $pos.before() : 0;
     }
-
     var target = flushed ? null : event.target;
     var targetDesc = target ? view.docView.nearestDesc(target, true) : null;
     this.target = targetDesc ? targetDesc.dom : null;
@@ -18826,7 +17761,6 @@ var MouseDown = function () {
       addAttr: !!(this.target && !this.target.draggable),
       setUneditable: !!(this.target && gecko && !this.target.hasAttribute("contentEditable"))
     };
-
     if (this.target && this.mightDrag && (this.mightDrag.addAttr || this.mightDrag.setUneditable)) {
       this.view.domObserver.stop();
       if (this.mightDrag.addAttr) this.target.draggable = true;
@@ -18835,27 +17769,22 @@ var MouseDown = function () {
       }, 20);
       this.view.domObserver.start();
     }
-
     view.root.addEventListener("mouseup", this.up = this.up.bind(this));
     view.root.addEventListener("mousemove", this.move = this.move.bind(this));
     setSelectionOrigin(view, "pointer");
   }
-
   _createClass(MouseDown, [{
     key: "done",
     value: function done() {
       var _this9 = this;
-
       this.view.root.removeEventListener("mouseup", this.up);
       this.view.root.removeEventListener("mousemove", this.move);
-
       if (this.mightDrag && this.target) {
         this.view.domObserver.stop();
         if (this.mightDrag.addAttr) this.target.removeAttribute("draggable");
         if (this.mightDrag.setUneditable) this.target.removeAttribute("contentEditable");
         this.view.domObserver.start();
       }
-
       if (this.delayedSelectionSync) setTimeout(function () {
         return selectionToDOM(_this9.view);
       });
@@ -18869,7 +17798,6 @@ var MouseDown = function () {
       var pos = this.pos;
       if (this.view.state.doc != this.startDoc) pos = this.view.posAtCoords(eventCoords(event));
       this.updateAllowDefault(event);
-
       if (this.allowDefault || !pos) {
         setSelectionOrigin(this.view, "pointer");
       } else if (handleSingleClick(this.view, pos.pos, pos.inside, event, this.selectNode)) {
@@ -18894,44 +17822,34 @@ var MouseDown = function () {
       if (!this.allowDefault && (Math.abs(this.event.x - event.clientX) > 4 || Math.abs(this.event.y - event.clientY) > 4)) this.allowDefault = true;
     }
   }]);
-
   return MouseDown;
 }();
-
 handlers.touchstart = function (view) {
   view.input.lastTouch = Date.now();
   forceDOMFlush(view);
   setSelectionOrigin(view, "pointer");
 };
-
 handlers.touchmove = function (view) {
   view.input.lastTouch = Date.now();
   setSelectionOrigin(view, "pointer");
 };
-
 handlers.contextmenu = function (view) {
   return forceDOMFlush(view);
 };
-
 function inOrNearComposition(view, event) {
   if (view.composing) return true;
-
   if (safari && Math.abs(event.timeStamp - view.input.compositionEndedAt) < 500) {
     view.input.compositionEndedAt = -2e8;
     return true;
   }
-
   return false;
 }
-
 var timeoutComposition = android ? 5000 : -1;
-
 editHandlers.compositionstart = editHandlers.compositionupdate = function (view) {
   if (!view.composing) {
     view.domObserver.flush();
     var state = view.state,
-        $pos = state.selection.$from;
-
+      $pos = state.selection.$from;
     if (state.selection.empty && (state.storedMarks || !$pos.textOffset && $pos.parentOffset && $pos.nodeBefore.marks.some(function (m) {
       return m.type.spec.inclusive === false;
     }))) {
@@ -18940,14 +17858,11 @@ editHandlers.compositionstart = editHandlers.compositionupdate = function (view)
       view.markCursor = null;
     } else {
       endComposition(view);
-
       if (gecko && state.selection.empty && $pos.parentOffset && !$pos.textOffset && $pos.nodeBefore.marks.length) {
         var sel = view.domSelectionRange();
-
         for (var node = sel.focusNode, offset = sel.focusOffset; node && node.nodeType == 1 && offset != 0;) {
           var before = offset < 0 ? node.lastChild : node.childNodes[offset - 1];
           if (!before) break;
-
           if (before.nodeType == 3) {
             view.domSelection().collapse(before, before.nodeValue.length);
             break;
@@ -18958,13 +17873,10 @@ editHandlers.compositionstart = editHandlers.compositionupdate = function (view)
         }
       }
     }
-
     view.input.composing = true;
   }
-
   scheduleComposeEnd(view, timeoutComposition);
 };
-
 editHandlers.compositionend = function (view, event) {
   if (view.composing) {
     view.input.composing = false;
@@ -18977,53 +17889,43 @@ editHandlers.compositionend = function (view, event) {
     scheduleComposeEnd(view, 20);
   }
 };
-
 function scheduleComposeEnd(view, delay) {
   clearTimeout(view.input.composingTimeout);
   if (delay > -1) view.input.composingTimeout = setTimeout(function () {
     return endComposition(view);
   }, delay);
 }
-
 function clearComposition(view) {
   if (view.composing) {
     view.input.composing = false;
     view.input.compositionEndedAt = timestampFromCustomEvent();
   }
-
-  while (view.input.compositionNodes.length > 0) {
-    view.input.compositionNodes.pop().markParentsDirty();
-  }
+  while (view.input.compositionNodes.length > 0) view.input.compositionNodes.pop().markParentsDirty();
 }
-
 function timestampFromCustomEvent() {
   var event = document.createEvent("Event");
   event.initEvent("event", true, true);
   return event.timeStamp;
 }
-
 function endComposition(view) {
   var forceUpdate = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
   if (android && view.domObserver.flushingSoon >= 0) return;
   view.domObserver.forceFlush();
   clearComposition(view);
-
   if (forceUpdate || view.docView && view.docView.dirty) {
     var sel = selectionFromDOM(view);
     if (sel && !sel.eq(view.state.selection)) view.dispatch(view.state.tr.setSelection(sel));else view.updateState(view.state);
     return true;
   }
-
   return false;
 }
-
 function captureCopy(view, dom) {
   if (!view.dom.parentNode) return;
   var wrap = view.dom.parentNode.appendChild(document.createElement("div"));
   wrap.appendChild(dom);
   wrap.style.cssText = "position: fixed; left: -10000px; top: 10px";
   var sel = getSelection(),
-      range = document.createRange();
+    range = document.createRange();
   range.selectNodeContents(dom);
   view.dom.blur();
   sel.removeAllRanges();
@@ -19033,21 +17935,17 @@ function captureCopy(view, dom) {
     view.focus();
   }, 50);
 }
-
 var brokenClipboardAPI = ie && ie_version < 15 || ios && webkit_version < 604;
-
 handlers.copy = editHandlers.cut = function (view, _event) {
   var event = _event;
   var sel = view.state.selection,
-      cut = event.type == "cut";
+    cut = event.type == "cut";
   if (sel.empty) return;
   var data = brokenClipboardAPI ? null : event.clipboardData;
-
   var slice = sel.content(),
-      _serializeForClipboar = serializeForClipboard(view, slice),
-      dom = _serializeForClipboar.dom,
-      text = _serializeForClipboar.text;
-
+    _serializeForClipboar = serializeForClipboard(view, slice),
+    dom = _serializeForClipboar.dom,
+    text = _serializeForClipboar.text;
   if (data) {
     event.preventDefault();
     data.clearData();
@@ -19056,14 +17954,11 @@ handlers.copy = editHandlers.cut = function (view, _event) {
   } else {
     captureCopy(view, dom);
   }
-
   if (cut) view.dispatch(view.state.tr.deleteSelection().scrollIntoView().setMeta("uiEvent", "cut"));
 };
-
 function sliceSingleNode(slice) {
   return slice.openStart == 0 && slice.openEnd == 0 && slice.content.childCount == 1 ? slice.content.firstChild : null;
 }
-
 function capturePaste(view, event) {
   if (!view.dom.parentNode) return;
   var plainText = view.input.shiftKey || view.state.selection.$from.parent.type.spec.code;
@@ -19078,7 +17973,6 @@ function capturePaste(view, event) {
     if (plainText) doPaste(view, target.value, null, plain, event);else doPaste(view, target.textContent, target.innerHTML, plain, event);
   }, 50);
 }
-
 function doPaste(view, text, html, preferPlain, event) {
   var slice = parseFromClipboard(view, text, html, preferPlain, view.state.selection.$from);
   if (view.someProp("handlePaste", function (f) {
@@ -19090,24 +17984,26 @@ function doPaste(view, text, html, preferPlain, event) {
   view.dispatch(tr.scrollIntoView().setMeta("paste", true).setMeta("uiEvent", "paste"));
   return true;
 }
-
+function getText(clipboardData) {
+  var text = clipboardData.getData("text/plain") || clipboardData.getData("Text");
+  if (text) return text;
+  var uris = clipboardData.getData("text/uri-list");
+  return uris ? uris.replace(/\r?\n/g, " ") : "";
+}
 editHandlers.paste = function (view, _event) {
   var event = _event;
   if (view.composing && !android) return;
   var data = brokenClipboardAPI ? null : event.clipboardData;
   var plain = view.input.shiftKey && view.input.lastKeyCode != 45;
-  if (data && doPaste(view, data.getData("text/plain"), data.getData("text/html"), plain, event)) event.preventDefault();else capturePaste(view, event);
+  if (data && doPaste(view, getText(data), data.getData("text/html"), plain, event)) event.preventDefault();else capturePaste(view, event);
 };
-
-var Dragging = _createClass(function Dragging(slice, move) {
+var Dragging = _createClass(function Dragging(slice, move, node) {
   _classCallCheck(this, Dragging);
-
   this.slice = slice;
   this.move = move;
+  this.node = node;
 });
-
 var dragCopyModifier = mac ? "altKey" : "ctrlKey";
-
 handlers.dragstart = function (view, _event) {
   var event = _event;
   var mouseDown = view.input.mouseDown;
@@ -19115,36 +18011,32 @@ handlers.dragstart = function (view, _event) {
   if (!event.dataTransfer) return;
   var sel = view.state.selection;
   var pos = sel.empty ? null : view.posAtCoords(eventCoords(event));
+  var node;
   if (pos && pos.pos >= sel.from && pos.pos <= (sel instanceof prosemirrorState.NodeSelection ? sel.to - 1 : sel.to)) ;else if (mouseDown && mouseDown.mightDrag) {
-    view.dispatch(view.state.tr.setSelection(prosemirrorState.NodeSelection.create(view.state.doc, mouseDown.mightDrag.pos)));
+    node = prosemirrorState.NodeSelection.create(view.state.doc, mouseDown.mightDrag.pos);
   } else if (event.target && event.target.nodeType == 1) {
     var desc = view.docView.nearestDesc(event.target, true);
-    if (desc && desc.node.type.spec.draggable && desc != view.docView) view.dispatch(view.state.tr.setSelection(prosemirrorState.NodeSelection.create(view.state.doc, desc.posBefore)));
+    if (desc && desc.node.type.spec.draggable && desc != view.docView) node = prosemirrorState.NodeSelection.create(view.state.doc, desc.posBefore);
   }
-
-  var slice = view.state.selection.content(),
-      _serializeForClipboar2 = serializeForClipboard(view, slice),
-      dom = _serializeForClipboar2.dom,
-      text = _serializeForClipboar2.text;
-
+  var slice = (node || view.state.selection).content(),
+    _serializeForClipboar2 = serializeForClipboard(view, slice),
+    dom = _serializeForClipboar2.dom,
+    text = _serializeForClipboar2.text;
   event.dataTransfer.clearData();
   event.dataTransfer.setData(brokenClipboardAPI ? "Text" : "text/html", dom.innerHTML);
   event.dataTransfer.effectAllowed = "copyMove";
   if (!brokenClipboardAPI) event.dataTransfer.setData("text/plain", text);
-  view.dragging = new Dragging(slice, !event[dragCopyModifier]);
+  view.dragging = new Dragging(slice, !event[dragCopyModifier], node);
 };
-
 handlers.dragend = function (view) {
   var dragging = view.dragging;
   window.setTimeout(function () {
     if (view.dragging == dragging) view.dragging = null;
   }, 50);
 };
-
 editHandlers.dragover = editHandlers.dragenter = function (_, e) {
   return e.preventDefault();
 };
-
 editHandlers.drop = function (view, _event) {
   var event = _event;
   var dragging = view.dragging;
@@ -19154,37 +18046,35 @@ editHandlers.drop = function (view, _event) {
   if (!eventPos) return;
   var $mouse = view.state.doc.resolve(eventPos.pos);
   var slice = dragging && dragging.slice;
-
   if (slice) {
     view.someProp("transformPasted", function (f) {
       slice = f(slice, view);
     });
   } else {
-    slice = parseFromClipboard(view, event.dataTransfer.getData(brokenClipboardAPI ? "Text" : "text/plain"), brokenClipboardAPI ? null : event.dataTransfer.getData("text/html"), false, $mouse);
+    slice = parseFromClipboard(view, getText(event.dataTransfer), brokenClipboardAPI ? null : event.dataTransfer.getData("text/html"), false, $mouse);
   }
-
   var move = !!(dragging && !event[dragCopyModifier]);
-
   if (view.someProp("handleDrop", function (f) {
     return f(view, event, slice || prosemirrorModel.Slice.empty, move);
   })) {
     event.preventDefault();
     return;
   }
-
   if (!slice) return;
   event.preventDefault();
   var insertPos = slice ? prosemirrorTransform.dropPoint(view.state.doc, $mouse.pos, slice) : $mouse.pos;
   if (insertPos == null) insertPos = $mouse.pos;
   var tr = view.state.tr;
-  if (move) tr.deleteSelection();
+  if (move) {
+    var node = dragging.node;
+    if (node) node.replace(tr);else tr.deleteSelection();
+  }
   var pos = tr.mapping.map(insertPos);
   var isNode = slice.openStart == 0 && slice.openEnd == 0 && slice.content.childCount == 1;
   var beforeInsert = tr.doc;
   if (isNode) tr.replaceRangeWith(pos, pos, slice.content.firstChild);else tr.replaceRange(pos, pos, slice);
   if (tr.doc.eq(beforeInsert)) return;
   var $pos = tr.doc.resolve(pos);
-
   if (isNode && prosemirrorState.NodeSelection.isSelectable(slice.content.firstChild) && $pos.nodeAfter && $pos.nodeAfter.sameMarkup(slice.content.firstChild)) {
     tr.setSelection(new prosemirrorState.NodeSelection($pos));
   } else {
@@ -19194,14 +18084,11 @@ editHandlers.drop = function (view, _event) {
     });
     tr.setSelection(selectionBetween(view, $pos, tr.doc.resolve(end)));
   }
-
   view.focus();
   view.dispatch(tr.setMeta("uiEvent", "drop"));
 };
-
 handlers.focus = function (view) {
   view.input.lastFocus = Date.now();
-
   if (!view.focused) {
     view.domObserver.stop();
     view.dom.classList.add("ProseMirror-focused");
@@ -19212,10 +18099,8 @@ handlers.focus = function (view) {
     }, 20);
   }
 };
-
 handlers.blur = function (view, _event) {
   var event = _event;
-
   if (view.focused) {
     view.domObserver.stop();
     view.dom.classList.remove("ProseMirror-focused");
@@ -19224,10 +18109,8 @@ handlers.blur = function (view, _event) {
     view.focused = false;
   }
 };
-
 handlers.beforeinput = function (view, _event) {
   var event = _event;
-
   if (chrome && android && event.inputType == "deleteContentBackward") {
     view.domObserver.flushSoon();
     var domChangeCount = view.input.domChangeCount;
@@ -19243,41 +18126,26 @@ handlers.beforeinput = function (view, _event) {
     }, 50);
   }
 };
-
-for (var prop in editHandlers) {
-  handlers[prop] = editHandlers[prop];
-}
-
+for (var prop in editHandlers) handlers[prop] = editHandlers[prop];
 function compareObjs(a, b) {
   if (a == b) return true;
-
-  for (var p in a) {
-    if (a[p] !== b[p]) return false;
-  }
-
-  for (var _p in b) {
-    if (!(_p in a)) return false;
-  }
-
+  for (var p in a) if (a[p] !== b[p]) return false;
+  for (var _p in b) if (!(_p in a)) return false;
   return true;
 }
-
 var WidgetType = function () {
   function WidgetType(toDOM, spec) {
     _classCallCheck(this, WidgetType);
-
     this.toDOM = toDOM;
     this.spec = spec || noSpec;
     this.side = this.spec.side || 0;
   }
-
   _createClass(WidgetType, [{
     key: "map",
     value: function map(mapping, span, offset, oldOffset) {
       var _mapping$mapResult = mapping.mapResult(span.from + oldOffset, this.side < 0 ? -1 : 1),
-          pos = _mapping$mapResult.pos,
-          deleted = _mapping$mapResult.deleted;
-
+        pos = _mapping$mapResult.pos,
+        deleted = _mapping$mapResult.deleted;
       return deleted ? null : new Decoration(pos - offset, pos - offset, this);
     }
   }, {
@@ -19296,18 +18164,14 @@ var WidgetType = function () {
       if (this.spec.destroy) this.spec.destroy(node);
     }
   }]);
-
   return WidgetType;
 }();
-
 var InlineType = function () {
   function InlineType(attrs, spec) {
     _classCallCheck(this, InlineType);
-
     this.attrs = attrs;
     this.spec = spec || noSpec;
   }
-
   _createClass(InlineType, [{
     key: "map",
     value: function map(mapping, span, offset, oldOffset) {
@@ -19334,18 +18198,14 @@ var InlineType = function () {
       return span.type instanceof InlineType;
     }
   }]);
-
   return InlineType;
 }();
-
 var NodeType = function () {
   function NodeType(attrs, spec) {
     _classCallCheck(this, NodeType);
-
     this.attrs = attrs;
     this.spec = spec || noSpec;
   }
-
   _createClass(NodeType, [{
     key: "map",
     value: function map(mapping, span, offset, oldOffset) {
@@ -19359,10 +18219,9 @@ var NodeType = function () {
     key: "valid",
     value: function valid(node, span) {
       var _node$content$findInd = node.content.findIndex(span.from),
-          index = _node$content$findInd.index,
-          offset = _node$content$findInd.offset,
-          child;
-
+        index = _node$content$findInd.index,
+        offset = _node$content$findInd.offset,
+        child;
       return offset == span.from && !(child = node.child(index)).isText && offset + child.nodeSize == span.to;
     }
   }, {
@@ -19374,19 +18233,15 @@ var NodeType = function () {
     key: "destroy",
     value: function destroy() {}
   }]);
-
   return NodeType;
 }();
-
 var Decoration = function () {
   function Decoration(from, to, type) {
     _classCallCheck(this, Decoration);
-
     this.from = from;
     this.to = to;
     this.type = type;
   }
-
   _createClass(Decoration, [{
     key: "copy",
     value: function copy(from, to) {
@@ -19434,21 +18289,16 @@ var Decoration = function () {
       return new Decoration(from, to, new NodeType(attrs, spec));
     }
   }]);
-
   return Decoration;
 }();
-
 var none = [],
-    noSpec = {};
-
+  noSpec = {};
 var DecorationSet = function () {
   function DecorationSet(local, children) {
     _classCallCheck(this, DecorationSet);
-
     this.local = local.length ? local : none;
     this.children = children.length ? children : none;
   }
-
   _createClass(DecorationSet, [{
     key: "find",
     value: function find(start, end, predicate) {
@@ -19463,11 +18313,9 @@ var DecorationSet = function () {
         var span = this.local[i];
         if (span.from <= end && span.to >= start && (!predicate || predicate(span.spec))) result.push(span.copy(span.from + offset, span.to + offset));
       }
-
       for (var _i5 = 0; _i5 < this.children.length; _i5 += 3) {
         if (this.children[_i5] < end && this.children[_i5 + 1] > start) {
           var childOff = this.children[_i5] + 1;
-
           this.children[_i5 + 2].findInner(start - childOff, end - childOff, result, offset + childOff, predicate);
         }
       }
@@ -19482,12 +18330,10 @@ var DecorationSet = function () {
     key: "mapInner",
     value: function mapInner(mapping, node, offset, oldOffset, options) {
       var newLocal;
-
       for (var i = 0; i < this.local.length; i++) {
         var mapped = this.local[i].map(mapping, offset, oldOffset);
         if (mapped && mapped.type.valid(node, mapped)) (newLocal || (newLocal = [])).push(mapped);else if (options.onRemove) options.onRemove(this.local[i].spec);
       }
-
       if (this.children.length) return mapChildren(this.children, newLocal || [], mapping, node, offset, oldOffset, options);else return newLocal ? new DecorationSet(newLocal.sort(byPos), none) : empty;
     }
   }, {
@@ -19501,28 +18347,19 @@ var DecorationSet = function () {
     key: "addInner",
     value: function addInner(doc, decorations, offset) {
       var _this10 = this;
-
       var children,
-          childIndex = 0;
+        childIndex = 0;
       doc.forEach(function (childNode, childOffset) {
         var baseOffset = childOffset + offset,
-            found;
+          found;
         if (!(found = takeSpansForNode(decorations, childNode, baseOffset))) return;
         if (!children) children = _this10.children.slice();
-
-        while (childIndex < children.length && children[childIndex] < childOffset) {
-          childIndex += 3;
-        }
-
+        while (childIndex < children.length && children[childIndex] < childOffset) childIndex += 3;
         if (children[childIndex] == childOffset) children[childIndex + 2] = children[childIndex + 2].addInner(childNode, found, baseOffset + 1);else children.splice(childIndex, 0, childOffset, childOffset + childNode.nodeSize, buildTree(found, childNode, baseOffset + 1, noSpec));
         childIndex += 3;
       });
       var local = moveSpans(childIndex ? withoutNulls(decorations) : decorations, -offset);
-
-      for (var i = 0; i < local.length; i++) {
-        if (!local[i].type.valid(doc, local[i])) local.splice(i--, 1);
-      }
-
+      for (var i = 0; i < local.length; i++) if (!local[i].type.valid(doc, local[i])) local.splice(i--, 1);
       return new DecorationSet(local.length ? this.local.concat(local).sort(byPos) : this.local, children || this.children);
     }
   }, {
@@ -19535,26 +18372,20 @@ var DecorationSet = function () {
     key: "removeInner",
     value: function removeInner(decorations, offset) {
       var children = this.children,
-          local = this.local;
-
+        local = this.local;
       for (var i = 0; i < children.length; i += 3) {
         var found = void 0;
         var from = children[i] + offset,
-            to = children[i + 1] + offset;
-
-        for (var j = 0, span; j < decorations.length; j++) {
-          if (span = decorations[j]) {
-            if (span.from > from && span.to < to) {
-              decorations[j] = null;
-              (found || (found = [])).push(span);
-            }
+          to = children[i + 1] + offset;
+        for (var j = 0, span; j < decorations.length; j++) if (span = decorations[j]) {
+          if (span.from > from && span.to < to) {
+            decorations[j] = null;
+            (found || (found = [])).push(span);
           }
         }
-
         if (!found) continue;
         if (children == this.children) children = this.children.slice();
         var removed = children[i + 2].removeInner(found, from + 1);
-
         if (removed != empty) {
           children[i + 2] = removed;
         } else {
@@ -19562,15 +18393,10 @@ var DecorationSet = function () {
           i -= 3;
         }
       }
-
-      if (local.length) for (var _i6 = 0, _span; _i6 < decorations.length; _i6++) {
-        if (_span = decorations[_i6]) {
-          for (var _j2 = 0; _j2 < local.length; _j2++) {
-            if (local[_j2].eq(_span, offset)) {
-              if (local == this.local) local = this.local.slice();
-              local.splice(_j2--, 1);
-            }
-          }
+      if (local.length) for (var _i6 = 0, _span; _i6 < decorations.length; _i6++) if (_span = decorations[_i6]) {
+        for (var _j2 = 0; _j2 < local.length; _j2++) if (local[_j2].eq(_span, offset)) {
+          if (local == this.local) local = this.local.slice();
+          local.splice(_j2--, 1);
         }
       }
       if (children == this.children && local == this.local) return this;
@@ -19582,32 +18408,24 @@ var DecorationSet = function () {
       if (this == empty) return this;
       if (node.isLeaf) return DecorationSet.empty;
       var child, local;
-
-      for (var i = 0; i < this.children.length; i += 3) {
-        if (this.children[i] >= offset) {
-          if (this.children[i] == offset) child = this.children[i + 2];
-          break;
-        }
+      for (var i = 0; i < this.children.length; i += 3) if (this.children[i] >= offset) {
+        if (this.children[i] == offset) child = this.children[i + 2];
+        break;
       }
-
       var start = offset + 1,
-          end = start + node.content.size;
-
+        end = start + node.content.size;
       for (var _i7 = 0; _i7 < this.local.length; _i7++) {
         var dec = this.local[_i7];
-
         if (dec.from < end && dec.to > start && dec.type instanceof InlineType) {
           var from = Math.max(start, dec.from) - start,
-              to = Math.min(end, dec.to) - start;
+            to = Math.min(end, dec.to) - start;
           if (from < to) (local || (local = [])).push(dec.copy(from, to));
         }
       }
-
       if (local) {
         var localSet = new DecorationSet(local.sort(byPos), none);
         return child ? new DecorationGroup([localSet, child]) : localSet;
       }
-
       return child || empty;
     }
   }, {
@@ -19615,15 +18433,8 @@ var DecorationSet = function () {
     value: function eq(other) {
       if (this == other) return true;
       if (!(other instanceof DecorationSet) || this.local.length != other.local.length || this.children.length != other.children.length) return false;
-
-      for (var i = 0; i < this.local.length; i++) {
-        if (!this.local[i].eq(other.local[i])) return false;
-      }
-
-      for (var _i8 = 0; _i8 < this.children.length; _i8 += 3) {
-        if (this.children[_i8] != other.children[_i8] || this.children[_i8 + 1] != other.children[_i8 + 1] || !this.children[_i8 + 2].eq(other.children[_i8 + 2])) return false;
-      }
-
+      for (var i = 0; i < this.local.length; i++) if (!this.local[i].eq(other.local[i])) return false;
+      for (var _i8 = 0; _i8 < this.children.length; _i8 += 3) if (this.children[_i8] != other.children[_i8] || this.children[_i8 + 1] != other.children[_i8 + 1] || !this.children[_i8 + 2].eq(other.children[_i8 + 2])) return false;
       return true;
     }
   }, {
@@ -19637,11 +18448,9 @@ var DecorationSet = function () {
       if (this == empty) return none;
       if (node.inlineContent || !this.local.some(InlineType.is)) return this.local;
       var result = [];
-
       for (var i = 0; i < this.local.length; i++) {
         if (!(this.local[i].type instanceof InlineType)) result.push(this.local[i]);
       }
-
       return result;
     }
   }], [{
@@ -19650,21 +18459,16 @@ var DecorationSet = function () {
       return decorations.length ? buildTree(decorations, doc, 0, noSpec) : empty;
     }
   }]);
-
   return DecorationSet;
 }();
-
 DecorationSet.empty = new DecorationSet([], []);
 DecorationSet.removeOverlap = removeOverlap;
 var empty = DecorationSet.empty;
-
 var DecorationGroup = function () {
   function DecorationGroup(members) {
     _classCallCheck(this, DecorationGroup);
-
     this.members = members;
   }
-
   _createClass(DecorationGroup, [{
     key: "map",
     value: function map(mapping, doc) {
@@ -19678,36 +18482,28 @@ var DecorationGroup = function () {
     value: function forChild(offset, child) {
       if (child.isLeaf) return DecorationSet.empty;
       var found = [];
-
       for (var i = 0; i < this.members.length; i++) {
         var result = this.members[i].forChild(offset, child);
         if (result == empty) continue;
         if (result instanceof DecorationGroup) found = found.concat(result.members);else found.push(result);
       }
-
       return DecorationGroup.from(found);
     }
   }, {
     key: "eq",
     value: function eq(other) {
       if (!(other instanceof DecorationGroup) || other.members.length != this.members.length) return false;
-
-      for (var i = 0; i < this.members.length; i++) {
-        if (!this.members[i].eq(other.members[i])) return false;
-      }
-
+      for (var i = 0; i < this.members.length; i++) if (!this.members[i].eq(other.members[i])) return false;
       return true;
     }
   }, {
     key: "locals",
     value: function locals(node) {
       var result,
-          sorted = true;
-
+        sorted = true;
       for (var i = 0; i < this.members.length; i++) {
         var locals = this.members[i].localsInner(node);
         if (!locals.length) continue;
-
         if (!result) {
           result = locals;
         } else {
@@ -19715,13 +18511,9 @@ var DecorationGroup = function () {
             result = result.slice();
             sorted = false;
           }
-
-          for (var j = 0; j < locals.length; j++) {
-            result.push(locals[j]);
-          }
+          for (var j = 0; j < locals.length; j++) result.push(locals[j]);
         }
       }
-
       return result ? removeOverlap(sorted ? result : result.sort(byPos)) : none;
     }
   }], [{
@@ -19730,10 +18522,8 @@ var DecorationGroup = function () {
       switch (members.length) {
         case 0:
           return empty;
-
         case 1:
           return members[0];
-
         default:
           return new DecorationGroup(members.every(function (m) {
             return m instanceof DecorationSet;
@@ -19743,173 +18533,124 @@ var DecorationGroup = function () {
       }
     }
   }]);
-
   return DecorationGroup;
 }();
-
 function mapChildren(oldChildren, newLocal, mapping, node, offset, oldOffset, options) {
   var children = oldChildren.slice();
-
-  var _loop4 = function _loop4(i, _baseOffset) {
+  var _loop4 = function _loop4(_baseOffset) {
     var moved = 0;
     mapping.maps[i].forEach(function (oldStart, oldEnd, newStart, newEnd) {
       var dSize = newEnd - newStart - (oldEnd - oldStart);
-
       for (var _i12 = 0; _i12 < children.length; _i12 += 3) {
         var end = children[_i12 + 1];
         if (end < 0 || oldStart > end + _baseOffset - moved) continue;
         var start = children[_i12] + _baseOffset - moved;
-
         if (oldEnd >= start) {
           children[_i12 + 1] = oldStart <= start ? -2 : -1;
-        } else if (newStart >= offset && dSize) {
+        } else if (oldStart >= _baseOffset && dSize) {
           children[_i12] += dSize;
           children[_i12 + 1] += dSize;
         }
       }
-
       moved += dSize;
     });
     _baseOffset = mapping.maps[i].map(_baseOffset, -1);
     baseOffset = _baseOffset;
   };
-
   for (var i = 0, baseOffset = oldOffset; i < mapping.maps.length; i++) {
-    _loop4(i, baseOffset);
+    _loop4(baseOffset);
   }
-
   var mustRebuild = false;
-
-  for (var _i9 = 0; _i9 < children.length; _i9 += 3) {
-    if (children[_i9 + 1] < 0) {
-      if (children[_i9 + 1] == -2) {
-        mustRebuild = true;
-        children[_i9 + 1] = -1;
-        continue;
-      }
-
-      var from = mapping.map(oldChildren[_i9] + oldOffset),
-          fromLocal = from - offset;
-
-      if (fromLocal < 0 || fromLocal >= node.content.size) {
-        mustRebuild = true;
-        continue;
-      }
-
-      var to = mapping.map(oldChildren[_i9 + 1] + oldOffset, -1),
-          toLocal = to - offset;
-
-      var _node$content$findInd2 = node.content.findIndex(fromLocal),
-          index = _node$content$findInd2.index,
-          childOffset = _node$content$findInd2.offset;
-
-      var childNode = node.maybeChild(index);
-
-      if (childNode && childOffset == fromLocal && childOffset + childNode.nodeSize == toLocal) {
-        var mapped = children[_i9 + 2].mapInner(mapping, childNode, from + 1, oldChildren[_i9] + oldOffset + 1, options);
-
-        if (mapped != empty) {
-          children[_i9] = fromLocal;
-          children[_i9 + 1] = toLocal;
-          children[_i9 + 2] = mapped;
-        } else {
-          children[_i9 + 1] = -2;
-          mustRebuild = true;
-        }
+  for (var _i9 = 0; _i9 < children.length; _i9 += 3) if (children[_i9 + 1] < 0) {
+    if (children[_i9 + 1] == -2) {
+      mustRebuild = true;
+      children[_i9 + 1] = -1;
+      continue;
+    }
+    var from = mapping.map(oldChildren[_i9] + oldOffset),
+      fromLocal = from - offset;
+    if (fromLocal < 0 || fromLocal >= node.content.size) {
+      mustRebuild = true;
+      continue;
+    }
+    var to = mapping.map(oldChildren[_i9 + 1] + oldOffset, -1),
+      toLocal = to - offset;
+    var _node$content$findInd2 = node.content.findIndex(fromLocal),
+      index = _node$content$findInd2.index,
+      childOffset = _node$content$findInd2.offset;
+    var childNode = node.maybeChild(index);
+    if (childNode && childOffset == fromLocal && childOffset + childNode.nodeSize == toLocal) {
+      var mapped = children[_i9 + 2].mapInner(mapping, childNode, from + 1, oldChildren[_i9] + oldOffset + 1, options);
+      if (mapped != empty) {
+        children[_i9] = fromLocal;
+        children[_i9 + 1] = toLocal;
+        children[_i9 + 2] = mapped;
       } else {
+        children[_i9 + 1] = -2;
         mustRebuild = true;
       }
+    } else {
+      mustRebuild = true;
     }
   }
-
   if (mustRebuild) {
     var decorations = mapAndGatherRemainingDecorations(children, oldChildren, newLocal, mapping, offset, oldOffset, options);
     var built = buildTree(decorations, node, 0, options);
     newLocal = built.local;
-
-    for (var _i10 = 0; _i10 < children.length; _i10 += 3) {
-      if (children[_i10 + 1] < 0) {
-        children.splice(_i10, 3);
-        _i10 -= 3;
-      }
+    for (var _i10 = 0; _i10 < children.length; _i10 += 3) if (children[_i10 + 1] < 0) {
+      children.splice(_i10, 3);
+      _i10 -= 3;
     }
-
     for (var _i11 = 0, j = 0; _i11 < built.children.length; _i11 += 3) {
       var _from2 = built.children[_i11];
-
-      while (j < children.length && children[j] < _from2) {
-        j += 3;
-      }
-
+      while (j < children.length && children[j] < _from2) j += 3;
       children.splice(j, 0, built.children[_i11], built.children[_i11 + 1], built.children[_i11 + 2]);
     }
   }
-
   return new DecorationSet(newLocal.sort(byPos), children);
 }
-
 function moveSpans(spans, offset) {
   if (!offset || !spans.length) return spans;
   var result = [];
-
   for (var i = 0; i < spans.length; i++) {
     var span = spans[i];
     result.push(new Decoration(span.from + offset, span.to + offset, span.type));
   }
-
   return result;
 }
-
 function mapAndGatherRemainingDecorations(children, oldChildren, decorations, mapping, offset, oldOffset, options) {
   function gather(set, oldOffset) {
     for (var i = 0; i < set.local.length; i++) {
       var mapped = set.local[i].map(mapping, offset, oldOffset);
       if (mapped) decorations.push(mapped);else if (options.onRemove) options.onRemove(set.local[i].spec);
     }
-
-    for (var _i13 = 0; _i13 < set.children.length; _i13 += 3) {
-      gather(set.children[_i13 + 2], set.children[_i13] + oldOffset + 1);
-    }
+    for (var _i13 = 0; _i13 < set.children.length; _i13 += 3) gather(set.children[_i13 + 2], set.children[_i13] + oldOffset + 1);
   }
-
-  for (var i = 0; i < children.length; i += 3) {
-    if (children[i + 1] == -1) gather(children[i + 2], oldChildren[i] + oldOffset + 1);
-  }
-
+  for (var i = 0; i < children.length; i += 3) if (children[i + 1] == -1) gather(children[i + 2], oldChildren[i] + oldOffset + 1);
   return decorations;
 }
-
 function takeSpansForNode(spans, node, offset) {
   if (node.isLeaf) return null;
   var end = offset + node.nodeSize,
-      found = null;
-
+    found = null;
   for (var i = 0, span; i < spans.length; i++) {
     if ((span = spans[i]) && span.from > offset && span.to < end) {
       (found || (found = [])).push(span);
       spans[i] = null;
     }
   }
-
   return found;
 }
-
 function withoutNulls(array) {
   var result = [];
-
-  for (var i = 0; i < array.length; i++) {
-    if (array[i] != null) result.push(array[i]);
-  }
-
+  for (var i = 0; i < array.length; i++) if (array[i] != null) result.push(array[i]);
   return result;
 }
-
 function buildTree(spans, node, offset, options) {
   var children = [],
-      hasNulls = false;
+    hasNulls = false;
   node.forEach(function (childNode, localStart) {
     var found = takeSpansForNode(spans, childNode, localStart + offset);
-
     if (found) {
       hasNulls = true;
       var subtree = buildTree(found, childNode, offset + localStart + 1, options);
@@ -19917,36 +18658,27 @@ function buildTree(spans, node, offset, options) {
     }
   });
   var locals = moveSpans(hasNulls ? withoutNulls(spans) : spans, -offset).sort(byPos);
-
-  for (var i = 0; i < locals.length; i++) {
-    if (!locals[i].type.valid(node, locals[i])) {
-      if (options.onRemove) options.onRemove(locals[i].spec);
-      locals.splice(i--, 1);
-    }
+  for (var i = 0; i < locals.length; i++) if (!locals[i].type.valid(node, locals[i])) {
+    if (options.onRemove) options.onRemove(locals[i].spec);
+    locals.splice(i--, 1);
   }
-
   return locals.length || children.length ? new DecorationSet(locals, children) : empty;
 }
-
 function byPos(a, b) {
   return a.from - b.from || a.to - b.to;
 }
-
 function removeOverlap(spans) {
   var working = spans;
-
   for (var i = 0; i < working.length - 1; i++) {
     var span = working[i];
     if (span.from != span.to) for (var j = i + 1; j < working.length; j++) {
       var next = working[j];
-
       if (next.from == span.from) {
         if (next.to != span.to) {
           if (working == spans) working = spans.slice();
           working[j] = next.copy(next.from, span.to);
           insertAhead(working, j + 1, next.copy(span.to, next.to));
         }
-
         continue;
       } else {
         if (next.from < span.to) {
@@ -19954,23 +18686,16 @@ function removeOverlap(spans) {
           working[i] = span.copy(span.from, next.from);
           insertAhead(working, j, span.copy(next.from, span.to));
         }
-
         break;
       }
     }
   }
-
   return working;
 }
-
 function insertAhead(array, i, deco) {
-  while (i < array.length && byPos(deco, array[i]) > 0) {
-    i++;
-  }
-
+  while (i < array.length && byPos(deco, array[i]) > 0) i++;
   array.splice(i, 0, deco);
 }
-
 function viewDecorations(view) {
   var found = [];
   view.someProp("decorations", function (f) {
@@ -19980,7 +18705,6 @@ function viewDecorations(view) {
   if (view.cursorWrapper) found.push(DecorationSet.create(view.state.doc, [view.cursorWrapper.deco]));
   return DecorationGroup.from(found);
 }
-
 var observeOptions = {
   childList: true,
   characterData: true,
@@ -19990,17 +18714,14 @@ var observeOptions = {
   subtree: true
 };
 var useCharData = ie && ie_version <= 11;
-
 var SelectionState = function () {
   function SelectionState() {
     _classCallCheck(this, SelectionState);
-
     this.anchorNode = null;
     this.anchorOffset = 0;
     this.focusNode = null;
     this.focusOffset = 0;
   }
-
   _createClass(SelectionState, [{
     key: "set",
     value: function set(sel) {
@@ -20020,16 +18741,12 @@ var SelectionState = function () {
       return sel.anchorNode == this.anchorNode && sel.anchorOffset == this.anchorOffset && sel.focusNode == this.focusNode && sel.focusOffset == this.focusOffset;
     }
   }]);
-
   return SelectionState;
 }();
-
 var DOMObserver = function () {
   function DOMObserver(view, handleDOMChange) {
     var _this11 = this;
-
     _classCallCheck(this, DOMObserver);
-
     this.view = view;
     this.handleDOMChange = handleDOMChange;
     this.queue = [];
@@ -20039,15 +18756,11 @@ var DOMObserver = function () {
     this.onCharData = null;
     this.suppressingSelectionUpdates = false;
     this.observer = window.MutationObserver && new window.MutationObserver(function (mutations) {
-      for (var i = 0; i < mutations.length; i++) {
-        _this11.queue.push(mutations[i]);
-      }
-
+      for (var i = 0; i < mutations.length; i++) _this11.queue.push(mutations[i]);
       if (ie && ie_version <= 11 && mutations.some(function (m) {
         return m.type == "childList" && m.removedNodes.length || m.type == "characterData" && m.oldValue.length > m.target.nodeValue.length;
       })) _this11.flushSoon();else _this11.flush();
     });
-
     if (useCharData) {
       this.onCharData = function (e) {
         _this11.queue.push({
@@ -20055,22 +18768,17 @@ var DOMObserver = function () {
           type: "characterData",
           oldValue: e.prevValue
         });
-
         _this11.flushSoon();
       };
     }
-
     this.onSelectionChange = this.onSelectionChange.bind(this);
   }
-
   _createClass(DOMObserver, [{
     key: "flushSoon",
     value: function flushSoon() {
       var _this12 = this;
-
       if (this.flushingSoon < 0) this.flushingSoon = window.setTimeout(function () {
         _this12.flushingSoon = -1;
-
         _this12.flush();
       }, 20);
     }
@@ -20090,7 +18798,6 @@ var DOMObserver = function () {
         this.observer.takeRecords();
         this.observer.observe(this.view.dom, observeOptions);
       }
-
       if (this.onCharData) this.view.dom.addEventListener("DOMCharacterDataModified", this.onCharData);
       this.connectSelection();
     }
@@ -20098,23 +18805,16 @@ var DOMObserver = function () {
     key: "stop",
     value: function stop() {
       var _this13 = this;
-
       if (this.observer) {
         var take = this.observer.takeRecords();
-
         if (take.length) {
-          for (var i = 0; i < take.length; i++) {
-            this.queue.push(take[i]);
-          }
-
+          for (var i = 0; i < take.length; i++) this.queue.push(take[i]);
           window.setTimeout(function () {
             return _this13.flush();
           }, 20);
         }
-
         this.observer.disconnect();
       }
-
       if (this.onCharData) this.view.dom.removeEventListener("DOMCharacterDataModified", this.onCharData);
       this.disconnectSelection();
     }
@@ -20132,7 +18832,6 @@ var DOMObserver = function () {
     key: "suppressSelectionUpdates",
     value: function suppressSelectionUpdates() {
       var _this14 = this;
-
       this.suppressingSelectionUpdates = true;
       setTimeout(function () {
         return _this14.suppressingSelectionUpdates = false;
@@ -20143,12 +18842,10 @@ var DOMObserver = function () {
     value: function onSelectionChange() {
       if (!hasFocusAndSelection(this.view)) return;
       if (this.suppressingSelectionUpdates) return selectionToDOM(this.view);
-
       if (ie && ie_version <= 11 && !this.view.state.selection.empty) {
         var sel = this.view.domSelectionRange();
         if (sel.focusNode && isEquivalentPosition(sel.focusNode, sel.focusOffset, sel.anchorNode, sel.anchorOffset)) return this.flushSoon();
       }
-
       this.flush();
     }
   }, {
@@ -20161,21 +18858,13 @@ var DOMObserver = function () {
     value: function ignoreSelectionChange(sel) {
       if (!sel.focusNode) return true;
       var ancestors = new Set(),
-          container;
-
-      for (var scan = sel.focusNode; scan; scan = parentNode(scan)) {
-        ancestors.add(scan);
+        container;
+      for (var scan = sel.focusNode; scan; scan = parentNode(scan)) ancestors.add(scan);
+      for (var _scan = sel.anchorNode; _scan; _scan = parentNode(_scan)) if (ancestors.has(_scan)) {
+        container = _scan;
+        break;
       }
-
-      for (var _scan = sel.anchorNode; _scan; _scan = parentNode(_scan)) {
-        if (ancestors.has(_scan)) {
-          container = _scan;
-          break;
-        }
-      }
-
       var desc = container && this.view.docView.nearestDesc(container);
-
       if (desc && desc.ignoreMutation({
         type: "selection",
         target: container.nodeType == 3 ? container.parentNode : container
@@ -20189,8 +18878,7 @@ var DOMObserver = function () {
     value: function pendingRecords() {
       if (this.observer) {
         var _iterator2 = _createForOfIteratorHelper(this.observer.takeRecords()),
-            _step2;
-
+          _step2;
         try {
           for (_iterator2.s(); !(_step2 = _iterator2.n()).done;) {
             var mut = _step2.value;
@@ -20202,7 +18890,6 @@ var DOMObserver = function () {
           _iterator2.f();
         }
       }
-
       return this.queue;
     }
   }, {
@@ -20215,14 +18902,12 @@ var DOMObserver = function () {
       var sel = view.domSelectionRange();
       var newSel = !this.suppressingSelectionUpdates && !this.currentSelection.eq(sel) && hasFocusAndSelection(view) && !this.ignoreSelectionChange(sel);
       var from = -1,
-          to = -1,
-          typeOver = false,
-          added = [];
-
+        to = -1,
+        typeOver = false,
+        added = [];
       if (view.editable) {
         for (var i = 0; i < mutations.length; i++) {
           var result = this.registerMutation(mutations[i], added);
-
           if (result) {
             from = from < 0 ? result.from : Math.min(result.from, from);
             to = to < 0 ? result.to : Math.max(result.to, to);
@@ -20230,21 +18915,17 @@ var DOMObserver = function () {
           }
         }
       }
-
       if (gecko && added.length > 1) {
         var brs = added.filter(function (n) {
           return n.nodeName == "BR";
         });
-
         if (brs.length == 2) {
           var a = brs[0],
-              b = brs[1];
+            b = brs[1];
           if (a.parentNode && a.parentNode.parentNode == b.parentNode) b.remove();else a.remove();
         }
       }
-
       var readSel = null;
-
       if (from < 0 && newSel && view.input.lastFocus > Date.now() - 200 && Math.max(view.input.lastTouch, view.input.lastClick.time) < Date.now() - 300 && selectionCollapsed(sel) && (readSel = selectionFromDOM(view)) && readSel.eq(prosemirrorState.Selection.near(view.state.doc.resolve(0), 1))) {
         view.input.lastFocus = 0;
         selectionToDOM(view);
@@ -20255,7 +18936,6 @@ var DOMObserver = function () {
           view.docView.markDirty(from, to);
           checkCSS(view);
         }
-
         this.handleDOMChange(from, to, typeOver, added);
         if (view.docView && view.docView.dirty) view.updateState(view.state);else if (!this.currentSelection.eq(sel)) selectionToDOM(view);
         this.currentSelection.set(sel);
@@ -20268,29 +18948,23 @@ var DOMObserver = function () {
       var desc = this.view.docView.nearestDesc(mut.target);
       if (mut.type == "attributes" && (desc == this.view.docView || mut.attributeName == "contenteditable" || mut.attributeName == "style" && !mut.oldValue && !mut.target.getAttribute("style"))) return null;
       if (!desc || desc.ignoreMutation(mut)) return null;
-
       if (mut.type == "childList") {
-        for (var i = 0; i < mut.addedNodes.length; i++) {
-          added.push(mut.addedNodes[i]);
-        }
-
+        for (var i = 0; i < mut.addedNodes.length; i++) added.push(mut.addedNodes[i]);
         if (desc.contentDOM && desc.contentDOM != desc.dom && !desc.contentDOM.contains(mut.target)) return {
           from: desc.posBefore,
           to: desc.posAfter
         };
         var prev = mut.previousSibling,
-            next = mut.nextSibling;
-
+          next = mut.nextSibling;
         if (ie && ie_version <= 11 && mut.addedNodes.length) {
           for (var _i14 = 0; _i14 < mut.addedNodes.length; _i14++) {
             var _mut$addedNodes$_i = mut.addedNodes[_i14],
-                previousSibling = _mut$addedNodes$_i.previousSibling,
-                nextSibling = _mut$addedNodes$_i.nextSibling;
+              previousSibling = _mut$addedNodes$_i.previousSibling,
+              nextSibling = _mut$addedNodes$_i.nextSibling;
             if (!previousSibling || Array.prototype.indexOf.call(mut.addedNodes, previousSibling) < 0) prev = previousSibling;
             if (!nextSibling || Array.prototype.indexOf.call(mut.addedNodes, nextSibling) < 0) next = nextSibling;
           }
         }
-
         var fromOffset = prev && prev.parentNode == mut.target ? domIndex(prev) + 1 : 0;
         var from = desc.localPosFromDOM(mut.target, fromOffset, -1);
         var toOffset = next && next.parentNode == mut.target ? domIndex(next) : mut.target.childNodes.length;
@@ -20313,17 +18987,13 @@ var DOMObserver = function () {
       }
     }
   }]);
-
   return DOMObserver;
 }();
-
 var cssChecked = new WeakMap();
 var cssCheckWarned = false;
-
 function checkCSS(view) {
   if (cssChecked.has(view)) return;
   cssChecked.set(view, null);
-
   if (['normal', 'nowrap', 'pre-line'].indexOf(getComputedStyle(view.dom).whiteSpace) !== -1) {
     view.requiresGeckoHackNode = gecko;
     if (cssCheckWarned) return;
@@ -20331,25 +19001,21 @@ function checkCSS(view) {
     cssCheckWarned = true;
   }
 }
-
 function safariShadowSelectionRange(view) {
   var found;
-
   function read(event) {
     event.preventDefault();
     event.stopImmediatePropagation();
     found = event.getTargetRanges()[0];
   }
-
   view.dom.addEventListener("beforeinput", read, true);
   document.execCommand("indent");
   view.dom.removeEventListener("beforeinput", read, true);
   var anchorNode = found.startContainer,
-      anchorOffset = found.startOffset;
+    anchorOffset = found.startOffset;
   var focusNode = found.endContainer,
-      focusOffset = found.endOffset;
+    focusOffset = found.endOffset;
   var currentAnchor = view.domAtPos(view.state.selection.anchor);
-
   if (isEquivalentPosition(currentAnchor.node, currentAnchor.offset, focusNode, focusOffset)) {
     var _ref3 = [focusNode, focusOffset, anchorNode, anchorOffset];
     anchorNode = _ref3[0];
@@ -20357,7 +19023,6 @@ function safariShadowSelectionRange(view) {
     focusNode = _ref3[2];
     focusOffset = _ref3[3];
   }
-
   return {
     anchorNode: anchorNode,
     anchorOffset: anchorOffset,
@@ -20365,19 +19030,16 @@ function safariShadowSelectionRange(view) {
     focusOffset: focusOffset
   };
 }
-
 function parseBetween(view, from_, to_) {
   var _view$docView$parseRa = view.docView.parseRange(from_, to_),
-      parent = _view$docView$parseRa.node,
-      fromOffset = _view$docView$parseRa.fromOffset,
-      toOffset = _view$docView$parseRa.toOffset,
-      from = _view$docView$parseRa.from,
-      to = _view$docView$parseRa.to;
-
+    parent = _view$docView$parseRa.node,
+    fromOffset = _view$docView$parseRa.fromOffset,
+    toOffset = _view$docView$parseRa.toOffset,
+    from = _view$docView$parseRa.from,
+    to = _view$docView$parseRa.to;
   var domSel = view.domSelectionRange();
   var find;
   var anchor = domSel.anchorNode;
-
   if (anchor && view.dom.contains(anchor.nodeType == 1 ? anchor : anchor.parentNode)) {
     find = [{
       node: anchor,
@@ -20388,47 +19050,41 @@ function parseBetween(view, from_, to_) {
       offset: domSel.focusOffset
     });
   }
-
   if (chrome && view.input.lastKeyCode === 8) {
     for (var off = toOffset; off > fromOffset; off--) {
       var node = parent.childNodes[off - 1],
-          desc = node.pmViewDesc;
-
+        desc = node.pmViewDesc;
       if (node.nodeName == "BR" && !desc) {
         toOffset = off;
         break;
       }
-
       if (!desc || desc.size) break;
     }
   }
-
   var startDoc = view.state.doc;
   var parser = view.someProp("domParser") || prosemirrorModel.DOMParser.fromSchema(view.state.schema);
   var $from = startDoc.resolve(from);
   var sel = null,
-      doc = parser.parse(parent, {
-    topNode: $from.parent,
-    topMatch: $from.parent.contentMatchAt($from.index()),
-    topOpen: true,
-    from: fromOffset,
-    to: toOffset,
-    preserveWhitespace: $from.parent.type.whitespace == "pre" ? "full" : true,
-    findPositions: find,
-    ruleFromNode: ruleFromNode,
-    context: $from
-  });
-
+    doc = parser.parse(parent, {
+      topNode: $from.parent,
+      topMatch: $from.parent.contentMatchAt($from.index()),
+      topOpen: true,
+      from: fromOffset,
+      to: toOffset,
+      preserveWhitespace: $from.parent.type.whitespace == "pre" ? "full" : true,
+      findPositions: find,
+      ruleFromNode: ruleFromNode,
+      context: $from
+    });
   if (find && find[0].pos != null) {
     var _anchor = find[0].pos,
-        head = find[1] && find[1].pos;
+      head = find[1] && find[1].pos;
     if (head == null) head = _anchor;
     sel = {
       anchor: _anchor + from,
       head: head + from
     };
   }
-
   return {
     doc: doc,
     sel: sel,
@@ -20436,10 +19092,8 @@ function parseBetween(view, from_, to_) {
     to: to
   };
 }
-
 function ruleFromNode(dom) {
   var desc = dom.pmViewDesc;
-
   if (desc) {
     return desc.parseRule();
   } else if (dom.nodeName == "BR" && dom.parentNode) {
@@ -20459,35 +19113,26 @@ function ruleFromNode(dom) {
       ignore: true
     };
   }
-
   return null;
 }
-
 var isInline = /^(a|abbr|acronym|b|bd[io]|big|br|button|cite|code|data(list)?|del|dfn|em|i|ins|kbd|label|map|mark|meter|output|q|ruby|s|samp|small|span|strong|su[bp]|time|u|tt|var)$/i;
-
 function readDOMChange(view, from, to, typeOver, addedNodes) {
   var compositionID = view.input.compositionPendingChanges || (view.composing ? view.input.compositionID : 0);
   view.input.compositionPendingChanges = 0;
-
   if (from < 0) {
     var origin = view.input.lastSelectionTime > Date.now() - 50 ? view.input.lastSelectionOrigin : null;
     var newSel = selectionFromDOM(view, origin);
-
     if (newSel && !view.state.selection.eq(newSel)) {
       if (chrome && android && view.input.lastKeyCode === 13 && Date.now() - 100 < view.input.lastKeyCodeTime && view.someProp("handleKeyDown", function (f) {
         return f(view, keyEvent(13, "Enter"));
       })) return;
-
       var _tr = view.state.tr.setSelection(newSel);
-
       if (origin == "pointer") _tr.setMeta("pointer", true);else if (origin == "key") _tr.scrollIntoView();
       if (compositionID) _tr.setMeta("composition", compositionID);
       view.dispatch(_tr);
     }
-
     return;
   }
-
   var $before = view.state.doc.resolve(from);
   var shared = $before.sharedDepth(to);
   from = $before.before(shared + 1);
@@ -20495,9 +19140,8 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
   var sel = view.state.selection;
   var parse = parseBetween(view, from, to);
   var doc = view.state.doc,
-      compare = doc.slice(parse.from, parse.to);
+    compare = doc.slice(parse.from, parse.to);
   var preferredPos, preferredSide;
-
   if (view.input.lastKeyCode === 8 && Date.now() - 100 < view.input.lastKeyCodeTime) {
     preferredPos = view.state.selection.to;
     preferredSide = "end";
@@ -20505,10 +19149,8 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
     preferredPos = view.state.selection.from;
     preferredSide = "start";
   }
-
   view.input.lastKeyCode = null;
   var change = findDiff(compare.content, parse.doc.content, parse.from, preferredPos, preferredSide);
-
   if ((ios && view.input.lastIOSEnter > Date.now() - 225 || android) && addedNodes.some(function (n) {
     return n.nodeType == 1 && !isInline.test(n.nodeName);
   }) && (!change || change.endA >= change.endB) && view.someProp("handleKeyDown", function (f) {
@@ -20517,7 +19159,6 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
     view.input.lastIOSEnter = 0;
     return;
   }
-
   if (!change) {
     if (typeOver && sel instanceof prosemirrorState.TextSelection && !sel.empty && sel.$head.sameParent(sel.$anchor) && !view.composing && !(parse.sel && parse.sel.anchor != parse.sel.head)) {
       change = {
@@ -20528,19 +19169,15 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
     } else {
       if (parse.sel) {
         var _sel = resolveSelection(view, view.state.doc, parse.sel);
-
         if (_sel && !_sel.eq(view.state.selection)) {
           var _tr2 = view.state.tr.setSelection(_sel);
-
           if (compositionID) _tr2.setMeta("composition", compositionID);
           view.dispatch(_tr2);
         }
       }
-
       return;
     }
   }
-
   if (chrome && view.cursorWrapper && parse.sel && parse.sel.anchor == view.cursorWrapper.deco.from && parse.sel.head == parse.sel.anchor) {
     var size = change.endB - change.start;
     parse.sel = {
@@ -20548,9 +19185,7 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
       head: parse.sel.anchor + size
     };
   }
-
   view.input.domChangeCount++;
-
   if (view.state.selection.from < view.state.selection.to && change.start == change.endB && view.state.selection instanceof prosemirrorState.TextSelection) {
     if (change.start > view.state.selection.from && change.start <= view.state.selection.from + 2 && view.state.selection.from >= parse.from) {
       change.start = view.state.selection.from;
@@ -20559,19 +19194,16 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
       change.endA = view.state.selection.to;
     }
   }
-
   if (ie && ie_version <= 11 && change.endB == change.start + 1 && change.endA == change.start && change.start > parse.from && parse.doc.textBetween(change.start - parse.from - 1, change.start - parse.from + 1) == " \xA0") {
     change.start--;
     change.endA--;
     change.endB--;
   }
-
   var $from = parse.doc.resolveNoCache(change.start - parse.from);
   var $to = parse.doc.resolveNoCache(change.endB - parse.from);
   var $fromA = doc.resolve(change.start);
   var inlineChange = $from.sameParent($to) && $from.parent.inlineContent && $fromA.end() >= change.endA;
   var nextSel;
-
   if ((ios && view.input.lastIOSEnter > Date.now() - 225 && (!inlineChange || addedNodes.some(function (n) {
     return n.nodeName == "DIV" || n.nodeName == "P";
   })) || !inlineChange && $from.pos < parse.doc.content.size && !$from.sameParent($to) && (nextSel = prosemirrorState.Selection.findFrom(parse.doc.resolve($from.pos + 1), 1, true)) && nextSel.head == $to.pos) && view.someProp("handleKeyDown", function (f) {
@@ -20580,16 +19212,13 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
     view.input.lastIOSEnter = 0;
     return;
   }
-
   if (view.state.selection.anchor > change.start && looksLikeJoin(doc, change.start, change.endA, $from, $to) && view.someProp("handleKeyDown", function (f) {
     return f(view, keyEvent(8, "Backspace"));
   })) {
     if (android && chrome) view.domObserver.suppressSelectionUpdates();
     return;
   }
-
   if (chrome && android && change.endB == change.start) view.input.lastAndroidDelete = Date.now();
-
   if (android && !inlineChange && $from.start() != $to.start() && $to.parentOffset == 0 && $from.depth == $to.depth && parse.sel && parse.sel.anchor == parse.sel.head && parse.sel.head == change.endA) {
     change.endB -= 2;
     $to = parse.doc.resolveNoCache(change.endB - parse.from);
@@ -20599,11 +19228,9 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
       });
     }, 20);
   }
-
   var chFrom = change.start,
-      chTo = change.endA;
+    chTo = change.endA;
   var tr, storedMarks, markChange;
-
   if (inlineChange) {
     if ($from.pos == $to.pos) {
       if (ie && ie_version <= 11 && $from.parentOffset == 0) {
@@ -20612,7 +19239,6 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
           return selectionToDOM(view);
         }, 20);
       }
-
       tr = view.state.tr["delete"](chFrom, chTo);
       storedMarks = doc.resolve(change.start).marksAcross(doc.resolve(change.endA));
     } else if (change.endA == change.endB && (markChange = isMarkChange($from.parent.content.cut($from.parentOffset, $to.parentOffset), $fromA.parent.content.cut($fromA.parentOffset, change.endA - $fromA.start())))) {
@@ -20626,72 +19252,51 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
       tr = view.state.tr.insertText(text, chFrom, chTo);
     }
   }
-
   if (!tr) tr = view.state.tr.replace(chFrom, chTo, parse.doc.slice(change.start - parse.from, change.endB - parse.from));
-
   if (parse.sel) {
     var _sel2 = resolveSelection(view, tr.doc, parse.sel);
-
     if (_sel2 && !(chrome && android && view.composing && _sel2.empty && (change.start != change.endB || view.input.lastAndroidDelete < Date.now() - 100) && (_sel2.head == chFrom || _sel2.head == tr.mapping.map(chTo) - 1) || ie && _sel2.empty && _sel2.head == chFrom)) tr.setSelection(_sel2);
   }
-
   if (storedMarks) tr.ensureMarks(storedMarks);
   if (compositionID) tr.setMeta("composition", compositionID);
   view.dispatch(tr.scrollIntoView());
 }
-
 function resolveSelection(view, doc, parsedSel) {
   if (Math.max(parsedSel.anchor, parsedSel.head) > doc.content.size) return null;
   return selectionBetween(view, doc.resolve(parsedSel.anchor), doc.resolve(parsedSel.head));
 }
-
 function isMarkChange(cur, prev) {
   var curMarks = cur.firstChild.marks,
-      prevMarks = prev.firstChild.marks;
+    prevMarks = prev.firstChild.marks;
   var added = curMarks,
-      removed = prevMarks,
-      type,
-      mark,
-      update;
-
-  for (var i = 0; i < prevMarks.length; i++) {
-    added = prevMarks[i].removeFromSet(added);
-  }
-
-  for (var _i15 = 0; _i15 < curMarks.length; _i15++) {
-    removed = curMarks[_i15].removeFromSet(removed);
-  }
-
+    removed = prevMarks,
+    type,
+    mark,
+    update;
+  for (var i = 0; i < prevMarks.length; i++) added = prevMarks[i].removeFromSet(added);
+  for (var _i15 = 0; _i15 < curMarks.length; _i15++) removed = curMarks[_i15].removeFromSet(removed);
   if (added.length == 1 && removed.length == 0) {
     mark = added[0];
     type = "add";
-
     update = function update(node) {
       return node.mark(mark.addToSet(node.marks));
     };
   } else if (added.length == 0 && removed.length == 1) {
     mark = removed[0];
     type = "remove";
-
     update = function update(node) {
       return node.mark(mark.removeFromSet(node.marks));
     };
   } else {
     return null;
   }
-
   var updated = [];
-
-  for (var _i16 = 0; _i16 < prev.childCount; _i16++) {
-    updated.push(update(prev.child(_i16)));
-  }
-
+  for (var _i16 = 0; _i16 < prev.childCount; _i16++) updated.push(update(prev.child(_i16)));
   if (prosemirrorModel.Fragment.from(updated).eq(cur)) return {
     mark: mark,
     type: type
   };
 }
-
 function looksLikeJoin(old, start, end, $newStart, $newEnd) {
   if (!$newStart.parent.isTextblock || end - start <= $newEnd.pos - $newStart.pos || skipClosingAndOpening($newStart, true, false) < $newEnd.pos) return false;
   var $start = old.resolve(start);
@@ -20700,72 +19305,65 @@ function looksLikeJoin(old, start, end, $newStart, $newEnd) {
   if (!$next.parent.isTextblock || $next.pos > end || skipClosingAndOpening($next, true, false) < end) return false;
   return $newStart.parent.content.cut($newStart.parentOffset).eq($next.parent.content);
 }
-
 function skipClosingAndOpening($pos, fromEnd, mayOpen) {
   var depth = $pos.depth,
-      end = fromEnd ? $pos.end() : $pos.pos;
-
+    end = fromEnd ? $pos.end() : $pos.pos;
   while (depth > 0 && (fromEnd || $pos.indexAfter(depth) == $pos.node(depth).childCount)) {
     depth--;
     end++;
     fromEnd = false;
   }
-
   if (mayOpen) {
     var next = $pos.node(depth).maybeChild($pos.indexAfter(depth));
-
     while (next && !next.isLeaf) {
       next = next.firstChild;
       end++;
     }
   }
-
   return end;
 }
-
 function findDiff(a, b, pos, preferredPos, preferredSide) {
   var start = a.findDiffStart(b, pos);
   if (start == null) return null;
-
   var _a$findDiffEnd = a.findDiffEnd(b, pos + a.size, pos + b.size),
-      endA = _a$findDiffEnd.a,
-      endB = _a$findDiffEnd.b;
-
+    endA = _a$findDiffEnd.a,
+    endB = _a$findDiffEnd.b;
   if (preferredSide == "end") {
     var adjust = Math.max(0, start - Math.min(endA, endB));
     preferredPos -= endA + adjust - start;
   }
-
   if (endA < start && a.size < b.size) {
     var move = preferredPos <= start && preferredPos >= endA ? start - preferredPos : 0;
     start -= move;
+    if (start && start < b.size && isSurrogatePair(b.textBetween(start - 1, start + 1))) start += move ? 1 : -1;
     endB = start + (endB - endA);
     endA = start;
   } else if (endB < start) {
     var _move = preferredPos <= start && preferredPos >= endB ? start - preferredPos : 0;
-
     start -= _move;
+    if (start && start < a.size && isSurrogatePair(a.textBetween(start - 1, start + 1))) start += _move ? 1 : -1;
     endA = start + (endA - endB);
     endB = start;
   }
-
   return {
     start: start,
     endA: endA,
     endB: endB
   };
 }
-
+function isSurrogatePair(str) {
+  if (str.length != 2) return false;
+  var a = str.charCodeAt(0),
+    b = str.charCodeAt(1);
+  return a >= 0xDC00 && a <= 0xDFFF && b >= 0xD800 && b <= 0xDBFF;
+}
 var __serializeForClipboard = serializeForClipboard;
 var __parseFromClipboard = parseFromClipboard;
 var __endComposition = endComposition;
-
 var EditorView = function () {
   function EditorView(place, props) {
     var _this15 = this;
-
     _classCallCheck(this, EditorView);
-
     this._root = null;
     this.focused = false;
     this.trackWrites = null;
@@ -20784,11 +19382,9 @@ var EditorView = function () {
     this.directPlugins.forEach(checkStateComponent);
     this.dispatch = this.dispatch.bind(this);
     this.dom = place && place.mount || document.createElement("div");
-
     if (place) {
       if (place.appendChild) place.appendChild(this.dom);else if (typeof place == "function") place(this.dom);else if (place.mount) this.mounted = true;
     }
-
     this.editable = getEditable(this);
     updateCursorWrapper(this);
     this.nodeViews = buildNodeViews(this);
@@ -20800,7 +19396,6 @@ var EditorView = function () {
     initInput(this);
     this.updatePluginViews();
   }
-
   _createClass(EditorView, [{
     key: "composing",
     get: function get() {
@@ -20812,14 +19407,9 @@ var EditorView = function () {
       if (this._props.state != this.state) {
         var prev = this._props;
         this._props = {};
-
-        for (var name in prev) {
-          this._props[name] = prev[name];
-        }
-
+        for (var name in prev) this._props[name] = prev[name];
         this._props.state = this.state;
       }
-
       return this._props;
     }
   }, {
@@ -20828,29 +19418,19 @@ var EditorView = function () {
       if (props.handleDOMEvents != this._props.handleDOMEvents) ensureListeners(this);
       var prevProps = this._props;
       this._props = props;
-
       if (props.plugins) {
         props.plugins.forEach(checkStateComponent);
         this.directPlugins = props.plugins;
       }
-
       this.updateStateInner(props.state, prevProps);
     }
   }, {
     key: "setProps",
     value: function setProps(props) {
       var updated = {};
-
-      for (var name in this._props) {
-        updated[name] = this._props[name];
-      }
-
+      for (var name in this._props) updated[name] = this._props[name];
       updated.state = this.state;
-
-      for (var _name2 in props) {
-        updated[_name2] = props[_name2];
-      }
-
+      for (var _name2 in props) updated[_name2] = props[_name2];
       this.update(updated);
     }
   }, {
@@ -20861,68 +19441,56 @@ var EditorView = function () {
   }, {
     key: "updateStateInner",
     value: function updateStateInner(state, prevProps) {
+      var _a;
       var prev = this.state,
-          redraw = false,
-          updateSel = false;
-
+        redraw = false,
+        updateSel = false;
       if (state.storedMarks && this.composing) {
         clearComposition(this);
         updateSel = true;
       }
-
       this.state = state;
       var pluginsChanged = prev.plugins != state.plugins || this._props.plugins != prevProps.plugins;
-
       if (pluginsChanged || this._props.plugins != prevProps.plugins || this._props.nodeViews != prevProps.nodeViews) {
         var nodeViews = buildNodeViews(this);
-
         if (changedNodeViews(nodeViews, this.nodeViews)) {
           this.nodeViews = nodeViews;
           redraw = true;
         }
       }
-
       if (pluginsChanged || prevProps.handleDOMEvents != this._props.handleDOMEvents) {
         ensureListeners(this);
       }
-
       this.editable = getEditable(this);
       updateCursorWrapper(this);
       var innerDeco = viewDecorations(this),
-          outerDeco = computeDocDeco(this);
+        outerDeco = computeDocDeco(this);
       var scroll = prev.plugins != state.plugins && !prev.doc.eq(state.doc) ? "reset" : state.scrollToSelection > prev.scrollToSelection ? "to selection" : "preserve";
       var updateDoc = redraw || !this.docView.matchesNode(state.doc, outerDeco, innerDeco);
       if (updateDoc || !state.selection.eq(prev.selection)) updateSel = true;
       var oldScrollPos = scroll == "preserve" && updateSel && this.dom.style.overflowAnchor == null && storeScrollPos(this);
-
       if (updateSel) {
         this.domObserver.stop();
         var forceSelUpdate = updateDoc && (ie || chrome) && !this.composing && !prev.selection.empty && !state.selection.empty && selectionContextChanged(prev.selection, state.selection);
-
         if (updateDoc) {
           var chromeKludge = chrome ? this.trackWrites = this.domSelectionRange().focusNode : null;
-
           if (redraw || !this.docView.update(state.doc, outerDeco, innerDeco, this)) {
             this.docView.updateOuterDeco([]);
             this.docView.destroy();
             this.docView = docViewDesc(state.doc, outerDeco, innerDeco, this.dom, this);
           }
-
           if (chromeKludge && !this.trackWrites) forceSelUpdate = true;
         }
-
         if (forceSelUpdate || !(this.input.mouseDown && this.domObserver.currentSelection.eq(this.domSelectionRange()) && anchorInRightPlace(this))) {
           selectionToDOM(this, forceSelUpdate);
         } else {
           syncNodeSelection(this, state.selection);
           this.domObserver.setCurSelection();
         }
-
         this.domObserver.start();
       }
-
       this.updatePluginViews(prev);
-
+      if (((_a = this.dragging) === null || _a === void 0 ? void 0 : _a.node) && !prev.doc.eq(state.doc)) this.updateDraggedNode(this.dragging, prev);
       if (scroll == "reset") {
         this.dom.scrollTop = 0;
       } else if (scroll == "to selection") {
@@ -20935,7 +19503,6 @@ var EditorView = function () {
     key: "scrollToSelection",
     value: function scrollToSelection() {
       var _this16 = this;
-
       var startDOM = this.domSelectionRange().focusNode;
       if (this.someProp("handleScrollToSelection", function (f) {
         return f(_this16);
@@ -20950,10 +19517,7 @@ var EditorView = function () {
     key: "destroyPluginViews",
     value: function destroyPluginViews() {
       var view;
-
-      while (view = this.pluginViews.pop()) {
-        if (view.destroy) view.destroy();
-      }
+      while (view = this.pluginViews.pop()) if (view.destroy) view.destroy();
     }
   }, {
     key: "updatePluginViews",
@@ -20961,12 +19525,10 @@ var EditorView = function () {
       if (!prevState || prevState.plugins != this.state.plugins || this.directPlugins != this.prevDirectPlugins) {
         this.prevDirectPlugins = this.directPlugins;
         this.destroyPluginViews();
-
         for (var i = 0; i < this.directPlugins.length; i++) {
           var plugin = this.directPlugins[i];
           if (plugin.spec.view) this.pluginViews.push(plugin.spec.view(this));
         }
-
         for (var _i17 = 0; _i17 < this.state.plugins.length; _i17++) {
           var _plugin = this.state.plugins[_i17];
           if (_plugin.spec.view) this.pluginViews.push(_plugin.spec.view(this));
@@ -20979,17 +19541,29 @@ var EditorView = function () {
       }
     }
   }, {
+    key: "updateDraggedNode",
+    value: function updateDraggedNode(dragging, prev) {
+      var sel = dragging.node,
+        found = -1;
+      if (this.state.doc.nodeAt(sel.from) == sel.node) {
+        found = sel.from;
+      } else {
+        var movedPos = sel.from + (this.state.doc.content.size - prev.doc.content.size);
+        var moved = movedPos > 0 && this.state.doc.nodeAt(movedPos);
+        if (moved == sel.node) found = movedPos;
+      }
+      this.dragging = new Dragging(dragging.slice, dragging.move, found < 0 ? undefined : prosemirrorState.NodeSelection.create(this.state.doc, found));
+    }
+  }, {
     key: "someProp",
     value: function someProp(propName, f) {
       var prop = this._props && this._props[propName],
-          value;
+        value;
       if (prop != null && (value = f ? f(prop) : prop)) return value;
-
       for (var i = 0; i < this.directPlugins.length; i++) {
         var _prop = this.directPlugins[i].props[propName];
         if (_prop != null && (value = f ? f(_prop) : _prop)) return value;
       }
-
       var plugins = this.state.plugins;
       if (plugins) for (var _i19 = 0; _i19 < plugins.length; _i19++) {
         var _prop2 = plugins[_i19].props[propName];
@@ -21003,15 +19577,12 @@ var EditorView = function () {
         var node = this.root.activeElement;
         if (node == this.dom) return true;
         if (!node || !this.dom.contains(node)) return false;
-
         while (node && this.dom != node && this.dom.contains(node)) {
           if (node.contentEditable == 'false') return false;
           node = node.parentElement;
         }
-
         return true;
       }
-
       return this.root.activeElement == this.dom;
     }
   }, {
@@ -21026,28 +19597,24 @@ var EditorView = function () {
     key: "root",
     get: function get() {
       var _this17 = this;
-
       var cached = this._root;
-
       if (cached == null) {
         var _loop5 = function _loop5(search) {
-          if (search.nodeType == 9 || search.nodeType == 11 && search.host) {
-            if (!search.getSelection) Object.getPrototypeOf(search).getSelection = function () {
-              return search.ownerDocument.getSelection();
-            };
-            return {
-              v: _this17._root = search
-            };
-          }
-        };
-
+            if (search.nodeType == 9 || search.nodeType == 11 && search.host) {
+              if (!search.getSelection) Object.getPrototypeOf(search).getSelection = function () {
+                return search.ownerDocument.getSelection();
+              };
+              return {
+                v: _this17._root = search
+              };
+            }
+          },
+          _ret3;
         for (var search = this.dom.parentNode; search; search = search.parentNode) {
-          var _ret3 = _loop5(search);
-
-          if (_typeof(_ret3) === "object") return _ret3.v;
+          _ret3 = _loop5(search);
+          if (_ret3) return _ret3.v;
         }
       }
-
       return cached || document;
     }
   }, {
@@ -21107,14 +19674,12 @@ var EditorView = function () {
       if (!this.docView) return;
       destroyInput(this);
       this.destroyPluginViews();
-
       if (this.mounted) {
         this.docView.update(this.state.doc, [], viewDecorations(this), this);
         this.dom.textContent = "";
       } else if (this.dom.parentNode) {
         this.dom.parentNode.removeChild(this.dom);
       }
-
       this.docView.destroy();
       this.docView = null;
     }
@@ -21145,10 +19710,8 @@ var EditorView = function () {
       return this.root.getSelection();
     }
   }]);
-
   return EditorView;
 }();
-
 function computeDocDeco(view) {
   var attrs = Object.create(null);
   attrs["class"] = "ProseMirror";
@@ -21162,7 +19725,6 @@ function computeDocDeco(view) {
   if (!attrs.translate) attrs.translate = "no";
   return [Decoration.node(0, view.state.doc.content.size, attrs)];
 }
-
 function updateCursorWrapper(view) {
   if (view.markCursor) {
     var dom = document.createElement("img");
@@ -21180,52 +19742,37 @@ function updateCursorWrapper(view) {
     view.cursorWrapper = null;
   }
 }
-
 function getEditable(view) {
   return !view.someProp("editable", function (value) {
     return value(view.state) === false;
   });
 }
-
 function selectionContextChanged(sel1, sel2) {
   var depth = Math.min(sel1.$anchor.sharedDepth(sel1.head), sel2.$anchor.sharedDepth(sel2.head));
   return sel1.$anchor.start(depth) != sel2.$anchor.start(depth);
 }
-
 function buildNodeViews(view) {
   var result = Object.create(null);
-
   function add(obj) {
-    for (var _prop3 in obj) {
-      if (!Object.prototype.hasOwnProperty.call(result, _prop3)) result[_prop3] = obj[_prop3];
-    }
+    for (var _prop3 in obj) if (!Object.prototype.hasOwnProperty.call(result, _prop3)) result[_prop3] = obj[_prop3];
   }
-
   view.someProp("nodeViews", add);
   view.someProp("markViews", add);
   return result;
 }
-
 function changedNodeViews(a, b) {
   var nA = 0,
-      nB = 0;
-
+    nB = 0;
   for (var _prop4 in a) {
     if (a[_prop4] != b[_prop4]) return true;
     nA++;
   }
-
-  for (var _ in b) {
-    nB++;
-  }
-
+  for (var _ in b) nB++;
   return nA != nB;
 }
-
 function checkStateComponent(plugin) {
   if (plugin.spec.state || plugin.spec.filterTransaction || plugin.spec.appendTransaction) throw new RangeError("Plugins passed directly to the view must not have a state component");
 }
-
 exports.Decoration = Decoration;
 exports.DecorationSet = DecorationSet;
 exports.EditorView = EditorView;

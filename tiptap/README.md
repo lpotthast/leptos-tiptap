@@ -36,16 +36,16 @@ You may make these dependencies available, by adding them as new `global.window`
 
 Create a single JS bundle using the browserify tool
 
-    browserify main.js -o ../crates/leptos-tiptap-build/dist/tiptap-bundle.js
+    browserify main.js -o ../leptos-tiptap-build/dist/tiptap-bundle.js
 
 And minify the output with uglify-js
 
-    uglifyjs --compress --mangle --output ../crates/leptos-tiptap-build/dist/tiptap-bundle.min.js -- ../crates/leptos-tiptap-build/dist/tiptap-bundle.js
+    uglifyjs --compress --mangle --output ../leptos-tiptap-build/dist/tiptap-bundle.min.js -- ../leptos-tiptap-build/dist/tiptap-bundle.js
 
 The generated JS files
 
-    ../crates/leptos-tiptap-build/dist/tiptap-bundle.js
-    ../crates/leptos-tiptap-build/dist/tiptap-bundle.min.js
+    ../leptos-tiptap-build/dist/tiptap-bundle.js
+    ../leptos-tiptap-build/dist/tiptap-bundle.min.js
 
 can now be used with a simple HTML script element
 

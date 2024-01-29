@@ -1,10 +1,5 @@
 [watch]
-# Paths to watch. The `build.target`'s parent folder is watched by default.
-ignore = [
-    # These files are generated from our build.rs script, not excluding them would result in an endless restart-cycle!
-    # Keep this list in sync with what the build script generates.
-    "./generated",
-]
+ignore = ["./public"]
 
 [serve]
 address = "127.0.0.1"

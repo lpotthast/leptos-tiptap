@@ -2,8 +2,8 @@ use std::io::Write;
 
 pub fn main() {
     let root: std::path::PathBuf = std::env::var("CARGO_MANIFEST_DIR").unwrap().into();
-    let generated_dir = root.join("generated");
-    let js_dir = generated_dir.join("js");
+    let public_dir = root.join("public");
+    let js_dir = public_dir.join("js");
 
     std::fs::create_dir_all(js_dir.clone()).unwrap();
     println!("cargo:warning=js dir created");
