@@ -259,7 +259,7 @@ pub fn TiptapInstance(
     // This is not part of the previous create_effect, as on_cleanup "pushes" the closure and must only be called once!
     create_effect(move |_| {
         on_cleanup(move || {
-            js_tiptap::destroy(id.get());
+            js_tiptap::destroy(id.get_untracked());
         });
     });
 
