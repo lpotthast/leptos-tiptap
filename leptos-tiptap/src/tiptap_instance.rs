@@ -64,7 +64,7 @@ pub enum TiptapInstanceMsg {
 
 #[component]
 pub fn TiptapInstance(
-    /// The ID of for this tiptap instance. Must be UNIQUE across ALL instances. You might want to use a UUID if uniqueness is otherwise not enforceable.
+    /// The ID of for this tiptap instance. Must be UNIQUE across ALL instances. You might want to use a UUID (v4 or v7) if uniqueness is otherwise not enforceable.
     /// This may be a signal to support SSR. If the client should regenerate this ID, the old instance is removed (if one existed) and a new instance is created.
     #[prop(into)]
     id: MaybeSignal<String>,
@@ -111,7 +111,7 @@ pub fn TiptapInstance(
         id.get()
     });
 
-    // This create_effect is purely there to make this SSR compatible.
+    // Make this component SSR compatible by moving all JS interaction inside an effect.
     create_effect(move |old_id: Option<String>| {
         // Rerun this effect whenever the ID should change!
         if let Some(old_id) = &old_id {
@@ -171,6 +171,14 @@ pub fn TiptapInstance(
             None
         });
 
+        create_effect(move |_| {
+            let id = id.get();
+            // Push an additional on_cleanup handler every time the id changes. Accessing the last id, which would be what we want, lead to panics as the underlying data is already destroyed.
+            // TODO: Why does it not work to access `id.get_untracked()` inside the `on_cleanup` handler? 
+            on_cleanup(move || {
+                js_tiptap::destroy(id.clone());
+            });
+        });
 
         // Talking to the tiptap instance here may ultimately trigger a content change.
         // This, and some other actions, may trigger callbacks reaching back to us using the closures above.
@@ -182,59 +190,60 @@ pub fn TiptapInstance(
             if !initialized.get_untracked() {
                 return;
             }
+            let id = id.get_untracked();
             match msg {
                 TiptapInstanceMsg::Noop => {}
                 TiptapInstanceMsg::H1 => {
-                    js_tiptap::toggle_heading(id.get_untracked(), TiptapHeadingLevel::H1);
+                    js_tiptap::toggle_heading(id, TiptapHeadingLevel::H1);
                 }
                 TiptapInstanceMsg::H2 => {
-                    js_tiptap::toggle_heading(id.get_untracked(), TiptapHeadingLevel::H2);
+                    js_tiptap::toggle_heading(id, TiptapHeadingLevel::H2);
                 }
                 TiptapInstanceMsg::H3 => {
-                    js_tiptap::toggle_heading(id.get_untracked(), TiptapHeadingLevel::H3);
+                    js_tiptap::toggle_heading(id, TiptapHeadingLevel::H3);
                 }
                 TiptapInstanceMsg::H4 => {
-                    js_tiptap::toggle_heading(id.get_untracked(), TiptapHeadingLevel::H4);
+                    js_tiptap::toggle_heading(id, TiptapHeadingLevel::H4);
                 }
                 TiptapInstanceMsg::H5 => {
-                    js_tiptap::toggle_heading(id.get_untracked(), TiptapHeadingLevel::H5);
+                    js_tiptap::toggle_heading(id, TiptapHeadingLevel::H5);
                 }
                 TiptapInstanceMsg::H6 => {
-                    js_tiptap::toggle_heading(id.get_untracked(), TiptapHeadingLevel::H6);
+                    js_tiptap::toggle_heading(id, TiptapHeadingLevel::H6);
                 }
                 TiptapInstanceMsg::Paragraph => {
-                    js_tiptap::set_paragraph(id.get_untracked());
+                    js_tiptap::set_paragraph(id);
                 }
                 TiptapInstanceMsg::Bold => {
-                    js_tiptap::toggle_bold(id.get_untracked());
+                    js_tiptap::toggle_bold(id);
                 }
                 TiptapInstanceMsg::Italic => {
-                    js_tiptap::toggle_italic(id.get_untracked());
+                    js_tiptap::toggle_italic(id);
                 }
                 TiptapInstanceMsg::Strike => {
-                    js_tiptap::toggle_strike(id.get_untracked());
+                    js_tiptap::toggle_strike(id);
                 }
                 TiptapInstanceMsg::Blockquote => {
-                    js_tiptap::toggle_blockquote(id.get_untracked());
+                    js_tiptap::toggle_blockquote(id);
                 }
                 TiptapInstanceMsg::Highlight => {
-                    js_tiptap::toggle_highlight(id.get_untracked());
+                    js_tiptap::toggle_highlight(id);
                 }
                 TiptapInstanceMsg::AlignLeft => {
-                    js_tiptap::set_text_align_left(id.get_untracked());
+                    js_tiptap::set_text_align_left(id);
                 }
                 TiptapInstanceMsg::AlignCenter => {
-                    js_tiptap::set_text_align_center(id.get_untracked());
+                    js_tiptap::set_text_align_center(id);
                 }
                 TiptapInstanceMsg::AlignRight => {
-                    js_tiptap::set_text_align_right(id.get_untracked());
+                    js_tiptap::set_text_align_right(id);
                 }
                 TiptapInstanceMsg::AlignJustify => {
-                    js_tiptap::set_text_align_justify(id.get_untracked());
+                    js_tiptap::set_text_align_justify(id);
                 }
                 TiptapInstanceMsg::SetImage(resource) => {
                     js_tiptap::set_image(
-                        id.get_untracked(),
+                        id,
                         resource.url,
                         resource.alt,
                         resource.title,
@@ -254,13 +263,6 @@ pub fn TiptapInstance(
         });
 
         id.get_untracked()
-    });
-
-    // This is not part of the previous create_effect, as on_cleanup "pushes" the closure and must only be called once!
-    create_effect(move |_| {
-        on_cleanup(move || {
-            js_tiptap::destroy(id.get_untracked());
-        });
     });
 
     view! {
