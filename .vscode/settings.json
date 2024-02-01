@@ -3,6 +3,7 @@
         "bindgen",
         "blockquote",
         "browserify",
+        "fileserv",
         "leptos",
         "MSRV",
         "Stylesheet",
