@@ -1,6 +1,6 @@
 [package]
 name = "leptos-tiptap-build"
-version = "0.2.5"
+version = "0.2.6"
 edition = "2021"
 rust-version = "1.60.0"
 authors = ["Lukas Potthast <privat@lukas-potthast.de>"]
@@ -14,4 +14,3 @@ categories = ["gui"]
 keywords = ["tiptap", "leptos", "components", "editor", "wysiwyg"]
 
 [dependencies]
-phf = "0.11.2"
