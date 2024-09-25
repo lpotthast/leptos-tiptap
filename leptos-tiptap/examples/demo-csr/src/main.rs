@@ -37,6 +37,8 @@ pub fn App() -> impl IntoView {
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::AlignCenter)>"AlignCenter"</button>
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::AlignRight)>"AlignRight"</button>
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::AlignJustify)>"AlignJustify"</button>
+        <button on:click=move |_| set_msg.set(TiptapInstanceMsg::BulletList)>"BulletList"</button>
+        <button on:click=move |_| set_msg.set(TiptapInstanceMsg::OrderedList)>"OrderedList"</button>
 
         <TiptapInstance
             id="id"
@@ -130,6 +132,14 @@ pub fn App() -> impl IntoView {
                                 <tr>
                                     <td>"Align justify"</td>
                                     <td class="value" class:active=selection.align_justify>{ selection.align_justify }</td>
+                                </tr>
+                                <tr>
+                                    <td>"Bullet List"</td>
+                                    <td class="value" class:active=selection.bullet_list>{ selection.bullet_list }</td>
+                                </tr>
+                                <tr>
+                                    <td>"Ordered List"</td>
+                                    <td class="value" class:active=selection.ordered_list>{ selection.ordered_list}</td>
                                 </tr>
                             </tbody>
                         </table>

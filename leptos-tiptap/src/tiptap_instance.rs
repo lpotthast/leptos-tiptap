@@ -46,6 +46,12 @@ pub enum TiptapInstanceMsg {
     /// Toggle "Highlight" for the current selection.
     Highlight,
 
+    /// Toggle "BulletList" for the current selection
+    BulletList,
+
+    /// Toggle "OrderedList" for the current selection
+    OrderedList,
+
     /// Toggle "AlignLeft" for the current selection.
     AlignLeft,
 
@@ -107,9 +113,7 @@ pub fn TiptapInstance(
 ) -> impl IntoView {
     let instance: NodeRef<leptos::html::Custom> = create_node_ref();
 
-    let id: Signal<String> = Signal::derive(move || {
-        id.get()
-    });
+    let id: Signal<String> = Signal::derive(move || id.get());
 
     // Make this component SSR compatible by moving all JS interaction inside an effect.
     create_effect(move |old_id: Option<String>| {
@@ -174,7 +178,7 @@ pub fn TiptapInstance(
         create_effect(move |_| {
             let id = id.get();
             // Push an additional on_cleanup handler every time the id changes. Accessing the last id, which would be what we want, lead to panics as the underlying data is already destroyed.
-            // TODO: Why does it not work to access `id.get_untracked()` inside the `on_cleanup` handler? 
+            // TODO: Why does it not work to access `id.get_untracked()` inside the `on_cleanup` handler?
             on_cleanup(move || {
                 js_tiptap::destroy(id.clone());
             });
@@ -229,6 +233,12 @@ pub fn TiptapInstance(
                 TiptapInstanceMsg::Highlight => {
                     js_tiptap::toggle_highlight(id);
                 }
+                TiptapInstanceMsg::BulletList => {
+                    js_tiptap::toggle_bullet_list(id);
+                }
+                TiptapInstanceMsg::OrderedList => {
+                    js_tiptap::toggle_ordered_list(id);
+                }
                 TiptapInstanceMsg::AlignLeft => {
                     js_tiptap::set_text_align_left(id);
                 }
@@ -242,12 +252,7 @@ pub fn TiptapInstance(
                     js_tiptap::set_text_align_justify(id);
                 }
                 TiptapInstanceMsg::SetImage(resource) => {
-                    js_tiptap::set_image(
-                        id,
-                        resource.url,
-                        resource.alt,
-                        resource.title,
-                    );
+                    js_tiptap::set_image(id, resource.url, resource.alt, resource.title);
                 }
             }
         });

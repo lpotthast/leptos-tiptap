@@ -27,6 +27,8 @@ mod js {
         pub fn toggleStrike(id: String) -> JsValue;
         pub fn toggleBlockquote(id: String) -> JsValue;
         pub fn toggleHighlight(id: String) -> JsValue;
+        pub fn toggleBulletList(id: String) -> JsValue;
+        pub fn toggleOrderedList(id: String) -> JsValue;
         pub fn setTextAlignLeft(id: String) -> JsValue;
         pub fn setTextAlignCenter(id: String) -> JsValue;
         pub fn setTextAlignRight(id: String) -> JsValue;
@@ -144,6 +146,22 @@ pub fn toggle_blockquote(id: String) {
 pub fn toggle_highlight(id: String) {
     cfg_if! {if #[cfg(not(feature = "ssr"))] {
         js::toggleHighlight(id);
+    } else {
+        let _id = id;
+    }}
+}
+
+pub fn toggle_bullet_list(id: String) {
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::toggleBulletList(id);
+    } else {
+        let _id = id;
+    }}
+}
+
+pub fn toggle_ordered_list(id: String) {
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::toggleOrderedList(id);
     } else {
         let _id = id;
     }}

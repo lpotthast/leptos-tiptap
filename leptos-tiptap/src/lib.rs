@@ -38,6 +38,8 @@ pub struct TiptapSelectionState {
     pub align_center: bool,
     pub align_right: bool,
     pub align_justify: bool,
+    pub bullet_list: bool,
+    pub ordered_list: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
