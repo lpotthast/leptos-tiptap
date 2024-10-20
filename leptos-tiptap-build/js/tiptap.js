@@ -49,11 +49,11 @@ export function create(id, content, editable, onChange, onSelection) {
 }
 
 export function destroy(id) {
-  const {editor, _onSelection} = _getEditor(id);
-  if (editor) {
-    editor.destroy();
+  const editorWindow = _getEditor(id);
+  if (editorWindow && editorWindow.editor) {
+    editorWindow.editor.destroy();
+    _forgetEditor(id);
   }
-  _forgetEditor(id);
 }
 
 export function getHTML(id) {
