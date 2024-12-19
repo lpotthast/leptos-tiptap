@@ -1,9 +1,9 @@
 use leptos::*;
-
 use wasm_bindgen::{prelude::Closure, JsValue};
 
 use crate::{
-    js_tiptap, TiptapContent, TiptapHeadingLevel, TiptapImageResource, TiptapSelectionState,
+    js_tiptap, TiptapContent, TiptapHeadingLevel, TiptapImageResource, TiptapLinkResource,
+    TiptapSelectionState, TiptapYoutubeVideoResource,
 };
 
 #[derive(Debug, Clone)]
@@ -60,6 +60,18 @@ pub enum TiptapInstanceMsg {
 
     /// Replace the current selection with an image.
     SetImage(TiptapImageResource),
+
+    /// Replace the current selection with a link.
+    SetLink(TiptapLinkResource),
+
+    /// Toggle if the current selection is a link
+    ToggleLink(TiptapLinkResource),
+
+    /// Remove the link from the selection
+    UnsetLink(),
+
+    /// Replace the current selection with an embedded youtube video
+    SetYoutubeVideo(TiptapYoutubeVideoResource),
 }
 
 #[component]
@@ -107,9 +119,7 @@ pub fn TiptapInstance(
 ) -> impl IntoView {
     let instance: NodeRef<leptos::html::Custom> = create_node_ref();
 
-    let id: Signal<String> = Signal::derive(move || {
-        id.get()
-    });
+    let id: Signal<String> = Signal::derive(move || id.get());
 
     // Make this component SSR compatible by moving all JS interaction inside an effect.
     create_effect(move |old_id: Option<String>| {
@@ -174,7 +184,7 @@ pub fn TiptapInstance(
         create_effect(move |_| {
             let id = id.get();
             // Push an additional on_cleanup handler every time the id changes. Accessing the last id, which would be what we want, lead to panics as the underlying data is already destroyed.
-            // TODO: Why does it not work to access `id.get_untracked()` inside the `on_cleanup` handler? 
+            // TODO: Why does it not work to access `id.get_untracked()` inside the `on_cleanup` handler?
             on_cleanup(move || {
                 js_tiptap::destroy(id.clone());
             });
@@ -242,11 +252,24 @@ pub fn TiptapInstance(
                     js_tiptap::set_text_align_justify(id);
                 }
                 TiptapInstanceMsg::SetImage(resource) => {
-                    js_tiptap::set_image(
+                    js_tiptap::set_image(id, resource.url, resource.alt, resource.title);
+                }
+                TiptapInstanceMsg::SetLink(resource) => {
+                    js_tiptap::set_link(id, resource.href, resource.target, resource.rel);
+                }
+                TiptapInstanceMsg::ToggleLink(resource) => {
+                    js_tiptap::toggle_link(id, resource.href, resource.target, resource.rel);
+                }
+                TiptapInstanceMsg::UnsetLink() => {
+                    js_tiptap::unset_link(id);
+                }
+                TiptapInstanceMsg::SetYoutubeVideo(resource) => {
+                    js_tiptap::set_youtube_video(
                         id,
-                        resource.url,
-                        resource.alt,
-                        resource.title,
+                        resource.src,
+                        resource.start,
+                        resource.width,
+                        resource.height,
                     );
                 }
             }

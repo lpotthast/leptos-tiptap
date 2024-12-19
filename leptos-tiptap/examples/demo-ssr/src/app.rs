@@ -1,7 +1,10 @@
 use leptos::*;
 use leptos_meta::{provide_meta_context, Meta, Script, Stylesheet, Title};
 use leptos_router::*;
-use leptos_tiptap::{TiptapContent, TiptapInstance, TiptapInstanceMsg, TiptapSelectionState};
+use leptos_tiptap::{
+    TiptapContent, TiptapInstance, TiptapInstanceMsg, TiptapLinkResource, TiptapSelectionState,
+    TiptapYoutubeVideoResource,
+};
 
 #[component]
 pub fn App() -> impl IntoView {
@@ -16,7 +19,7 @@ pub fn App() -> impl IntoView {
 
         <Script type_="module" src="/js/tiptap-bundle.min.js"/>
         <Script type_="module" src="/js/tiptap.js"/>
-        
+
         <Title text="Demo SSR"/>
 
         <Router>
@@ -54,6 +57,10 @@ pub fn Demo() -> impl IntoView {
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::AlignCenter)>"AlignCenter"</button>
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::AlignRight)>"AlignRight"</button>
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::AlignJustify)>"AlignJustify"</button>
+        <button on:click=move |_| set_msg.set(TiptapInstanceMsg::SetLink(TiptapLinkResource{href: "https://www.google.com/".to_string(), target: "_blank".to_string(), rel: "alternate".to_string()}))>"Add link"</button>
+        <button on:click=move |_| set_msg.set(TiptapInstanceMsg::ToggleLink(TiptapLinkResource{href: "https://www.google.com/".to_string(), target: "_blank".to_string(), rel: "alternate".to_string()}))>"Toggle link"</button>
+        <button on:click=move |_| set_msg.set(TiptapInstanceMsg::UnsetLink())>"Unset link"</button>
+        <button on:click=move |_| set_msg.set(TiptapInstanceMsg::SetYoutubeVideo(TiptapYoutubeVideoResource{src: "https://www.youtube.com/embed/dQw4w9WgXcQ?si=6LwJzVo1t8hpLywC".to_string(), start: "0".to_string(), width:"640".to_string(), height: "480".to_string()}))>"Toggle youtube video"</button>
 
         <TiptapInstance
             id="id"

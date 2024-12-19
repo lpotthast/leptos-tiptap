@@ -32,7 +32,9 @@ export function create(id, content, editable, onChange, onSelection) {
         types: ['heading', 'paragraph'],
       }),
       window.TipTapHighlight.Highlight,
-      window.TipTapImage.Image
+      window.TipTapImage.Image,
+      window.TipTapLink.Link,
+      window.TipTapYoutube.Youtube
     ],
     injectCSS: false,
     content: content,
@@ -49,7 +51,7 @@ export function create(id, content, editable, onChange, onSelection) {
 }
 
 export function destroy(id) {
-  const {editor, _onSelection} = _getEditor(id);
+  const { editor, _onSelection } = _getEditor(id);
   if (editor) {
     editor.destroy();
   }
@@ -57,99 +59,123 @@ export function destroy(id) {
 }
 
 export function getHTML(id) {
-  const {editor, _onSelection} = _getEditor(id);
+  const { editor, _onSelection } = _getEditor(id);
   return editor.getHTML();
 }
 
 export function isEditable(id) {
-  const {editor, _onSelection} = _getEditor(id);
+  const { editor, _onSelection } = _getEditor(id);
   return editor.isEditable
 }
 
 export function setEditable(id, editable) {
-  const {editor, _onSelection} = _getEditor(id);
+  const { editor, _onSelection } = _getEditor(id);
   editor.setEditable(editable);
 }
 
 export function toggleHeading(id, level) {
-  const {editor, onSelection} = _getEditor(id);
+  const { editor, onSelection } = _getEditor(id);
   editor.chain().focus().toggleHeading({ level: level }).run();
   onSelection(_getSelectionState(editor));
 }
 
 export function setParagraph(id) {
-  const {editor, onSelection} = _getEditor(id);
+  const { editor, onSelection } = _getEditor(id);
   editor.chain().focus().setParagraph().run();
   onSelection(_getSelectionState(editor));
 }
 
 export function toggleBold(id) {
-  const {editor, onSelection} = _getEditor(id);
+  const { editor, onSelection } = _getEditor(id);
   editor.chain().focus().toggleBold().run();
   onSelection(_getSelectionState(editor));
 }
 
 export function toggleItalic(id) {
-  const {editor, onSelection} = _getEditor(id);
+  const { editor, onSelection } = _getEditor(id);
   editor.chain().focus().toggleItalic().run();
   onSelection(_getSelectionState(editor));
 }
 
 export function toggleStrike(id) {
-  const {editor, onSelection} = _getEditor(id);
+  const { editor, onSelection } = _getEditor(id);
   editor.chain().focus().toggleStrike().run();
   onSelection(_getSelectionState(editor));
 }
 
 export function toggleBlockquote(id) {
-  const {editor, onSelection} = _getEditor(id);
+  const { editor, onSelection } = _getEditor(id);
   editor.chain().focus().toggleBlockquote().run();
   onSelection(_getSelectionState(editor));
 }
 
 export function toggleHighlight(id) {
-  const {editor, onSelection} = _getEditor(id);
+  const { editor, onSelection } = _getEditor(id);
   editor.chain().focus().toggleHighlight().run();
   onSelection(_getSelectionState(editor));
 }
 
 export function setTextAlignLeft(id) {
-  const {editor, onSelection} = _getEditor(id);
+  const { editor, onSelection } = _getEditor(id);
   editor.chain().focus().setTextAlign('left').run();
   onSelection(_getSelectionState(editor));
 }
 
 export function setTextAlignCenter(id) {
-  const {editor, onSelection} = _getEditor(id);
+  const { editor, onSelection } = _getEditor(id);
   editor.chain().focus().setTextAlign('center').run();
   onSelection(_getSelectionState(editor));
 }
 
 export function setTextAlignRight(id) {
-  const {editor, onSelection} = _getEditor(id);
+  const { editor, onSelection } = _getEditor(id);
   editor.chain().focus().setTextAlign('right').run();
   onSelection(_getSelectionState(editor));
 }
 
 export function setTextAlignJustify(id) {
-  const {editor, onSelection} = _getEditor(id);
+  const { editor, onSelection } = _getEditor(id);
   editor.chain().focus().setTextAlign('justify').run();
   onSelection(_getSelectionState(editor));
 }
 
 export function setImage(id, src, alt, title) {
-  const {editor, onSelection} = _getEditor(id);
+  const { editor, onSelection } = _getEditor(id);
   editor.chain().focus().setImage({ src: src, alt: alt, title: title }).run();
   onSelection(_getSelectionState(editor));
 }
 
+export function setLink(id, href, target, rel) {
+  const { editor, onSelection } = _getEditor(id);
+  editor.chain().focus().setLink({ href: href, target: target, rel: rel }).run();
+  onSelection(_getSelectionState(editor));
+}
+
+export function toggleLink(id, href, target, rel) {
+  const { editor, onSelection } = _getEditor(id);
+  editor.chain().focus().toggleLink({ href: href, target: target, rel: rel }).run();
+  onSelection(_getSelectionState(editor));
+}
+
+export function unsetLink(id, href, target, rel) {
+  const { editor, onSelection } = _getEditor(id);
+  editor.chain().focus().unsetLink({ href: href, target: target, rel: rel }).run();
+  onSelection(_getSelectionState(editor));
+}
+
+export function setYoutubeVideo(id, src, start, width, height) {
+  const { editor, onSelection } = _getEditor(id);
+  editor.chain().focus().setYoutubeVideo({ src: src, start: start, width: width, height: height }).run();
+  onSelection(_getSelectionState(editor));
+}
+
 export function getEditorState(id) {
-  const {editor, _onSelection} = _getEditor(id);
+  const { editor, _onSelection } = _getEditor(id);
   return _getEditorState(editor);
 }
 
 export function getSelectionState(id) {
-  const {editor, _onSelection} = _getEditor(id);
+  const { editor, _onSelection } = _getEditor(id);
   return _getSelectionState(editor);
 }
 

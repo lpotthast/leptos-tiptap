@@ -18,6 +18,7 @@ Install the required packages
     npm install @tiptap/extension-highlight
     npm install @tiptap/extension-image
     npm install @tiptap/extension-text-align
+    npm install @tiptap/extension-link
 
 Create a file called `main.js` which `require`s your previously installed dependencies.
 
@@ -28,11 +29,15 @@ You may make these dependencies available, by adding them as new `global.window`
     var TipTapHighlight = require('@tiptap/extension-highlight')
     var TipTapTextAlign = require('@tiptap/extension-text-align')
     var TipTapImage = require('@tiptap/extension-image')
+    var TipTapLink = require('@tiptap/extension-link')
+    var TipTapYoutube = require('@tiptap/extension-youtube')
     global.window.TipTap = TipTap
     global.window.TipTapStarterKit = TipTapStarterKit
     global.window.TipTapHighlight = TipTapHighlight
     global.window.TipTapTextAlign = TipTapTextAlign
     global.window.TipTapImage = TipTapImage
+    global.window.TipTapLink = TipTapLink
+    global.window.TipTapYoutube = TipTapYoutube
 
 Create a single JS bundle using the browserify tool
 
