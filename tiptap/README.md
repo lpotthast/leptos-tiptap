@@ -19,6 +19,7 @@ Install the required packages
     npm install @tiptap/extension-image
     npm install @tiptap/extension-text-align
     npm install @tiptap/extension-link
+    npm install @tiptap/extension-youtube
 
 Create a file called `main.js` which `require`s your previously installed dependencies.
 
