@@ -72,3 +72,25 @@ pub struct TiptapImageResource {
     // Example: https:://my-site.com/public/image.png
     pub url: String,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct TiptapLinkResource {
+    // Example: https:://my-site.com
+    pub href: String,
+    // Example: "_blank", specifies where to open the linked document
+    pub target: String,
+    /// Example: "alternate"
+    pub rel: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct TiptapYoutubeVideoResource {
+    // Example: https://www.youtube.com/embed/dQw4w9WgXcQ?si=6LwJzVo1t8hpLywC
+    pub src: String,
+    // Example: "0", specifies when to start the video
+    pub start: String,
+    /// Example: "640"
+    pub width: String,
+    /// Example: "480"
+    pub height: String,
+}

@@ -19,7 +19,7 @@ cfg-if = "1.0.0"
 http = "1.0.0"
 indoc = "2"
 leptos = { version = "0.6.5", features = [] }
-leptos-use = "0.10.1"
+leptos-use = "0.13.0"
 leptos_axum = { version = "0.6.5", optional = true }
 leptos_meta = { version = "0.6.5", features = [] }
 leptos_router = { version = "0.6.5", features = [] }
