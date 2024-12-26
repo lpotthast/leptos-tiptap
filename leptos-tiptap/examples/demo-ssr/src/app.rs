@@ -1,41 +1,64 @@
-use leptos::*;
-use leptos_meta::{provide_meta_context, Meta, Script, Stylesheet, Title};
-use leptos_router::*;
+use leptos::prelude::*;
+use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
+use leptos_router::{
+    components::{Route, Router, Routes},
+    StaticSegment,
+};
 use leptos_tiptap::{
     TiptapContent, TiptapInstance, TiptapInstanceMsg, TiptapLinkResource, TiptapSelectionState,
     TiptapYoutubeVideoResource,
 };
 
+pub fn shell(options: LeptosOptions) -> impl IntoView {
+    view! {
+        <!DOCTYPE html>
+        <html lang="en">
+            <head>
+                <meta charset="utf-8"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <script type_="module" src="/js/tiptap-bundle.min.js"/>
+                <script type_="module" src="/js/tiptap.js"/>
+                <AutoReload options=options.clone() />
+                <HydrationScripts options/>
+                <MetaTags/>
+            </head>
+            <body>
+                <App/>
+            </body>
+        </html>
+    }
+}
+
 #[component]
 pub fn App() -> impl IntoView {
+    // Provides context that manages stylesheets, titles, meta tags, etc.
     provide_meta_context();
 
     view! {
-        <Meta name="charset" content="UTF-8"/>
-        <Meta name="description" content="Demo SSR"/>
-        <Meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-
+        // injects a stylesheet into the document <head>
+        // id=leptos means cargo-leptos will hot-reload this stylesheet
         <Stylesheet id="leptos" href="/pkg/demo-ssr.css"/>
 
-        <Script type_="module" src="/js/tiptap-bundle.min.js"/>
-        <Script type_="module" src="/js/tiptap.js"/>
+        // sets the document title
+        <Title text="Tiptap demo ssr"/>
 
-        <Title text="Demo SSR"/>
-
+        // content for this welcome page
         <Router>
-            <Routes>
-                <Route path="" view=|| view! { <Demo/> }/>
-            </Routes>
+            <main>
+                <Routes fallback=|| "Page not found.".into_view()>
+                    <Route path=StaticSegment("") view=Demo/>
+                </Routes>
+            </main>
         </Router>
     }
 }
 
 #[component]
 pub fn Demo() -> impl IntoView {
-    let (msg, set_msg) = create_signal(TiptapInstanceMsg::Noop);
-    let (value, set_value) = create_signal(r#"<h1>This is a simple <em><s>paragraph</s></em> ... <strong>H1</strong>!</h1><p style="text-align: center"><strong>Lorem ipsum dolor sit amet, consetetur sadipscing elitr, <mark>sed diam nonumy</mark> eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua.</strong></p><p style="text-align: justify">Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.</p>"#.to_owned());
-    let (selection, set_selection) = create_signal(TiptapSelectionState::default());
-    let (disabled, set_disabled) = create_signal(false);
+    let (msg, set_msg) = signal(TiptapInstanceMsg::Noop);
+    let (value, set_value) = signal(r#"<h1>This is a simple <em><s>paragraph</s></em> ... <strong>H1</strong>!</h1><p style="text-align: center"><strong>Lorem ipsum dolor sit amet, consetetur sadipscing elitr, <mark>sed diam nonumy</mark> eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua.</strong></p><p style="text-align: justify">Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.</p>"#.to_owned());
+    let (selection, set_selection) = signal(TiptapSelectionState::default());
+    let (disabled, set_disabled) = signal(false);
 
     view! {
         <h2>"Tiptap instance"</h2>
@@ -67,12 +90,13 @@ pub fn Demo() -> impl IntoView {
             msg=msg
             disabled=disabled
             value=value
-            set_value=move |v| set_value.set(match v {
+            set_value=Callback::new(move |v| set_value.set(match v {
                 TiptapContent::Html(content) => content,
                 TiptapContent::Json(content) => content,
+            }))
+            on_selection_change=Callback::new(move |state: TiptapSelectionState| {
+                set_selection.set(state);
             })
-            on_selection_change=move |state| set_selection.set(state)
-            style="display: block; width: auto; height: auto; border: 1px solid; padding: 0.5em; white-space: pre-wrap;"
         />
 
         <div style="display: flex; flex-direction: row; gap: 0.5em; margin-top: 0.5em;">

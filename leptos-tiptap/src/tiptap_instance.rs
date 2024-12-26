@@ -1,5 +1,7 @@
-use leptos::*;
+use leptos::prelude::*;
 use wasm_bindgen::{prelude::Closure, JsValue};
+
+use send_wrapper::SendWrapper;
 
 use crate::{
     js_tiptap, TiptapContent, TiptapHeadingLevel, TiptapImageResource, TiptapLinkResource,
@@ -79,15 +81,7 @@ pub fn TiptapInstance(
     /// The ID of for this tiptap instance. Must be UNIQUE across ALL instances. You might want to use a UUID (v4 or v7) if uniqueness is otherwise not enforceable.
     /// This may be a signal to support SSR. If the client should regenerate this ID, the old instance is removed (if one existed) and a new instance is created.
     #[prop(into)]
-    id: MaybeSignal<String>,
-
-    /// Classes, optional.
-    #[prop(optional, into)]
-    class: Option<AttributeValue>,
-
-    /// Styles, optional.
-    #[prop(optional, into)]
-    style: Option<AttributeValue>,
+    id: Signal<String>,
 
     /// Initial content of the editor.
     /// Note that the editor keeps an internal copy of this string and can solely work with that for an unlimited time.
@@ -109,7 +103,7 @@ pub fn TiptapInstance(
 
     /// If set to true, the tiptap instance becomes un-editable. The instance reacts to changes of this signals value.
     #[prop(into)]
-    disabled: MaybeSignal<bool>,
+    disabled: Signal<bool>,
 
     /// Notifies you about a new selection. A selection changes, for example, if the cursor in the editor changes position, "selecting" a new element in the editor.
     /// Most actions, given by the changing `msg` signal values, are applied to the current selection.
@@ -117,12 +111,12 @@ pub fn TiptapInstance(
     #[prop(into)]
     on_selection_change: Callback<TiptapSelectionState>,
 ) -> impl IntoView {
-    let instance: NodeRef<leptos::html::Custom> = create_node_ref();
+    let instance = NodeRef::new();
 
     let id: Signal<String> = Signal::derive(move || id.get());
 
     // Make this component SSR compatible by moving all JS interaction inside an effect.
-    create_effect(move |old_id: Option<String>| {
+    Effect::new(move |old_id: Option<String>| {
         // Rerun this effect whenever the ID should change!
         if let Some(old_id) = &old_id {
             js_tiptap::destroy(old_id.clone());
@@ -131,17 +125,18 @@ pub fn TiptapInstance(
         // This closure is passed on to the JS tiptap instance.
         // We expect this to be called whenever the INPUT in the editor changes.
         // We have to own this closure until the end of this components lifetime!
-        let on_content_change_closure = store_value(Closure::wrap(Box::new(move |content| {
-            set_value.call(TiptapContent::Html(content));
-        })
-            as Box<dyn Fn(String)>));
+        let on_content_change_closure =
+            StoredValue::new(SendWrapper::new(Closure::wrap(Box::new(move |content| {
+                set_value.run(TiptapContent::Html(content));
+            })
+                as Box<dyn Fn(String)>)));
 
         // This closure is passed on to the JS tiptap instance.
         // We expect this to be called whenever the SELECTION in the editor changes.
         // We have to own this closure until the end of this components lifetime!
-        let on_selection_change_closure: StoredValue<Closure<dyn Fn(JsValue)>> = store_value(
-            Closure::wrap(Box::new(move |selection_state_as_js_value| {
-                on_selection_change.call(
+        let on_selection_change_closure = StoredValue::new(SendWrapper::new(Closure::wrap(
+            Box::new(move |selection_state_as_js_value| {
+                on_selection_change.run(
                     match serde_wasm_bindgen::from_value(selection_state_as_js_value) {
                         Ok(state) => state,
                         Err(err) => {
@@ -150,38 +145,25 @@ pub fn TiptapInstance(
                         }
                     },
                 );
-            }) as Box<dyn Fn(JsValue)>),
-        );
+            }) as Box<dyn Fn(JsValue)>,
+        )));
 
         // The tiptap instance must be initialized EXACTLY ONCE through the tiptap JS API.
-        let (initialized, set_initialized) = create_signal(false);
-        create_effect(move |prev| {
-            if prev.is_none() || prev == Some(None) {
-                return match instance.get() {
-                    Some(element) => {
-                        let _e = element.on_mount(move |_element| {
-                            on_content_change_closure.with_value(|on_change_closure| {
-                                on_selection_change_closure.with_value(|on_selection_closure| {
-                                    js_tiptap::create(
-                                        id.get_untracked(),
-                                        value.get_untracked(),
-                                        !disabled.get_untracked(),
-                                        on_change_closure,
-                                        on_selection_closure,
-                                    );
-                                    set_initialized.set(true);
-                                });
-                            });
-                        });
-                        Some(())
-                    }
-                    None => None,
-                };
+        let (initialized, set_initialized) = signal(false);
+        Effect::new(move |_| {
+            if !initialized.get_untracked() && instance.get().is_some() {
+                js_tiptap::create(
+                    id.get_untracked(),
+                    value.get_untracked(),
+                    !disabled.get_untracked(),
+                    &on_content_change_closure.read_value(),
+                    &on_selection_change_closure.read_value(),
+                );
+                set_initialized.set(true);
             }
-            None
         });
 
-        create_effect(move |_| {
+        Effect::new(move |_| {
             let id = id.get();
             // Push an additional on_cleanup handler every time the id changes. Accessing the last id, which would be what we want, lead to panics as the underlying data is already destroyed.
             // TODO: Why does it not work to access `id.get_untracked()` inside the `on_cleanup` handler?
@@ -195,7 +177,7 @@ pub fn TiptapInstance(
         // MAKE SURE that no signal is set in such a callback function so that this create_effect re-executes, as this might break it!
         // This is the reason why we handle on_content_change_closure and on_selection_change_closure without generating messages!
         // Besides that, TiptapInstanceMsg is a public enum and should / must only contain non-technical, non-destructive options.
-        create_effect(move |_| {
+        Effect::new(move |_| {
             let msg = msg.get();
             if !initialized.get_untracked() {
                 return;
@@ -275,9 +257,9 @@ pub fn TiptapInstance(
             }
         });
 
-        let disabled_memo = create_memo(move |_| disabled.get());
+        let disabled_memo = Memo::new(move |_| disabled.get());
 
-        create_effect(move |_| {
+        Effect::new(move |_| {
             let disabled = disabled_memo.get();
             if !initialized.get_untracked() {
                 return;
@@ -292,8 +274,6 @@ pub fn TiptapInstance(
         <leptos-tiptap-instance
             node_ref=instance
             id=move || id.get()
-            class=class
-            style=style
             aria-disabled=move || disabled.get()
         />
     }

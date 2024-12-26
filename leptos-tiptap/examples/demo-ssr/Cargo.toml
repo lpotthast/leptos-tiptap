@@ -18,11 +18,11 @@ axum-server = { version = "0.6.0", features = ["tls-rustls"], optional = true }
 cfg-if = "1.0.0"
 http = "1.0.0"
 indoc = "2"
-leptos = { version = "0.6.5", features = [] }
+leptos = { version = "0.7.0", features = [] }
 leptos-use = "0.13.0"
-leptos_axum = { version = "0.6.5", optional = true }
-leptos_meta = { version = "0.6.5", features = [] }
-leptos_router = { version = "0.6.5", features = [] }
+leptos_axum = { version = "0.7.0", optional = true }
+leptos_meta = { version = "0.7.0", features = [] }
+leptos_router = { version = "0.7.0", features = [] }
 ordered-float = "4.2.0"
 serde = "1.0.193"
 serde-wasm-bindgen = "0.6.3"
@@ -42,8 +42,6 @@ wasm-bindgen = "0.2.89"
 [features]
 hydrate = [
     "leptos/hydrate",
-    "leptos_meta/hydrate",
-    "leptos_router/hydrate",
 ]
 ssr = [
     "dep:axum",
