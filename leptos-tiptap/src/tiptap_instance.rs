@@ -47,6 +47,12 @@ pub enum TiptapInstanceMsg {
     /// Toggle "Highlight" for the current selection.
     Highlight,
 
+    /// Toggle "BulletList" for the current selection.
+    BulletList,
+
+    /// Toggle "OrderedList" for the current selection.
+    OrderedList,
+
     /// Toggle "AlignLeft" for the current selection.
     AlignLeft,
 
@@ -216,6 +222,12 @@ pub fn TiptapInstance(
                 }
                 TiptapInstanceMsg::Highlight => {
                     js_tiptap::toggle_highlight(id);
+                }
+                TiptapInstanceMsg::BulletList => {
+                    js_tiptap::toggle_bullet_list(id);
+                }
+                TiptapInstanceMsg::OrderedList => {
+                    js_tiptap::toggle_ordered_list(id);
                 }
                 TiptapInstanceMsg::AlignLeft => {
                     js_tiptap::set_text_align_left(id);

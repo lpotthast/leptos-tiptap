@@ -58,6 +58,12 @@ pub struct TiptapSelectionState {
     /// 'true' if the cursor is in a highlighted text segment.
     pub highlight: bool,
 
+    /// 'true' if the cursor is in a bullet-list.
+    pub bullet_list: bool,
+
+    /// 'true' if the cursor is in an ordered-list.
+    pub ordered_list: bool,
+
     /// 'true' if the cursor is in a left-aligned text segment.
     pub align_left: bool,
 

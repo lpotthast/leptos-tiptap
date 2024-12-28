@@ -33,6 +33,8 @@ pub fn App() -> impl IntoView {
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::Strike)>"Strike"</button>
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::Blockquote)>"Blockquote"</button>
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::Highlight)>"Highlight"</button>
+        <button on:click=move |_| set_msg.set(TiptapInstanceMsg::BulletList)>"BulletList"</button>
+        <button on:click=move |_| set_msg.set(TiptapInstanceMsg::OrderedList)>"OrderedList"</button>
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::AlignLeft)>"AlignLeft"</button>
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::AlignCenter)>"AlignCenter"</button>
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::AlignRight)>"AlignRight"</button>
@@ -137,6 +139,14 @@ pub fn App() -> impl IntoView {
                                 <tr>
                                     <td>"Highlight"</td>
                                     <td class="value" class:active=selection.highlight>{ selection.highlight }</td>
+                                </tr>
+                                <tr>
+                                    <td>"Bullet List"</td>
+                                    <td class="value" class:active=selection.bullet_list>{ selection.bullet_list }</td>
+                                </tr>
+                                <tr>
+                                    <td>"Ordered List"</td>
+                                    <td class="value" class:active=selection.ordered_list>{ selection.ordered_list}</td>
                                 </tr>
                                 <tr>
                                     <td>"Align left"</td>

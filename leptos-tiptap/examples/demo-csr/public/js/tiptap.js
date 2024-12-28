@@ -115,6 +115,18 @@ export function toggleHighlight(id) {
   onSelection(_getSelectionState(editor));
 }
 
+export function toggleBulletList(id) {
+  const { editor, onSelection } = _getEditor(id);
+  editor.chain().focus().toggleBulletList().run();
+  onSelection(_getSelectionState(editor));
+}
+
+export function toggleOrderedList(id) {
+  const { editor, onSelection } = _getEditor(id);
+  editor.chain().focus().toggleOrderedList().run();
+  onSelection(_getSelectionState(editor));
+}
+
 export function setTextAlignLeft(id) {
   const { editor, onSelection } = _getEditor(id);
   editor.chain().focus().setTextAlign('left').run();
@@ -200,6 +212,8 @@ function _getSelectionState(editor) {
     strike: editor.isActive('strike'),
     blockquote: editor.isActive('blockquote'),
     highlight: editor.isActive('highlight'),
+    bullet_list: editor.isActive('bulletList'),
+    ordered_list: editor.isActive('orderedList'),
     align_left: editor.isActive({ textAlign: 'left' }),
     align_center: editor.isActive({ textAlign: 'center' }),
     align_right: editor.isActive({ textAlign: 'right' }),
