@@ -7,10 +7,14 @@ use this dependency.
 
 ## Changelog
 
-0.2.6
+0.2.7
 
 - Updated Tiptap and plugins from `2.2.0` to `2.10.4`.
 - Added support for links, embedded YouTube videos as well as ordered and unordered lists.
+
+0.2.6
+
+- Removed unused dependency.
 
 0.2.5
 
