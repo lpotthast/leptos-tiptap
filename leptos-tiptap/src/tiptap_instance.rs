@@ -1,7 +1,6 @@
 use leptos::prelude::*;
-use wasm_bindgen::{prelude::Closure, JsValue};
-
 use send_wrapper::SendWrapper;
+use wasm_bindgen::{prelude::Closure, JsValue};
 
 use crate::{
     js_tiptap, TiptapContent, TiptapHeadingLevel, TiptapImageResource, TiptapLinkResource,
@@ -69,10 +68,10 @@ pub enum TiptapInstanceMsg {
     /// Toggle if the current selection is a link
     ToggleLink(TiptapLinkResource),
 
-    /// Remove the link from the selection
+    /// Remove the link from the selection.
     UnsetLink(),
 
-    /// Replace the current selection with an embedded youtube video
+    /// Replace the current selection with an embedded YouTube video.
     SetYoutubeVideo(TiptapYoutubeVideoResource),
 }
 
@@ -94,7 +93,7 @@ pub fn TiptapInstance(
     /// Every change to the content inside the editor is reflected back to you immediately through this callback.
     /// This will change / be configurable with: https://github.com/lpotthast/leptos-tiptap/issues/1
     #[prop(into)]
-    set_value: Callback<TiptapContent>,
+    set_value: Callback<(TiptapContent,)>,
 
     /// This signal is your point of interaction with tiptap.
     /// Update this signal to a new value, and the action corresponding to the msg set will be executed.
@@ -109,7 +108,7 @@ pub fn TiptapInstance(
     /// Most actions, given by the changing `msg` signal values, are applied to the current selection.
     /// If a paragraph is selected and the H1 message is sent, that selected paragraph will be made an H1.
     #[prop(into)]
-    on_selection_change: Callback<TiptapSelectionState>,
+    on_selection_change: Callback<(TiptapSelectionState,)>,
 ) -> impl IntoView {
     let instance = NodeRef::new();
 
@@ -124,27 +123,24 @@ pub fn TiptapInstance(
 
         // This closure is passed on to the JS tiptap instance.
         // We expect this to be called whenever the INPUT in the editor changes.
-        // We have to own this closure until the end of this components lifetime!
+        // We have to own this closure until the end of this component's lifetime!
         let on_content_change_closure =
             StoredValue::new(SendWrapper::new(Closure::wrap(Box::new(move |content| {
-                set_value.run(TiptapContent::Html(content));
+                set_value.run((TiptapContent::Html(content),));
             })
                 as Box<dyn Fn(String)>)));
 
         // This closure is passed on to the JS tiptap instance.
         // We expect this to be called whenever the SELECTION in the editor changes.
-        // We have to own this closure until the end of this components lifetime!
+        // We have to own this closure until the end of this component's lifetime!
         let on_selection_change_closure = StoredValue::new(SendWrapper::new(Closure::wrap(
             Box::new(move |selection_state_as_js_value| {
-                on_selection_change.run(
-                    match serde_wasm_bindgen::from_value(selection_state_as_js_value) {
-                        Ok(state) => state,
-                        Err(err) => {
-                            tracing::error!("Could not parse JsValue as TipTap state. Deserialization error: '{err}'. Falling back to default state.");
-                            Default::default()
-                        }
-                    },
-                );
+                let selection_state: TiptapSelectionState = serde_wasm_bindgen::from_value(selection_state_as_js_value).unwrap_or_else(|err| {
+                    tracing::error!("Could not parse JsValue as TipTap state. Deserialization error: '{err}'. Falling back to default state.");
+                    Default::default()
+                });
+
+                on_selection_change.run((selection_state,));
             }) as Box<dyn Fn(JsValue)>,
         )));
 
@@ -273,8 +269,8 @@ pub fn TiptapInstance(
     view! {
         <leptos-tiptap-instance
             node_ref=instance
-            id=move || id.get()
-            aria-disabled=move || disabled.get()
+            id=id
+            aria-disabled=disabled
         />
     }
 }

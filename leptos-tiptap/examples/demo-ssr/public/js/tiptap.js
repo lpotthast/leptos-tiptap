@@ -204,5 +204,7 @@ function _getSelectionState(editor) {
     align_center: editor.isActive({ textAlign: 'center' }),
     align_right: editor.isActive({ textAlign: 'right' }),
     align_justify: editor.isActive({ textAlign: 'justify' }),
+    link: editor.isActive('link'),
+    youtube: editor.isActive('youtube'),
   }
 }

@@ -26,6 +26,7 @@ library [Leptonic](https://leptonic.dev/), which already incorporates this crate
 | 0.4,          | 0.5 (csr)                 |
 | 0.5, 0.6      | 0.5 (csr and ssr)         |
 | 0.7           | 0.6                       |
+| 0.8           | 0.7                       |
 
 ## MSRV
 

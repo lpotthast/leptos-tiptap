@@ -1,10 +1,11 @@
-var TipTap = require('@tiptap/core')
-var TipTapStarterKit = require('@tiptap/starter-kit')
-var TipTapHighlight = require('@tiptap/extension-highlight')
-var TipTapTextAlign = require('@tiptap/extension-text-align')
-var TipTapImage = require('@tiptap/extension-image')
-var TipTapLink = require('@tiptap/extension-link')
-var TipTapYoutube = require('@tiptap/extension-youtube')
+const TipTap = require('@tiptap/core')
+const TipTapStarterKit = require('@tiptap/starter-kit')
+const TipTapHighlight = require('@tiptap/extension-highlight')
+const TipTapTextAlign = require('@tiptap/extension-text-align')
+const TipTapImage = require('@tiptap/extension-image')
+const TipTapLink = require('@tiptap/extension-link')
+const TipTapYoutube = require('@tiptap/extension-youtube');
+
 global.window.TipTap = TipTap
 global.window.TipTapStarterKit = TipTapStarterKit
 global.window.TipTapHighlight = TipTapHighlight

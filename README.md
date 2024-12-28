@@ -2,7 +2,7 @@
 
 Enables the integration of [Tiptap](https://tiptap.dev/) instances into your [leptos](https://leptos.dev/) projects.
 
-Currently used tiptap version: `2.10.4`, when using leptos-tiptap-build `0.2.5`
+Currently used tiptap version: `2.10.4`, when using leptos-tiptap-build `0.2.6`
 
 Currently used tiptap extensions:
 

@@ -80,23 +80,43 @@ pub fn Demo() -> impl IntoView {
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::AlignCenter)>"AlignCenter"</button>
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::AlignRight)>"AlignRight"</button>
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::AlignJustify)>"AlignJustify"</button>
-        <button on:click=move |_| set_msg.set(TiptapInstanceMsg::SetLink(TiptapLinkResource{href: "https://www.google.com/".to_string(), target: "_blank".to_string(), rel: "alternate".to_string()}))>"Add link"</button>
-        <button on:click=move |_| set_msg.set(TiptapInstanceMsg::ToggleLink(TiptapLinkResource{href: "https://www.google.com/".to_string(), target: "_blank".to_string(), rel: "alternate".to_string()}))>"Toggle link"</button>
+        <button on:click=move |_| set_msg.set(TiptapInstanceMsg::SetLink(TiptapLinkResource {
+            href: "https://www.google.com/".to_string(),
+            target: "_blank".to_string(),
+            rel: "alternate".to_string(),
+        }))>
+            "Add link"
+        </button>
+        <button on:click=move |_| set_msg.set(TiptapInstanceMsg::ToggleLink(TiptapLinkResource {
+            href: "https://www.google.com/".to_string(),
+            target: "_blank".to_string(),
+            rel: "alternate".to_string(),
+        }))>
+            "Toggle link"
+        </button>
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::UnsetLink())>"Unset link"</button>
-        <button on:click=move |_| set_msg.set(TiptapInstanceMsg::SetYoutubeVideo(TiptapYoutubeVideoResource{src: "https://www.youtube.com/embed/dQw4w9WgXcQ?si=6LwJzVo1t8hpLywC".to_string(), start: "0".to_string(), width:"640".to_string(), height: "480".to_string()}))>"Toggle youtube video"</button>
+        <button on:click=move |_| set_msg.set(TiptapInstanceMsg::SetYoutubeVideo(TiptapYoutubeVideoResource {
+            src: "https://www.youtube.com/embed/dQw4w9WgXcQ?si=6LwJzVo1t8hpLywC".to_string(),
+            start: "0".to_string(),
+            width: "640".to_string(),
+            height: "480".to_string(),
+        }))>
+            "Toggle YouTube video"
+        </button>
 
         <TiptapInstance
             id="id"
             msg=msg
             disabled=disabled
             value=value
-            set_value=Callback::new(move |v| set_value.set(match v {
+            set_value=move |v| set_value.set(match v {
                 TiptapContent::Html(content) => content,
                 TiptapContent::Json(content) => content,
-            }))
-            on_selection_change=Callback::new(move |state: TiptapSelectionState| {
-                set_selection.set(state);
             })
+            on_selection_change=move |state| {
+                set_selection.set(state);
+            }
+            attr:style="display: block; width: auto; height: auto; border: 1px solid; padding: 0.5em; white-space: pre-wrap;"
         />
 
         <div style="display: flex; flex-direction: row; gap: 0.5em; margin-top: 0.5em;">
@@ -178,6 +198,14 @@ pub fn Demo() -> impl IntoView {
                                 <tr>
                                     <td>"Align justify"</td>
                                     <td class="value" class:active=selection.align_justify>{ selection.align_justify }</td>
+                                </tr>
+                                <tr>
+                                    <td>"Link"</td>
+                                    <td class="value" class:active=selection.link>{ selection.link }</td>
+                                </tr>
+                                <tr>
+                                    <td>"YouTube"</td>
+                                    <td class="value" class:active=selection.youtube>{ selection.youtube }</td>
                                 </tr>
                             </tbody>
                         </table>
