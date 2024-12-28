@@ -34,5 +34,5 @@ minify-tiptap:
 # Find the minimum supported rust version
 msrv:
     cargo install cargo-msrv
-    cargo msrv --min "2021" --path leptos-tiptap
-    cargo msrv --min "2021" --path leptos-tiptap-build
+    cargo msrv find --path leptos-tiptap
+    cargo msrv find --path leptos-tiptap-build
