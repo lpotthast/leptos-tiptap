@@ -1,21 +1,24 @@
 (function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
 (function (global){(function (){
-var TipTap = require('@tiptap/core')
-var TipTapStarterKit = require('@tiptap/starter-kit')
-var TipTapHighlight = require('@tiptap/extension-highlight')
-var TipTapTextAlign = require('@tiptap/extension-text-align')
-var TipTapImage = require('@tiptap/extension-image')
+const TipTap = require('@tiptap/core')
+const TipTapStarterKit = require('@tiptap/starter-kit')
+const TipTapHighlight = require('@tiptap/extension-highlight')
+const TipTapTextAlign = require('@tiptap/extension-text-align')
+const TipTapImage = require('@tiptap/extension-image')
+const TipTapLink = require('@tiptap/extension-link')
+const TipTapYoutube = require('@tiptap/extension-youtube');
+
 global.window.TipTap = TipTap
 global.window.TipTapStarterKit = TipTapStarterKit
 global.window.TipTapHighlight = TipTapHighlight
 global.window.TipTapTextAlign = TipTapTextAlign
 global.window.TipTapImage = TipTapImage
+global.window.TipTapLink = TipTapLink
+global.window.TipTapYoutube = TipTapYoutube
 
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"@tiptap/core":2,"@tiptap/extension-highlight":13,"@tiptap/extension-image":16,"@tiptap/extension-text-align":22,"@tiptap/starter-kit":34}],2:[function(require,module,exports){
+},{"@tiptap/core":2,"@tiptap/extension-highlight":13,"@tiptap/extension-image":16,"@tiptap/extension-link":18,"@tiptap/extension-text-align":23,"@tiptap/extension-youtube":25,"@tiptap/starter-kit":36}],2:[function(require,module,exports){
 'use strict';
-
-Object.defineProperty(exports, '__esModule', { value: true });
 
 var state = require('@tiptap/pm/state');
 var view = require('@tiptap/pm/view');
@@ -25,6 +28,11 @@ var transform = require('@tiptap/pm/transform');
 var commands$1 = require('@tiptap/pm/commands');
 var schemaList = require('@tiptap/pm/schema-list');
 
+/**
+ * Takes a Transaction & Editor State and turns it into a chainable state object
+ * @param config The transaction and state to create the chainable state from
+ * @returns A chainable Editor state object
+ */
 function createChainableState(config) {
     const { state, transaction } = config;
     let { selection } = transaction;
@@ -186,11 +194,25 @@ class EventEmitter {
         }
         return this;
     }
+    once(event, fn) {
+        const onceFn = (...args) => {
+            this.off(event, onceFn);
+            fn.apply(this, args);
+        };
+        return this.on(event, onceFn);
+    }
     removeAllListeners() {
         this.callbacks = {};
     }
 }
 
+/**
+ * Returns a field from an extension
+ * @param extension The Tiptap extension
+ * @param field The field, for example `renderHTML` or `priority`
+ * @param context The context object that should be passed as `this` into the function
+ * @returns The field value
+ */
 function getExtensionField(extension, field, context) {
     if (extension.config[field] === undefined && extension.parent) {
         return getExtensionField(extension.parent, field, context);
@@ -239,12 +261,12 @@ function getAttributesFromExtensions(extensions) {
             name: extension.name,
             options: extension.options,
             storage: extension.storage,
+            extensions: nodeAndMarkExtensions,
         };
         const addGlobalAttributes = getExtensionField(extension, 'addGlobalAttributes', context);
         if (!addGlobalAttributes) {
             return;
         }
-        // TODO: remove `as GlobalAttributes`
         const globalAttributes = addGlobalAttributes();
         globalAttributes.forEach(globalAttribute => {
             globalAttribute.types.forEach(type => {
@@ -326,7 +348,18 @@ function mergeAttributes(...objects) {
                 mergedAttributes[key] = [...existingClasses, ...insertClasses].join(' ');
             }
             else if (key === 'style') {
-                mergedAttributes[key] = [mergedAttributes[key], value].join('; ');
+                const newStyles = value ? value.split(';').map((style) => style.trim()).filter(Boolean) : [];
+                const existingStyles = mergedAttributes[key] ? mergedAttributes[key].split(';').map((style) => style.trim()).filter(Boolean) : [];
+                const styleMap = new Map();
+                existingStyles.forEach(style => {
+                    const [property, val] = style.split(':').map(part => part.trim());
+                    styleMap.set(property, val);
+                });
+                newStyles.forEach(style => {
+                    const [property, val] = style.split(':').map(part => part.trim());
+                    styleMap.set(property, val);
+                });
+                mergedAttributes[key] = Array.from(styleMap.entries()).map(([property, val]) => `${property}: ${val}`).join('; ');
             }
             else {
                 mergedAttributes[key] = value;
@@ -338,6 +371,7 @@ function mergeAttributes(...objects) {
 
 function getRenderedAttributes(nodeOrMark, extensionAttributes) {
     return extensionAttributes
+        .filter(attribute => attribute.type === nodeOrMark.type.name)
         .filter(item => item.attribute.rendered)
         .map(item => {
         if (!item.attribute.renderHTML) {
@@ -398,12 +432,12 @@ function fromString(value) {
  * @param extensionAttributes List of attributes to inject
  */
 function injectExtensionAttributesToParseRule(parseRule, extensionAttributes) {
-    if (parseRule.style) {
+    if ('style' in parseRule) {
         return parseRule;
     }
     return {
         ...parseRule,
-        getAttrs: node => {
+        getAttrs: (node) => {
             const oldAttributes = parseRule.getAttrs ? parseRule.getAttrs(node) : parseRule.attrs;
             if (oldAttributes === false) {
                 return false;
@@ -411,7 +445,7 @@ function injectExtensionAttributesToParseRule(parseRule, extensionAttributes) {
             const newAttributes = extensionAttributes.reduce((items, item) => {
                 const value = item.attribute.parseHTML
                     ? item.attribute.parseHTML(node)
-                    : fromString(node.getAttribute(item.name));
+                    : fromString((node).getAttribute(item.name));
                 if (value === null || value === undefined) {
                     return items;
                 }
@@ -435,6 +469,12 @@ function cleanUpSchemaItem(data) {
         return value !== null && value !== undefined;
     }));
 }
+/**
+ * Creates a new Prosemirror schema based on the given extensions.
+ * @param extensions An array of Tiptap extensions
+ * @param editor The editor instance
+ * @returns A Prosemirror schema
+ */
 function getSchemaByResolvedExtensions(extensions, editor) {
     var _a;
     const allAttributes = getAttributesFromExtensions(extensions);
@@ -465,6 +505,8 @@ function getSchemaByResolvedExtensions(extensions, editor) {
             selectable: callOrReturn(getExtensionField(extension, 'selectable', context)),
             draggable: callOrReturn(getExtensionField(extension, 'draggable', context)),
             code: callOrReturn(getExtensionField(extension, 'code', context)),
+            whitespace: callOrReturn(getExtensionField(extension, 'whitespace', context)),
+            linebreakReplacement: callOrReturn(getExtensionField(extension, 'linebreakReplacement', context)),
             defining: callOrReturn(getExtensionField(extension, 'defining', context)),
             isolating: callOrReturn(getExtensionField(extension, 'isolating', context)),
             attrs: Object.fromEntries(extensionAttributes.map(extensionAttribute => {
@@ -536,6 +578,12 @@ function getSchemaByResolvedExtensions(extensions, editor) {
     });
 }
 
+/**
+ * Tries to get a node or mark type by its name.
+ * @param name The name of the node or mark type
+ * @param schema The Prosemiror schema to search in
+ * @returns The node or mark type, or null if it doesn't exist
+ */
 function getSchemaTypeByName(name, schema) {
     return schema.nodes[name] || schema.marks[name] || null;
 }
@@ -552,6 +600,20 @@ function isExtensionRulesEnabled(extension, enabled) {
     return enabled;
 }
 
+function getHTMLFromFragment(fragment, schema) {
+    const documentFragment = model.DOMSerializer.fromSchema(schema).serializeFragment(fragment);
+    const temporaryDocument = document.implementation.createHTMLDocument();
+    const container = temporaryDocument.createElement('div');
+    container.appendChild(documentFragment);
+    return container.innerHTML;
+}
+
+/**
+ * Returns the text content of a resolved prosemirror position
+ * @param $from The resolved position to get the text content from
+ * @param maxMatch The maximum number of characters to match
+ * @returns The text content
+ */
 const getTextContentFromNodes = ($from, maxMatch = 500) => {
     let textBefore = '';
     const sliceEndPos = $from.parentOffset;
@@ -565,7 +627,7 @@ const getTextContentFromNodes = ($from, maxMatch = 500) => {
         }))
             || node.textContent
             || '%leaf%';
-        textBefore += chunk.slice(0, Math.max(0, sliceEndPos - pos));
+        textBefore += node.isAtom && !node.isText ? chunk : chunk.slice(0, Math.max(0, sliceEndPos - pos));
     });
     return textBefore;
 };
@@ -675,10 +737,34 @@ function inputRulesPlugin(props) {
             init() {
                 return null;
             },
-            apply(tr, prev) {
+            apply(tr, prev, state) {
                 const stored = tr.getMeta(plugin);
                 if (stored) {
                     return stored;
+                }
+                // if InputRule is triggered by insertContent()
+                const simulatedInputMeta = tr.getMeta('applyInputRules');
+                const isSimulatedInput = !!simulatedInputMeta;
+                if (isSimulatedInput) {
+                    setTimeout(() => {
+                        let { text } = simulatedInputMeta;
+                        if (typeof text === 'string') {
+                            text = text;
+                        }
+                        else {
+                            text = getHTMLFromFragment(model.Fragment.from(text), state.schema);
+                        }
+                        const { from } = simulatedInputMeta;
+                        const to = from + text.length;
+                        run$1({
+                            editor,
+                            from,
+                            to,
+                            text,
+                            rules,
+                            plugin,
+                        });
+                    });
                 }
                 return tr.selectionSet || tr.docChanged ? null : prev;
             },
@@ -738,10 +824,131 @@ function inputRulesPlugin(props) {
     return plugin;
 }
 
+// see: https://github.com/mesqueeb/is-what/blob/88d6e4ca92fb2baab6003c54e02eedf4e729e5ab/src/index.ts
+function getType(value) {
+    return Object.prototype.toString.call(value).slice(8, -1);
+}
+function isPlainObject(value) {
+    if (getType(value) !== 'Object') {
+        return false;
+    }
+    return value.constructor === Object && Object.getPrototypeOf(value) === Object.prototype;
+}
+
+function mergeDeep(target, source) {
+    const output = { ...target };
+    if (isPlainObject(target) && isPlainObject(source)) {
+        Object.keys(source).forEach(key => {
+            if (isPlainObject(source[key]) && isPlainObject(target[key])) {
+                output[key] = mergeDeep(target[key], source[key]);
+            }
+            else {
+                output[key] = source[key];
+            }
+        });
+    }
+    return output;
+}
+
+/**
+ * The Mark class is used to create custom mark extensions.
+ * @see https://tiptap.dev/api/extensions#create-a-new-extension
+ */
+class Mark {
+    constructor(config = {}) {
+        this.type = 'mark';
+        this.name = 'mark';
+        this.parent = null;
+        this.child = null;
+        this.config = {
+            name: this.name,
+            defaultOptions: {},
+        };
+        this.config = {
+            ...this.config,
+            ...config,
+        };
+        this.name = this.config.name;
+        if (config.defaultOptions && Object.keys(config.defaultOptions).length > 0) {
+            console.warn(`[tiptap warn]: BREAKING CHANGE: "defaultOptions" is deprecated. Please use "addOptions" instead. Found in extension: "${this.name}".`);
+        }
+        // TODO: remove `addOptions` fallback
+        this.options = this.config.defaultOptions;
+        if (this.config.addOptions) {
+            this.options = callOrReturn(getExtensionField(this, 'addOptions', {
+                name: this.name,
+            }));
+        }
+        this.storage = callOrReturn(getExtensionField(this, 'addStorage', {
+            name: this.name,
+            options: this.options,
+        })) || {};
+    }
+    static create(config = {}) {
+        return new Mark(config);
+    }
+    configure(options = {}) {
+        // return a new instance so we can use the same extension
+        // with different calls of `configure`
+        const extension = this.extend({
+            ...this.config,
+            addOptions: () => {
+                return mergeDeep(this.options, options);
+            },
+        });
+        // Always preserve the current name
+        extension.name = this.name;
+        // Set the parent to be our parent
+        extension.parent = this.parent;
+        return extension;
+    }
+    extend(extendedConfig = {}) {
+        const extension = new Mark(extendedConfig);
+        extension.parent = this;
+        this.child = extension;
+        extension.name = extendedConfig.name ? extendedConfig.name : extension.parent.name;
+        if (extendedConfig.defaultOptions && Object.keys(extendedConfig.defaultOptions).length > 0) {
+            console.warn(`[tiptap warn]: BREAKING CHANGE: "defaultOptions" is deprecated. Please use "addOptions" instead. Found in extension: "${extension.name}".`);
+        }
+        extension.options = callOrReturn(getExtensionField(extension, 'addOptions', {
+            name: extension.name,
+        }));
+        extension.storage = callOrReturn(getExtensionField(extension, 'addStorage', {
+            name: extension.name,
+            options: extension.options,
+        }));
+        return extension;
+    }
+    static handleExit({ editor, mark }) {
+        const { tr } = editor.state;
+        const currentPos = editor.state.selection.$from;
+        const isAtEnd = currentPos.pos === currentPos.end();
+        if (isAtEnd) {
+            const currentMarks = currentPos.marks();
+            const isInMark = !!currentMarks.find(m => (m === null || m === void 0 ? void 0 : m.type.name) === mark.name);
+            if (!isInMark) {
+                return false;
+            }
+            const removeMark = currentMarks.find(m => (m === null || m === void 0 ? void 0 : m.type.name) === mark.name);
+            if (removeMark) {
+                tr.removeStoredMark(removeMark);
+            }
+            tr.insertText(' ', currentPos.pos);
+            editor.view.dispatch(tr);
+            return true;
+        }
+        return false;
+    }
+}
+
 function isNumber(value) {
     return typeof value === 'number';
 }
 
+/**
+ * Paste rules are used to react to pasted content.
+ * @see https://tiptap.dev/docs/editor/extensions/custom-extensions/extend-existing#paste-rules
+ */
 class PasteRule {
     constructor(config) {
         this.find = config.find;
@@ -811,6 +1018,14 @@ function run(config) {
     const success = handlers.every(handler => handler !== null);
     return success;
 }
+const createClipboardPasteEvent = (text) => {
+    var _a;
+    const event = new ClipboardEvent('paste', {
+        clipboardData: new DataTransfer(),
+    });
+    (_a = event.clipboardData) === null || _a === void 0 ? void 0 : _a.setData('text/html', text);
+    return event;
+};
 /**
  * Create an paste rules plugin. When enabled, it will cause pasted
  * text that matches any of the given rules to trigger the rule’s
@@ -821,8 +1036,41 @@ function pasteRulesPlugin(props) {
     let dragSourceElement = null;
     let isPastedFromProseMirror = false;
     let isDroppedFromProseMirror = false;
-    let pasteEvent = new ClipboardEvent('paste');
-    let dropEvent = new DragEvent('drop');
+    let pasteEvent = typeof ClipboardEvent !== 'undefined' ? new ClipboardEvent('paste') : null;
+    let dropEvent;
+    try {
+        dropEvent = typeof DragEvent !== 'undefined' ? new DragEvent('drop') : null;
+    }
+    catch (e) {
+        dropEvent = null;
+    }
+    const processEvent = ({ state, from, to, rule, pasteEvt, }) => {
+        const tr = state.tr;
+        const chainableState = createChainableState({
+            state,
+            transaction: tr,
+        });
+        const handler = run({
+            editor,
+            state: chainableState,
+            from: Math.max(from - 1, 0),
+            to: to.b - 1,
+            rule,
+            pasteEvent: pasteEvt,
+            dropEvent,
+        });
+        if (!handler || !tr.steps.length) {
+            return;
+        }
+        try {
+            dropEvent = typeof DragEvent !== 'undefined' ? new DragEvent('drop') : null;
+        }
+        catch (e) {
+            dropEvent = null;
+        }
+        pasteEvent = typeof ClipboardEvent !== 'undefined' ? new ClipboardEvent('paste') : null;
+        return tr;
+    };
     const plugins = rules.map(rule => {
         return new state.Plugin({
             // we register a global drag handler to track the current drag source element
@@ -860,38 +1108,46 @@ function pasteRulesPlugin(props) {
                 const transaction = transactions[0];
                 const isPaste = transaction.getMeta('uiEvent') === 'paste' && !isPastedFromProseMirror;
                 const isDrop = transaction.getMeta('uiEvent') === 'drop' && !isDroppedFromProseMirror;
-                if (!isPaste && !isDrop) {
+                // if PasteRule is triggered by insertContent()
+                const simulatedPasteMeta = transaction.getMeta('applyPasteRules');
+                const isSimulatedPaste = !!simulatedPasteMeta;
+                if (!isPaste && !isDrop && !isSimulatedPaste) {
                     return;
                 }
-                // stop if there is no changed range
+                // Handle simulated paste
+                if (isSimulatedPaste) {
+                    let { text } = simulatedPasteMeta;
+                    if (typeof text === 'string') {
+                        text = text;
+                    }
+                    else {
+                        text = getHTMLFromFragment(model.Fragment.from(text), state.schema);
+                    }
+                    const { from } = simulatedPasteMeta;
+                    const to = from + text.length;
+                    const pasteEvt = createClipboardPasteEvent(text);
+                    return processEvent({
+                        rule,
+                        state,
+                        from,
+                        to: { b: to },
+                        pasteEvt,
+                    });
+                }
+                // handle actual paste/drop
                 const from = oldState.doc.content.findDiffStart(state.doc.content);
                 const to = oldState.doc.content.findDiffEnd(state.doc.content);
+                // stop if there is no changed range
                 if (!isNumber(from) || !to || from === to.b) {
                     return;
                 }
-                // build a chainable state
-                // so we can use a single transaction for all paste rules
-                const tr = state.tr;
-                const chainableState = createChainableState({
-                    state,
-                    transaction: tr,
-                });
-                const handler = run({
-                    editor,
-                    state: chainableState,
-                    from: Math.max(from - 1, 0),
-                    to: to.b - 1,
+                return processEvent({
                     rule,
-                    pasteEvent,
-                    dropEvent,
+                    state,
+                    from,
+                    to,
+                    pasteEvt: pasteEvent,
                 });
-                // stop if there are no changes
-                if (!handler || !tr.steps.length) {
-                    return;
-                }
-                dropEvent = new DragEvent('drop');
-                pasteEvent = new ClipboardEvent('paste');
-                return tr;
             },
         });
     });
@@ -900,7 +1156,7 @@ function pasteRulesPlugin(props) {
 
 function findDuplicates(items) {
     const filtered = items.filter((el, index) => items.indexOf(el) !== index);
-    return [...new Set(filtered)];
+    return Array.from(new Set(filtered));
 }
 
 class ExtensionManager {
@@ -909,57 +1165,14 @@ class ExtensionManager {
         this.editor = editor;
         this.extensions = ExtensionManager.resolve(extensions);
         this.schema = getSchemaByResolvedExtensions(this.extensions, editor);
-        this.extensions.forEach(extension => {
-            var _a;
-            // store extension storage in editor
-            this.editor.extensionStorage[extension.name] = extension.storage;
-            const context = {
-                name: extension.name,
-                options: extension.options,
-                storage: extension.storage,
-                editor: this.editor,
-                type: getSchemaTypeByName(extension.name, this.schema),
-            };
-            if (extension.type === 'mark') {
-                const keepOnSplit = (_a = callOrReturn(getExtensionField(extension, 'keepOnSplit', context))) !== null && _a !== void 0 ? _a : true;
-                if (keepOnSplit) {
-                    this.splittableMarks.push(extension.name);
-                }
-            }
-            const onBeforeCreate = getExtensionField(extension, 'onBeforeCreate', context);
-            if (onBeforeCreate) {
-                this.editor.on('beforeCreate', onBeforeCreate);
-            }
-            const onCreate = getExtensionField(extension, 'onCreate', context);
-            if (onCreate) {
-                this.editor.on('create', onCreate);
-            }
-            const onUpdate = getExtensionField(extension, 'onUpdate', context);
-            if (onUpdate) {
-                this.editor.on('update', onUpdate);
-            }
-            const onSelectionUpdate = getExtensionField(extension, 'onSelectionUpdate', context);
-            if (onSelectionUpdate) {
-                this.editor.on('selectionUpdate', onSelectionUpdate);
-            }
-            const onTransaction = getExtensionField(extension, 'onTransaction', context);
-            if (onTransaction) {
-                this.editor.on('transaction', onTransaction);
-            }
-            const onFocus = getExtensionField(extension, 'onFocus', context);
-            if (onFocus) {
-                this.editor.on('focus', onFocus);
-            }
-            const onBlur = getExtensionField(extension, 'onBlur', context);
-            if (onBlur) {
-                this.editor.on('blur', onBlur);
-            }
-            const onDestroy = getExtensionField(extension, 'onDestroy', context);
-            if (onDestroy) {
-                this.editor.on('destroy', onDestroy);
-            }
-        });
+        this.setupExtensions();
     }
+    /**
+     * Returns a flattened and sorted extension list while
+     * also checking for duplicated extensions and warns the user.
+     * @param extensions An array of Tiptap extensions
+     * @returns An flattened and sorted array of Tiptap extensions
+     */
     static resolve(extensions) {
         const resolvedExtensions = ExtensionManager.sort(ExtensionManager.flatten(extensions));
         const duplicatedNames = findDuplicates(resolvedExtensions.map(extension => extension.name));
@@ -970,6 +1183,11 @@ class ExtensionManager {
         }
         return resolvedExtensions;
     }
+    /**
+     * Create a flattened array of extensions by traversing the `addExtensions` field.
+     * @param extensions An array of Tiptap extensions
+     * @returns A flattened array of Tiptap extensions
+     */
     static flatten(extensions) {
         return (extensions
             .map(extension => {
@@ -987,6 +1205,11 @@ class ExtensionManager {
             // `Infinity` will break TypeScript so we set a number that is probably high enough
             .flat(10));
     }
+    /**
+     * Sort extensions by priority.
+     * @param extensions An array of Tiptap extensions
+     * @returns A sorted array of Tiptap extensions by priority
+     */
     static sort(extensions) {
         const defaultPriority = 100;
         return extensions.sort((a, b) => {
@@ -1001,6 +1224,10 @@ class ExtensionManager {
             return 0;
         });
     }
+    /**
+     * Get all commands from the extensions.
+     * @returns An object with all commands where the key is the command name and the value is the command function
+     */
     get commands() {
         return this.extensions.reduce((commands, extension) => {
             const context = {
@@ -1020,6 +1247,10 @@ class ExtensionManager {
             };
         }, {});
     }
+    /**
+     * Get all registered Prosemirror plugins from the extensions.
+     * @returns An array of Prosemirror plugins
+     */
     get plugins() {
         const { editor } = this;
         // With ProseMirror, first plugins within an array are executed first.
@@ -1043,7 +1274,7 @@ class ExtensionManager {
             const addKeyboardShortcuts = getExtensionField(extension, 'addKeyboardShortcuts', context);
             let defaultBindings = {};
             // bind exit handling
-            if (extension.type === 'mark' && extension.config.exitable) {
+            if (extension.type === 'mark' && getExtensionField(extension, 'exitable', context)) {
                 defaultBindings.ArrowRight = () => Mark.handleExit({ editor, mark: extension });
             }
             if (addKeyboardShortcuts) {
@@ -1082,9 +1313,17 @@ class ExtensionManager {
             ...allPlugins,
         ];
     }
+    /**
+     * Get all attributes from the extensions.
+     * @returns An array of attributes
+     */
     get attributes() {
         return getAttributesFromExtensions(this.extensions);
     }
+    /**
+     * Get all node views from the extensions.
+     * @returns An object with all node views where the key is the node name and the value is the node view function
+     */
     get nodeViews() {
         const { editor } = this;
         const { nodeExtensions } = splitExtensions(this.extensions);
@@ -1103,53 +1342,86 @@ class ExtensionManager {
             if (!addNodeView) {
                 return [];
             }
-            const nodeview = (node, view, getPos, decorations) => {
+            const nodeview = (node, view, getPos, decorations, innerDecorations) => {
                 const HTMLAttributes = getRenderedAttributes(node, extensionAttributes);
                 return addNodeView()({
-                    editor,
+                    // pass-through
                     node,
-                    getPos,
+                    view,
+                    getPos: getPos,
                     decorations,
-                    HTMLAttributes,
+                    innerDecorations,
+                    // tiptap-specific
+                    editor,
                     extension,
+                    HTMLAttributes,
                 });
             };
             return [extension.name, nodeview];
         }));
     }
-}
-
-// see: https://github.com/mesqueeb/is-what/blob/88d6e4ca92fb2baab6003c54e02eedf4e729e5ab/src/index.ts
-function getType(value) {
-    return Object.prototype.toString.call(value).slice(8, -1);
-}
-function isPlainObject(value) {
-    if (getType(value) !== 'Object') {
-        return false;
-    }
-    return value.constructor === Object && Object.getPrototypeOf(value) === Object.prototype;
-}
-
-function mergeDeep(target, source) {
-    const output = { ...target };
-    if (isPlainObject(target) && isPlainObject(source)) {
-        Object.keys(source).forEach(key => {
-            if (isPlainObject(source[key])) {
-                if (!(key in target)) {
-                    Object.assign(output, { [key]: source[key] });
-                }
-                else {
-                    output[key] = mergeDeep(target[key], source[key]);
+    /**
+     * Go through all extensions, create extension storages & setup marks
+     * & bind editor event listener.
+     */
+    setupExtensions() {
+        this.extensions.forEach(extension => {
+            var _a;
+            // store extension storage in editor
+            this.editor.extensionStorage[extension.name] = extension.storage;
+            const context = {
+                name: extension.name,
+                options: extension.options,
+                storage: extension.storage,
+                editor: this.editor,
+                type: getSchemaTypeByName(extension.name, this.schema),
+            };
+            if (extension.type === 'mark') {
+                const keepOnSplit = (_a = callOrReturn(getExtensionField(extension, 'keepOnSplit', context))) !== null && _a !== void 0 ? _a : true;
+                if (keepOnSplit) {
+                    this.splittableMarks.push(extension.name);
                 }
             }
-            else {
-                Object.assign(output, { [key]: source[key] });
+            const onBeforeCreate = getExtensionField(extension, 'onBeforeCreate', context);
+            const onCreate = getExtensionField(extension, 'onCreate', context);
+            const onUpdate = getExtensionField(extension, 'onUpdate', context);
+            const onSelectionUpdate = getExtensionField(extension, 'onSelectionUpdate', context);
+            const onTransaction = getExtensionField(extension, 'onTransaction', context);
+            const onFocus = getExtensionField(extension, 'onFocus', context);
+            const onBlur = getExtensionField(extension, 'onBlur', context);
+            const onDestroy = getExtensionField(extension, 'onDestroy', context);
+            if (onBeforeCreate) {
+                this.editor.on('beforeCreate', onBeforeCreate);
+            }
+            if (onCreate) {
+                this.editor.on('create', onCreate);
+            }
+            if (onUpdate) {
+                this.editor.on('update', onUpdate);
+            }
+            if (onSelectionUpdate) {
+                this.editor.on('selectionUpdate', onSelectionUpdate);
+            }
+            if (onTransaction) {
+                this.editor.on('transaction', onTransaction);
+            }
+            if (onFocus) {
+                this.editor.on('focus', onFocus);
+            }
+            if (onBlur) {
+                this.editor.on('blur', onBlur);
+            }
+            if (onDestroy) {
+                this.editor.on('destroy', onDestroy);
             }
         });
     }
-    return output;
 }
 
+/**
+ * The Extension class is the base class for all extensions.
+ * @see https://tiptap.dev/api/extensions#create-a-new-extension
+ */
 class Extension {
     constructor(config = {}) {
         this.type = 'extension';
@@ -1186,12 +1458,16 @@ class Extension {
     configure(options = {}) {
         // return a new instance so we can use the same extension
         // with different calls of `configure`
-        const extension = this.extend();
-        extension.options = mergeDeep(this.options, options);
-        extension.storage = callOrReturn(getExtensionField(extension, 'addStorage', {
-            name: extension.name,
-            options: extension.options,
-        }));
+        const extension = this.extend({
+            ...this.config,
+            addOptions: () => {
+                return mergeDeep(this.options, options);
+            },
+        });
+        // Always preserve the current name
+        extension.name = this.name;
+        // Set the parent to be our parent
+        extension.parent = this.parent;
         return extension;
     }
     extend(extendedConfig = {}) {
@@ -1199,7 +1475,7 @@ class Extension {
         extension.parent = this;
         this.child = extension;
         extension.name = extendedConfig.name ? extendedConfig.name : extension.parent.name;
-        if (extendedConfig.defaultOptions) {
+        if (extendedConfig.defaultOptions && Object.keys(extendedConfig.defaultOptions).length > 0) {
             console.warn(`[tiptap warn]: BREAKING CHANGE: "defaultOptions" is deprecated. Please use "addOptions" instead. Found in extension: "${extension.name}".`);
         }
         extension.options = callOrReturn(getExtensionField(extension, 'addOptions', {
@@ -1213,19 +1489,25 @@ class Extension {
     }
 }
 
+/**
+ * Gets the text between two positions in a Prosemirror node
+ * and serializes it using the given text serializers and block separator (see getText)
+ * @param startNode The Prosemirror node to start from
+ * @param range The range of the text to get
+ * @param options Options for the text serializer & block separator
+ * @returns The text between the two positions
+ */
 function getTextBetween(startNode, range, options) {
     const { from, to } = range;
     const { blockSeparator = '\n\n', textSerializers = {} } = options || {};
     let text = '';
-    let separated = true;
     startNode.nodesBetween(from, to, (node, pos, parent, index) => {
         var _a;
+        if (node.isBlock && pos > from) {
+            text += blockSeparator;
+        }
         const textSerializer = textSerializers === null || textSerializers === void 0 ? void 0 : textSerializers[node.type.name];
         if (textSerializer) {
-            if (node.isBlock && !separated) {
-                text += blockSeparator;
-                separated = true;
-            }
             if (parent) {
                 text += textSerializer({
                     node,
@@ -1235,19 +1517,21 @@ function getTextBetween(startNode, range, options) {
                     range,
                 });
             }
+            // do not descend into child nodes when there exists a serializer
+            return false;
         }
-        else if (node.isText) {
+        if (node.isText) {
             text += (_a = node === null || node === void 0 ? void 0 : node.text) === null || _a === void 0 ? void 0 : _a.slice(Math.max(from, pos) - pos, to - pos); // eslint-disable-line
-            separated = false;
-        }
-        else if (node.isBlock && !separated) {
-            text += blockSeparator;
-            separated = true;
         }
     });
     return text;
 }
 
+/**
+ * Find text serializers `toText` in a Prosemirror schema
+ * @param schema The Prosemirror schema to search in
+ * @returns A record of text serializers by node name
+ */
 function getTextSerializersFromSchema(schema) {
     return Object.fromEntries(Object.entries(schema.nodes)
         .filter(([, node]) => node.spec.toText)
@@ -1256,6 +1540,11 @@ function getTextSerializersFromSchema(schema) {
 
 const ClipboardTextSerializer = Extension.create({
     name: 'clipboardTextSerializer',
+    addOptions() {
+        return {
+            blockSeparator: undefined,
+        };
+    },
     addProseMirrorPlugins() {
         return [
             new state.Plugin({
@@ -1271,6 +1560,9 @@ const ClipboardTextSerializer = Extension.create({
                         const textSerializers = getTextSerializersFromSchema(schema);
                         const range = { from, to };
                         return getTextBetween(doc, range, {
+                            ...(this.options.blockSeparator !== undefined
+                                ? { blockSeparator: this.options.blockSeparator }
+                                : {}),
                             textSerializers,
                         });
                     },
@@ -1428,23 +1720,49 @@ function objectIncludes(object1, object2, options = { strict: true }) {
 
 function findMarkInSet(marks, type, attributes = {}) {
     return marks.find(item => {
-        return item.type === type && objectIncludes(item.attrs, attributes);
+        return (item.type === type
+            && objectIncludes(
+            // Only check equality for the attributes that are provided
+            Object.fromEntries(Object.keys(attributes).map(k => [k, item.attrs[k]])), attributes));
     });
 }
 function isMarkInSet(marks, type, attributes = {}) {
     return !!findMarkInSet(marks, type, attributes);
 }
-function getMarkRange($pos, type, attributes = {}) {
+/**
+ * Get the range of a mark at a resolved position.
+ */
+function getMarkRange(
+/**
+ * The position to get the mark range for.
+ */
+$pos, 
+/**
+ * The mark type to get the range for.
+ */
+type, 
+/**
+ * The attributes to match against.
+ * If not provided, only the first mark at the position will be matched.
+ */
+attributes) {
+    var _a;
     if (!$pos || !type) {
         return;
     }
     let start = $pos.parent.childAfter($pos.parentOffset);
-    if ($pos.parentOffset === start.offset && start.offset !== 0) {
+    // If the cursor is at the start of a text node that does not have the mark, look backward
+    if (!start.node || !start.node.marks.some(mark => mark.type === type)) {
         start = $pos.parent.childBefore($pos.parentOffset);
     }
-    if (!start.node) {
+    // If there is no text node with the mark even backward, return undefined
+    if (!start.node || !start.node.marks.some(mark => mark.type === type)) {
         return;
     }
+    // Default to only matching against the first mark's attributes
+    attributes = attributes || ((_a = start.node.marks[0]) === null || _a === void 0 ? void 0 : _a.attrs);
+    // We now know that the cursor is either at the start, middle or end of a text node with the specified mark
+    // so we can look it up on the targeted mark
     const mark = findMarkInSet([...start.node.marks], type, attributes);
     if (!mark) {
         return;
@@ -1453,8 +1771,8 @@ function getMarkRange($pos, type, attributes = {}) {
     let startPos = $pos.start() + start.offset;
     let endIndex = startIndex + 1;
     let endPos = startPos + start.node.nodeSize;
-    findMarkInSet([...start.node.marks], type, attributes);
-    while (startIndex > 0 && mark.isInSet($pos.parent.child(startIndex - 1).marks)) {
+    while (startIndex > 0
+        && isMarkInSet([...$pos.parent.child(startIndex - 1).marks], type, attributes)) {
         startIndex -= 1;
         startPos -= $pos.parent.child(startIndex).nodeSize;
     }
@@ -1622,29 +1940,90 @@ function elementFromString(value) {
     return removeWhitespaces(html);
 }
 
+/**
+ * Takes a JSON or HTML content and creates a Prosemirror node or fragment from it.
+ * @param content The JSON or HTML content to create the node from
+ * @param schema The Prosemirror schema to use for the node
+ * @param options Options for the parser
+ * @returns The created Prosemirror node or fragment
+ */
 function createNodeFromContent(content, schema, options) {
+    if (content instanceof model.Node || content instanceof model.Fragment) {
+        return content;
+    }
     options = {
         slice: true,
         parseOptions: {},
         ...options,
     };
-    if (typeof content === 'object' && content !== null) {
+    const isJSONContent = typeof content === 'object' && content !== null;
+    const isTextContent = typeof content === 'string';
+    if (isJSONContent) {
         try {
-            if (Array.isArray(content) && content.length > 0) {
+            const isArrayContent = Array.isArray(content) && content.length > 0;
+            // if the JSON Content is an array of nodes, create a fragment for each node
+            if (isArrayContent) {
                 return model.Fragment.fromArray(content.map(item => schema.nodeFromJSON(item)));
             }
-            return schema.nodeFromJSON(content);
+            const node = schema.nodeFromJSON(content);
+            if (options.errorOnInvalidContent) {
+                node.check();
+            }
+            return node;
         }
         catch (error) {
+            if (options.errorOnInvalidContent) {
+                throw new Error('[tiptap error]: Invalid JSON content', { cause: error });
+            }
             console.warn('[tiptap warn]: Invalid content.', 'Passed value:', content, 'Error:', error);
             return createNodeFromContent('', schema, options);
         }
     }
-    if (typeof content === 'string') {
+    if (isTextContent) {
+        // Check for invalid content
+        if (options.errorOnInvalidContent) {
+            let hasInvalidContent = false;
+            let invalidContent = '';
+            // A copy of the current schema with a catch-all node at the end
+            const contentCheckSchema = new model.Schema({
+                topNode: schema.spec.topNode,
+                marks: schema.spec.marks,
+                // Prosemirror's schemas are executed such that: the last to execute, matches last
+                // This means that we can add a catch-all node at the end of the schema to catch any content that we don't know how to handle
+                nodes: schema.spec.nodes.append({
+                    __tiptap__private__unknown__catch__all__node: {
+                        content: 'inline*',
+                        group: 'block',
+                        parseDOM: [
+                            {
+                                tag: '*',
+                                getAttrs: e => {
+                                    // If this is ever called, we know that the content has something that we don't know how to handle in the schema
+                                    hasInvalidContent = true;
+                                    // Try to stringify the element for a more helpful error message
+                                    invalidContent = typeof e === 'string' ? e : e.outerHTML;
+                                    return null;
+                                },
+                            },
+                        ],
+                    },
+                }),
+            });
+            if (options.slice) {
+                model.DOMParser.fromSchema(contentCheckSchema).parseSlice(elementFromString(content), options.parseOptions);
+            }
+            else {
+                model.DOMParser.fromSchema(contentCheckSchema).parse(elementFromString(content), options.parseOptions);
+            }
+            if (options.errorOnInvalidContent && hasInvalidContent) {
+                throw new Error('[tiptap error]: Invalid HTML content', { cause: new Error(`Invalid element found: ${invalidContent}`) });
+            }
+        }
         const parser = model.DOMParser.fromSchema(schema);
-        return options.slice
-            ? parser.parseSlice(elementFromString(content), options.parseOptions).content
-            : parser.parse(elementFromString(content), options.parseOptions);
+        if (options.slice) {
+            return parser.parseSlice(elementFromString(content), options.parseOptions).content;
+        }
+        return parser.parse(elementFromString(content), options.parseOptions);
     }
     return createNodeFromContent('', schema, options);
 }
@@ -1670,24 +2049,39 @@ function selectionToInsertionEnd(tr, startLen, bias) {
 }
 
 const isFragment = (nodeOrFragment) => {
-    return nodeOrFragment.toString().startsWith('<');
+    return !('type' in nodeOrFragment);
 };
 const insertContentAt = (position, value, options) => ({ tr, dispatch, editor }) => {
+    var _a;
     if (dispatch) {
         options = {
-            parseOptions: {},
+            parseOptions: editor.options.parseOptions,
             updateSelection: true,
+            applyInputRules: false,
+            applyPasteRules: false,
             ...options,
         };
-        const content = createNodeFromContent(value, editor.schema, {
-            parseOptions: {
-                preserveWhitespace: 'full',
-                ...options.parseOptions,
-            },
-        });
-        // don’t dispatch an empty fragment because this can lead to strange errors
-        if (content.toString() === '<>') {
-            return true;
+        let content;
+        try {
+            content = createNodeFromContent(value, editor.schema, {
+                parseOptions: {
+                    preserveWhitespace: 'full',
+                    ...options.parseOptions,
+                },
+                errorOnInvalidContent: (_a = options.errorOnInvalidContent) !== null && _a !== void 0 ? _a : editor.options.enableContentCheck,
+            });
+        }
+        catch (e) {
+            editor.emit('contentError', {
+                editor,
+                error: e,
+                disableCollaboration: () => {
+                    if (editor.storage.collaboration) {
+                        editor.storage.collaboration.isDisabled = true;
+                    }
+                },
+            });
+            return false;
         }
         let { from, to } = typeof position === 'number' ? { from: position, to: position } : { from: position.from, to: position.to };
         let isOnlyTextContent = true;
@@ -1712,27 +2106,45 @@ const insertContentAt = (position, value, options) => ({ tr, dispatch, editor })
                 to += 1;
             }
         }
+        let newContent;
         // if there is only plain text we have to use `insertText`
         // because this will keep the current marks
         if (isOnlyTextContent) {
             // if value is string, we can use it directly
             // otherwise if it is an array, we have to join it
             if (Array.isArray(value)) {
-                tr.insertText(value.map(v => v.text || '').join(''), from, to);
+                newContent = value.map(v => v.text || '').join('');
+            }
+            else if (value instanceof model.Fragment) {
+                let text = '';
+                value.forEach(node => {
+                    if (node.text) {
+                        text += node.text;
+                    }
+                });
+                newContent = text;
             }
             else if (typeof value === 'object' && !!value && !!value.text) {
-                tr.insertText(value.text, from, to);
+                newContent = value.text;
             }
             else {
-                tr.insertText(value, from, to);
+                newContent = value;
             }
+            tr.insertText(newContent, from, to);
         }
         else {
-            tr.replaceWith(from, to, content);
+            newContent = content;
+            tr.replaceWith(from, to, newContent);
         }
         // set cursor at end of inserted content
         if (options.updateSelection) {
             selectionToInsertionEnd(tr, tr.steps.length - 1, -1);
+        }
+        if (options.applyInputRules) {
+            tr.setMeta('applyInputRules', { from, text: newContent });
+        }
+        if (options.applyPasteRules) {
+            tr.setMeta('applyPasteRules', { from, text: newContent });
         }
     }
     return true;
@@ -1751,7 +2163,7 @@ const joinForward = () => ({ state, dispatch }) => {
     return commands$1.joinForward(state, dispatch);
 };
 
-const joinItemBackward = () => ({ tr, state, dispatch, }) => {
+const joinItemBackward = () => ({ state, dispatch, tr, }) => {
     try {
         const point = transform.joinPoint(state.doc, state.selection.$from.pos, -1);
         if (point === null || point === undefined) {
@@ -1763,7 +2175,7 @@ const joinItemBackward = () => ({ tr, state, dispatch, }) => {
         }
         return true;
     }
-    catch {
+    catch (e) {
         return false;
     }
 };
@@ -1929,6 +2341,12 @@ const newlineInCode = () => ({ state, dispatch }) => {
     return commands$1.newlineInCode(state, dispatch);
 };
 
+/**
+ * Get the type of a schema item by its name.
+ * @param name The name of the schema item
+ * @param schema The Prosemiror schema to search in
+ * @returns The type of the schema item (`node` or `mark`), or null if it doesn't exist
+ */
 function getSchemaTypeNameByName(name, schema) {
     if (schema.nodes[name]) {
         return 'node';
@@ -2017,26 +2435,53 @@ const selectParentNode = () => ({ state, dispatch }) => {
 };
 
 // @ts-ignore
+// TODO: add types to @types/prosemirror-commands
 const selectTextblockEnd = () => ({ state, dispatch }) => {
     return commands$1.selectTextblockEnd(state, dispatch);
 };
 
 // @ts-ignore
+// TODO: add types to @types/prosemirror-commands
 const selectTextblockStart = () => ({ state, dispatch }) => {
     return commands$1.selectTextblockStart(state, dispatch);
 };
 
-function createDocument(content, schema, parseOptions = {}) {
-    return createNodeFromContent(content, schema, { slice: false, parseOptions });
+/**
+ * Create a new Prosemirror document node from content.
+ * @param content The JSON or HTML content to create the document from
+ * @param schema The Prosemirror schema to use for the document
+ * @param parseOptions Options for the parser
+ * @returns The created Prosemirror document node
+ */
+function createDocument(content, schema, parseOptions = {}, options = {}) {
+    return createNodeFromContent(content, schema, {
+        slice: false,
+        parseOptions,
+        errorOnInvalidContent: options.errorOnInvalidContent,
+    });
 }
 
-const setContent = (content, emitUpdate = false, parseOptions = {}) => ({ tr, editor, dispatch }) => {
+const setContent = (content, emitUpdate = false, parseOptions = {}, options = {}) => ({ editor, tr, dispatch, commands, }) => {
+    var _a, _b;
     const { doc } = tr;
-    const document = createDocument(content, editor.schema, parseOptions);
-    if (dispatch) {
-        tr.replaceWith(0, doc.content.size, document).setMeta('preventUpdate', !emitUpdate);
+    // This is to keep backward compatibility with the previous behavior
+    // TODO remove this in the next major version
+    if (parseOptions.preserveWhitespace !== 'full') {
+        const document = createDocument(content, editor.schema, parseOptions, {
+            errorOnInvalidContent: (_a = options.errorOnInvalidContent) !== null && _a !== void 0 ? _a : editor.options.enableContentCheck,
+        });
+        if (dispatch) {
+            tr.replaceWith(0, doc.content.size, document).setMeta('preventUpdate', !emitUpdate);
+        }
+        return true;
     }
-    return true;
+    if (dispatch) {
+        tr.setMeta('preventUpdate', !emitUpdate);
+    }
+    return commands.insertContentAt({ from: 0, to: doc.content.size }, content, {
+        parseOptions,
+        errorOnInvalidContent: (_b = options.errorOnInvalidContent) !== null && _b !== void 0 ? _b : editor.options.enableContentCheck,
+    });
 };
 
 function getMarkAttributes(state, typeOrName) {
@@ -2063,6 +2508,9 @@ function getMarkAttributes(state, typeOrName) {
 
 /**
  * Returns a new `Transform` based on all steps of the passed transactions.
+ * @param oldDoc The Prosemirror node to start from
+ * @param transactions The transactions to combine
+ * @returns A new `Transform` with all steps of the passed transactions
  */
 function combineTransactionSteps(oldDoc, transactions) {
     const transform$1 = new transform.Transform(oldDoc);
@@ -2074,6 +2522,11 @@ function combineTransactionSteps(oldDoc, transactions) {
     return transform$1;
 }
 
+/**
+ * Gets the default block type at a given match
+ * @param match The content match to get the default block type from
+ * @returns The default block type or null
+ */
 function defaultBlockAt(match) {
     for (let i = 0; i < match.edgeCount; i += 1) {
         const { type } = match.edge(i);
@@ -2084,6 +2537,12 @@ function defaultBlockAt(match) {
     return null;
 }
 
+/**
+ * Find children inside a Prosemirror node that match a predicate.
+ * @param node The Prosemirror node to search in
+ * @param predicate The predicate to match
+ * @returns An array of nodes with their positions
+ */
 function findChildren(node, predicate) {
     const nodesWithPos = [];
     node.descendants((child, pos) => {
@@ -2099,6 +2558,10 @@ function findChildren(node, predicate) {
 
 /**
  * Same as `findChildren` but searches only within a `range`.
+ * @param node The Prosemirror node to search in
+ * @param range The range to search in
+ * @param predicate The predicate to match
+ * @returns An array of nodes with their positions
  */
 function findChildrenInRange(node, range, predicate) {
     const nodesWithPos = [];
@@ -2122,6 +2585,15 @@ function findChildrenInRange(node, range, predicate) {
     return nodesWithPos;
 }
 
+/**
+ * Finds the closest parent node to a resolved position that matches a predicate.
+ * @param $pos The resolved position to search from
+ * @param predicate The predicate to match
+ * @returns The closest parent node to the resolved position that matches the predicate
+ * @example ```js
+ * findParentNodeClosestToPos($from, node => node.type.name === 'paragraph')
+ * ```
+ */
 function findParentNodeClosestToPos($pos, predicate) {
     for (let i = $pos.depth; i > 0; i -= 1) {
         const node = $pos.node(i);
@@ -2136,16 +2608,16 @@ function findParentNodeClosestToPos($pos, predicate) {
     }
 }
 
+/**
+ * Finds the closest parent node to the current selection that matches a predicate.
+ * @param predicate The predicate to match
+ * @returns A command that finds the closest parent node to the current selection that matches the predicate
+ * @example ```js
+ * findParentNode(node => node.type.name === 'paragraph')
+ * ```
+ */
 function findParentNode(predicate) {
     return (selection) => findParentNodeClosestToPos(selection.$from, predicate);
-}
-
-function getHTMLFromFragment(fragment, schema) {
-    const documentFragment = model.DOMSerializer.fromSchema(schema).serializeFragment(fragment);
-    const temporaryDocument = document.implementation.createHTMLDocument();
-    const container = temporaryDocument.createElement('div');
-    container.appendChild(documentFragment);
-    return container.innerHTML;
 }
 
 function getSchema(extensions, editor) {
@@ -2153,18 +2625,39 @@ function getSchema(extensions, editor) {
     return getSchemaByResolvedExtensions(resolvedExtensions, editor);
 }
 
+/**
+ * Generate HTML from a JSONContent
+ * @param doc The JSONContent to generate HTML from
+ * @param extensions The extensions to use for the schema
+ * @returns The generated HTML
+ */
 function generateHTML(doc, extensions) {
     const schema = getSchema(extensions);
     const contentNode = model.Node.fromJSON(schema, doc);
     return getHTMLFromFragment(contentNode.content, schema);
 }
 
+/**
+ * Generate JSONContent from HTML
+ * @param html The HTML to generate JSONContent from
+ * @param extensions The extensions to use for the schema
+ * @returns The generated JSONContent
+ */
 function generateJSON(html, extensions) {
     const schema = getSchema(extensions);
     const dom = elementFromString(html);
     return model.DOMParser.fromSchema(schema).parse(dom).toJSON();
 }
 
+/**
+ * Gets the text of a Prosemirror node
+ * @param node The Prosemirror node
+ * @param options Options for the text serializer & block separator
+ * @returns The text of the node
+ * @example ```js
+ * const text = getText(node, { blockSeparator: '\n' })
+ * ```
+ */
 function getText(node, options) {
     const range = {
         from: 0,
@@ -2173,6 +2666,13 @@ function getText(node, options) {
     return getTextBetween(node, range, options);
 }
 
+/**
+ * Generate raw text from a JSONContent
+ * @param doc The JSONContent to generate text from
+ * @param extensions The extensions to use for the schema
+ * @param options Options for the text generation f.e. blockSeparator or textSerializers
+ * @returns The generated text
+ */
 function generateText(doc, extensions, options) {
     const { blockSeparator = '\n\n', textSerializers = {} } = options || {};
     const schema = getSchema(extensions);
@@ -2200,6 +2700,12 @@ function getNodeAttributes(state, typeOrName) {
     return { ...node.attrs };
 }
 
+/**
+ * Get node or mark attributes by type or name on the current editor state
+ * @param state The current editor state
+ * @param typeOrName The node or mark type or name
+ * @returns The attributes of the node or mark or an empty object
+ */
 function getAttributes(state, typeOrName) {
     const schemaType = getSchemaTypeNameByName(typeof typeOrName === 'string' ? typeOrName : typeOrName.name, state.schema);
     if (schemaType === 'node') {
@@ -2334,7 +2840,7 @@ function getMarksBetween(from, to, doc) {
             .resolve(from)
             .marks()
             .forEach(mark => {
-            const $pos = doc.resolve(from - 1);
+            const $pos = doc.resolve(from);
             const range = getMarkRange($pos, mark.type);
             if (!range) {
                 return;
@@ -2384,6 +2890,13 @@ const getNodeAtPosition = (state, typeOrName, pos, maxDepth = 20) => {
     return [node, currentDepth];
 };
 
+/**
+ * Return attributes of an extension that should be splitted by keepOnSplit flag
+ * @param extensionAttributes Array of extension attributes
+ * @param typeName The type of the extension
+ * @param attributes The attributes of the extension
+ * @returns The splitted attributes
+ */
 function getSplittedAttributes(extensionAttributes, typeName, attributes) {
     return Object.fromEntries(Object
         .entries(attributes)
@@ -2519,11 +3032,43 @@ function isList(name, extensions) {
     return group.split(' ').includes('list');
 }
 
-function isNodeEmpty(node) {
+/**
+ * Returns true if the given prosemirror node is empty.
+ */
+function isNodeEmpty(node, { checkChildren = true, ignoreWhitespace = false, } = {}) {
     var _a;
-    const defaultContent = (_a = node.type.createAndFill()) === null || _a === void 0 ? void 0 : _a.toJSON();
-    const content = node.toJSON();
-    return JSON.stringify(defaultContent) === JSON.stringify(content);
+    if (ignoreWhitespace) {
+        if (node.type.name === 'hardBreak') {
+            // Hard breaks are considered empty
+            return true;
+        }
+        if (node.isText) {
+            return /^\s*$/m.test((_a = node.text) !== null && _a !== void 0 ? _a : '');
+        }
+    }
+    if (node.isText) {
+        return !node.text;
+    }
+    if (node.isAtom || node.isLeaf) {
+        return false;
+    }
+    if (node.content.childCount === 0) {
+        return true;
+    }
+    if (checkChildren) {
+        let isContentEmpty = true;
+        node.content.forEach(childNode => {
+            if (isContentEmpty === false) {
+                // Exit early for perf
+                return;
+            }
+            if (!isNodeEmpty(childNode, { ignoreWhitespace, checkChildren })) {
+                isContentEmpty = false;
+            }
+        });
+        return isContentEmpty;
+    }
+    return false;
 }
 
 function isNodeSelection(value) {
@@ -2645,6 +3190,11 @@ const setMeta = (key, value) => ({ tr }) => {
 
 const setNode = (typeOrName, attributes = {}) => ({ state, dispatch, chain }) => {
     const type = getNodeType(typeOrName, state.schema);
+    let attributesToCopy;
+    if (state.selection.$anchor.sameParent(state.selection.$head)) {
+        // only copy attributes if the selection is pointing to a node of the same type
+        attributesToCopy = state.selection.$anchor.parent.attrs;
+    }
     // TODO: use a fallback like insertContent?
     if (!type.isTextblock) {
         console.warn('[tiptap warn]: Currently "setNode()" only supports text block nodes.');
@@ -2653,14 +3203,14 @@ const setNode = (typeOrName, attributes = {}) => ({ state, dispatch, chain }) =>
     return (chain()
         // try to convert node to default node if needed
         .command(({ commands }) => {
-        const canSetBlock = commands$1.setBlockType(type, attributes)(state);
+        const canSetBlock = commands$1.setBlockType(type, { ...attributesToCopy, ...attributes })(state);
         if (canSetBlock) {
             return true;
         }
         return commands.clearNodes();
     })
         .command(({ state: updatedState }) => {
-        return commands$1.setBlockType(type, attributes)(updatedState, dispatch);
+        return commands$1.setBlockType(type, { ...attributesToCopy, ...attributes })(updatedState, dispatch);
     })
         .run());
 };
@@ -2721,15 +3271,24 @@ const splitBlock = ({ keepMarks = true } = {}) => ({ tr, state: state$1, dispatc
     if (!$from.parent.isBlock) {
         return false;
     }
-    if (dispatch) {
-        const atEnd = $to.parentOffset === $to.parent.content.size;
-        if (selection instanceof state.TextSelection) {
-            tr.deleteSelection();
-        }
-        const deflt = $from.depth === 0
-            ? undefined
-            : defaultBlockAt($from.node(-1).contentMatchAt($from.indexAfter(-1)));
-        let types = atEnd && deflt
+    const atEnd = $to.parentOffset === $to.parent.content.size;
+    const deflt = $from.depth === 0
+        ? undefined
+        : defaultBlockAt($from.node(-1).contentMatchAt($from.indexAfter(-1)));
+    let types = atEnd && deflt
+        ? [
+            {
+                type: deflt,
+                attrs: newAttributes,
+            },
+        ]
+        : undefined;
+    let can = transform.canSplit(tr.doc, tr.mapping.map($from.pos), 1, types);
+    if (!types
+        && !can
+        && transform.canSplit(tr.doc, tr.mapping.map($from.pos), 1, deflt ? [{ type: deflt }] : undefined)) {
+        can = true;
+        types = deflt
             ? [
                 {
                     type: deflt,
@@ -2737,21 +3296,12 @@ const splitBlock = ({ keepMarks = true } = {}) => ({ tr, state: state$1, dispatc
                 },
             ]
             : undefined;
-        let can = transform.canSplit(tr.doc, tr.mapping.map($from.pos), 1, types);
-        if (!types
-            && !can
-            && transform.canSplit(tr.doc, tr.mapping.map($from.pos), 1, deflt ? [{ type: deflt }] : undefined)) {
-            can = true;
-            types = deflt
-                ? [
-                    {
-                        type: deflt,
-                        attrs: newAttributes,
-                    },
-                ]
-                : undefined;
-        }
+    }
+    if (dispatch) {
         if (can) {
+            if (selection instanceof state.TextSelection) {
+                tr.deleteSelection();
+            }
             tr.split(tr.mapping.map($from.pos), 1, types);
             if (deflt && !atEnd && !$from.parentOffset && $from.parent.type !== deflt) {
                 const first = tr.mapping.map($from.before());
@@ -2766,10 +3316,10 @@ const splitBlock = ({ keepMarks = true } = {}) => ({ tr, state: state$1, dispatc
         }
         tr.scrollIntoView();
     }
-    return true;
+    return can;
 };
 
-const splitListItem = typeOrName => ({ tr, state: state$1, dispatch, editor, }) => {
+const splitListItem = (typeOrName, overrideAttrs = {}) => ({ tr, state: state$1, dispatch, editor, }) => {
     var _a;
     const type = getNodeType(typeOrName, state$1.schema);
     const { $from, $to } = state$1.selection;
@@ -2805,7 +3355,10 @@ const splitListItem = typeOrName => ({ tr, state: state$1, dispatch, editor, }) 
             // eslint-disable-next-line
             const depthAfter = $from.indexAfter(-1) < $from.node(-2).childCount ? 1 : $from.indexAfter(-2) < $from.node(-3).childCount ? 2 : 3;
             // Add a second list item with an empty default start node
-            const newNextTypeAttributes = getSplittedAttributes(extensionAttributes, $from.node().type.name, $from.node().attrs);
+            const newNextTypeAttributes = {
+                ...getSplittedAttributes(extensionAttributes, $from.node().type.name, $from.node().attrs),
+                ...overrideAttrs,
+            };
             const nextType = ((_a = type.contentMatch.defaultType) === null || _a === void 0 ? void 0 : _a.createAndFill(newNextTypeAttributes)) || undefined;
             wrap = wrap.append(model.Fragment.from(type.createAndFill(null, nextType) || undefined));
             const start = $from.before($from.depth - (depthBefore - 1));
@@ -2827,8 +3380,14 @@ const splitListItem = typeOrName => ({ tr, state: state$1, dispatch, editor, }) 
         return true;
     }
     const nextType = $to.pos === $from.end() ? grandParent.contentMatchAt(0).defaultType : null;
-    const newTypeAttributes = getSplittedAttributes(extensionAttributes, grandParent.type.name, grandParent.attrs);
-    const newNextTypeAttributes = getSplittedAttributes(extensionAttributes, $from.node().type.name, $from.node().attrs);
+    const newTypeAttributes = {
+        ...getSplittedAttributes(extensionAttributes, grandParent.type.name, grandParent.attrs),
+        ...overrideAttrs,
+    };
+    const newNextTypeAttributes = {
+        ...getSplittedAttributes(extensionAttributes, $from.node().type.name, $from.node().attrs),
+        ...overrideAttrs,
+    };
     tr.delete($from.pos, $to.pos);
     const types = nextType
         ? [
@@ -2964,10 +3523,17 @@ const toggleNode = (typeOrName, toggleTypeOrName, attributes = {}) => ({ state, 
     const type = getNodeType(typeOrName, state.schema);
     const toggleType = getNodeType(toggleTypeOrName, state.schema);
     const isActive = isNodeActive(state, type, attributes);
-    if (isActive) {
-        return commands.setNode(toggleType);
+    let attributesToCopy;
+    if (state.selection.$anchor.sameParent(state.selection.$head)) {
+        // only copy attributes if the selection is pointing to a node of the same type
+        attributesToCopy = state.selection.$anchor.parent.attrs;
     }
-    return commands.setNode(type, attributes);
+    if (isActive) {
+        return commands.setNode(toggleType, attributesToCopy);
+    }
+    // If the node is not active, we want to set the new node type with the given attributes
+    // Copying over the attributes from the current node if the selection is pointing to a node of the same type
+    return commands.setNode(type, { ...attributesToCopy, ...attributes });
 };
 
 const toggleWrap = (typeOrName, attributes = {}) => ({ state, commands }) => {
@@ -3063,21 +3629,63 @@ const updateAttributes = (typeOrName, attributes = {}) => ({ tr, state, dispatch
         markType = getMarkType(typeOrName, state.schema);
     }
     if (dispatch) {
-        tr.selection.ranges.forEach(range => {
+        tr.selection.ranges.forEach((range) => {
             const from = range.$from.pos;
             const to = range.$to.pos;
-            state.doc.nodesBetween(from, to, (node, pos) => {
-                if (nodeType && nodeType === node.type) {
-                    tr.setNodeMarkup(pos, undefined, {
-                        ...node.attrs,
+            let lastPos;
+            let lastNode;
+            let trimmedFrom;
+            let trimmedTo;
+            if (tr.selection.empty) {
+                state.doc.nodesBetween(from, to, (node, pos) => {
+                    if (nodeType && nodeType === node.type) {
+                        trimmedFrom = Math.max(pos, from);
+                        trimmedTo = Math.min(pos + node.nodeSize, to);
+                        lastPos = pos;
+                        lastNode = node;
+                    }
+                });
+            }
+            else {
+                state.doc.nodesBetween(from, to, (node, pos) => {
+                    if (pos < from && nodeType && nodeType === node.type) {
+                        trimmedFrom = Math.max(pos, from);
+                        trimmedTo = Math.min(pos + node.nodeSize, to);
+                        lastPos = pos;
+                        lastNode = node;
+                    }
+                    if (pos >= from && pos <= to) {
+                        if (nodeType && nodeType === node.type) {
+                            tr.setNodeMarkup(pos, undefined, {
+                                ...node.attrs,
+                                ...attributes,
+                            });
+                        }
+                        if (markType && node.marks.length) {
+                            node.marks.forEach((mark) => {
+                                if (markType === mark.type) {
+                                    const trimmedFrom2 = Math.max(pos, from);
+                                    const trimmedTo2 = Math.min(pos + node.nodeSize, to);
+                                    tr.addMark(trimmedFrom2, trimmedTo2, markType.create({
+                                        ...mark.attrs,
+                                        ...attributes,
+                                    }));
+                                }
+                            });
+                        }
+                    }
+                });
+            }
+            if (lastNode) {
+                if (lastPos !== undefined) {
+                    tr.setNodeMarkup(lastPos, undefined, {
+                        ...lastNode.attrs,
                         ...attributes,
                     });
                 }
-                if (markType && node.marks.length) {
-                    node.marks.forEach(mark => {
+                if (markType && lastNode.marks.length) {
+                    lastNode.marks.forEach((mark) => {
                         if (markType === mark.type) {
-                            const trimmedFrom = Math.max(pos, from);
-                            const trimmedTo = Math.min(pos + node.nodeSize, to);
                             tr.addMark(trimmedFrom, trimmedTo, markType.create({
                                 ...mark.attrs,
                                 ...attributes,
@@ -3085,7 +3693,7 @@ const updateAttributes = (typeOrName, attributes = {}) => ({ tr, state, dispatch
                         }
                     });
                 }
-            });
+            }
         });
     }
     return true;
@@ -3121,14 +3729,14 @@ var commands = /*#__PURE__*/Object.freeze({
   forEach: forEach,
   insertContent: insertContent,
   insertContentAt: insertContentAt,
-  joinUp: joinUp,
-  joinDown: joinDown,
   joinBackward: joinBackward,
+  joinDown: joinDown,
   joinForward: joinForward,
   joinItemBackward: joinItemBackward,
   joinItemForward: joinItemForward,
   joinTextblockBackward: joinTextblockBackward,
   joinTextblockForward: joinTextblockForward,
+  joinUp: joinUp,
   keyboardShortcut: keyboardShortcut,
   lift: lift,
   liftEmptyBlock: liftEmptyBlock,
@@ -3169,6 +3777,27 @@ const Commands = Extension.create({
         return {
             ...commands,
         };
+    },
+});
+
+const Drop = Extension.create({
+    name: 'drop',
+    addProseMirrorPlugins() {
+        return [
+            new state.Plugin({
+                key: new state.PluginKey('tiptapDrop'),
+                props: {
+                    handleDrop: (_, e, slice, moved) => {
+                        this.editor.emit('drop', {
+                            editor: this.editor,
+                            event: e,
+                            slice,
+                            moved,
+                        });
+                    },
+                },
+            }),
+        ];
     },
 });
 
@@ -3228,13 +3857,18 @@ const Keymap = Extension.create({
                 const { selection, doc } = tr;
                 const { empty, $anchor } = selection;
                 const { pos, parent } = $anchor;
-                const $parentPos = $anchor.parent.isTextblock ? tr.doc.resolve(pos - 1) : $anchor;
+                const $parentPos = $anchor.parent.isTextblock && pos > 0 ? tr.doc.resolve(pos - 1) : $anchor;
                 const parentIsIsolating = $parentPos.parent.type.spec.isolating;
                 const parentPos = $anchor.pos - $anchor.parentOffset;
                 const isAtStart = (parentIsIsolating && $parentPos.parent.childCount === 1)
                     ? parentPos === $anchor.pos
                     : state.Selection.atStart(doc).from === pos;
-                if (!empty || !isAtStart || !parent.type.isTextblock || parent.textContent.length) {
+                if (!empty
+                    || !parent.type.isTextblock
+                    || parent.textContent.length
+                    || !isAtStart
+                    || (isAtStart && $anchor.parent.type.name === 'paragraph') // prevent clearNodes when no nodes to clear, otherwise history stack is appended
+                ) {
                     return false;
                 }
                 return commands.clearNodes();
@@ -3296,7 +3930,8 @@ const Keymap = Extension.create({
                 appendTransaction: (transactions, oldState, newState) => {
                     const docChanges = transactions.some(transaction => transaction.docChanged)
                         && !oldState.doc.eq(newState.doc);
-                    if (!docChanges) {
+                    const ignoreTr = transactions.some(transaction => transaction.getMeta('preventClearDocument'));
+                    if (!docChanges || ignoreTr) {
                         return;
                     }
                     const { empty, from, to } = oldState.selection;
@@ -3306,7 +3941,7 @@ const Keymap = Extension.create({
                     if (empty || !allWasSelected) {
                         return;
                     }
-                    const isEmpty = newState.doc.textBetween(0, newState.doc.content.size, ' ', ' ').length === 0;
+                    const isEmpty = isNodeEmpty(newState.doc);
                     if (!isEmpty) {
                         return;
                     }
@@ -3330,6 +3965,26 @@ const Keymap = Extension.create({
     },
 });
 
+const Paste = Extension.create({
+    name: 'paste',
+    addProseMirrorPlugins() {
+        return [
+            new state.Plugin({
+                key: new state.PluginKey('tiptapPaste'),
+                props: {
+                    handlePaste: (_view, e, slice) => {
+                        this.editor.emit('paste', {
+                            editor: this.editor,
+                            event: e,
+                            slice,
+                        });
+                    },
+                },
+            }),
+        ];
+    },
+});
+
 const Tabindex = Extension.create({
     name: 'tabindex',
     addProseMirrorPlugins() {
@@ -3337,36 +3992,46 @@ const Tabindex = Extension.create({
             new state.Plugin({
                 key: new state.PluginKey('tabindex'),
                 props: {
-                    attributes: this.editor.isEditable ? { tabindex: '0' } : {},
+                    attributes: () => (this.editor.isEditable ? { tabindex: '0' } : {}),
                 },
             }),
         ];
     },
 });
 
-var extensions = /*#__PURE__*/Object.freeze({
+var index = /*#__PURE__*/Object.freeze({
   __proto__: null,
   ClipboardTextSerializer: ClipboardTextSerializer,
   Commands: Commands,
+  Drop: Drop,
   Editable: Editable,
   FocusEvents: FocusEvents,
   Keymap: Keymap,
+  Paste: Paste,
   Tabindex: Tabindex
 });
 
 class NodePos {
-    constructor(pos, editor) {
+    get name() {
+        return this.node.type.name;
+    }
+    constructor(pos, editor, isBlock = false, node = null) {
+        this.currentNode = null;
+        this.actualDepth = null;
+        this.isBlock = isBlock;
         this.resolvedPos = pos;
         this.editor = editor;
+        this.currentNode = node;
     }
     get node() {
-        return this.resolvedPos.node();
+        return this.currentNode || this.resolvedPos.node();
     }
     get element() {
         return this.editor.view.domAtPos(this.pos).node;
     }
     get depth() {
-        return this.resolvedPos.depth;
+        var _a;
+        return (_a = this.actualDepth) !== null && _a !== void 0 ? _a : this.resolvedPos.depth;
     }
     get pos() {
         return this.resolvedPos.pos;
@@ -3375,7 +4040,17 @@ class NodePos {
         return this.node.content;
     }
     set content(content) {
-        this.editor.commands.insertContentAt({ from: this.from, to: this.to }, content);
+        let from = this.from;
+        let to = this.to;
+        if (this.isBlock) {
+            if (this.content.size === 0) {
+                console.error(`You can’t set content on a block node. Tried to set content on ${this.name} at ${this.pos}`);
+                return;
+            }
+            from = this.from + 1;
+            to = this.to - 1;
+        }
+        this.editor.commands.insertContentAt({ from, to }, content);
     }
     get attributes() {
         return this.node.attrs;
@@ -3387,6 +4062,9 @@ class NodePos {
         return this.node.nodeSize;
     }
     get from() {
+        if (this.isBlock) {
+            return this.pos;
+        }
         return this.resolvedPos.start(this.resolvedPos.depth);
     }
     get range() {
@@ -3396,6 +4074,9 @@ class NodePos {
         };
     }
     get to() {
+        if (this.isBlock) {
+            return this.pos + this.size;
+        }
         return this.resolvedPos.end(this.resolvedPos.depth) + (this.node.isText ? 0 : 1);
     }
     get parent() {
@@ -3407,14 +4088,14 @@ class NodePos {
         return new NodePos($pos, this.editor);
     }
     get before() {
-        let $pos = this.resolvedPos.doc.resolve(this.from - 2);
+        let $pos = this.resolvedPos.doc.resolve(this.from - (this.isBlock ? 1 : 2));
         if ($pos.depth !== this.depth) {
             $pos = this.resolvedPos.doc.resolve(this.from - 3);
         }
         return new NodePos($pos, this.editor);
     }
     get after() {
-        let $pos = this.resolvedPos.doc.resolve(this.to + 2);
+        let $pos = this.resolvedPos.doc.resolve(this.to + (this.isBlock ? 2 : 1));
         if ($pos.depth !== this.depth) {
             $pos = this.resolvedPos.doc.resolve(this.to + 3);
         }
@@ -3423,12 +4104,18 @@ class NodePos {
     get children() {
         const children = [];
         this.node.content.forEach((node, offset) => {
-            const targetPos = this.pos + offset + 1;
+            const isBlock = node.isBlock && !node.isTextblock;
+            const isNonTextAtom = node.isAtom && !node.isText;
+            const targetPos = this.pos + offset + (isNonTextAtom ? 0 : 1);
             const $pos = this.resolvedPos.doc.resolve(targetPos);
-            if ($pos.depth === this.depth) {
+            if (!isBlock && $pos.depth <= this.depth) {
                 return;
             }
-            children.push(new NodePos($pos, this.editor));
+            const childNodePos = new NodePos($pos, this.editor, isBlock, isBlock ? node : null);
+            if (isBlock) {
+                childNodePos.actualDepth = this.depth + 1;
+            }
+            children.push(new NodePos($pos, this.editor, isBlock, isBlock ? node : null));
         });
         return children;
     }
@@ -3467,35 +4154,40 @@ class NodePos {
     }
     querySelectorAll(selector, attributes = {}, firstItemOnly = false) {
         let nodes = [];
-        // iterate through children recursively finding all nodes which match the selector with the node name
         if (!this.children || this.children.length === 0) {
             return nodes;
         }
-        this.children.forEach(node => {
-            if (node.node.type.name === selector) {
-                if (Object.keys(attributes).length > 0) {
-                    const nodeAttributes = node.node.attrs;
-                    const attrKeys = Object.keys(attributes);
-                    for (let index = 0; index < attrKeys.length; index += 1) {
-                        const key = attrKeys[index];
-                        if (nodeAttributes[key] !== attributes[key]) {
-                            return;
-                        }
-                    }
-                }
-                nodes.push(node);
-                if (firstItemOnly) {
-                    return;
+        const attrKeys = Object.keys(attributes);
+        /**
+         * Finds all children recursively that match the selector and attributes
+         * If firstItemOnly is true, it will return the first item found
+         */
+        this.children.forEach(childPos => {
+            // If we already found a node and we only want the first item, we dont need to keep going
+            if (firstItemOnly && nodes.length > 0) {
+                return;
+            }
+            if (childPos.node.type.name === selector) {
+                const doesAllAttributesMatch = attrKeys.every(key => attributes[key] === childPos.node.attrs[key]);
+                if (doesAllAttributesMatch) {
+                    nodes.push(childPos);
                 }
             }
-            nodes = nodes.concat(node.querySelectorAll(selector));
+            // If we already found a node and we only want the first item, we can stop here and skip the recursion
+            if (firstItemOnly && nodes.length > 0) {
+                return;
+            }
+            nodes = nodes.concat(childPos.querySelectorAll(selector, attributes, firstItemOnly));
         });
         return nodes;
     }
     setAttribute(attributes) {
-        const oldSelection = this.editor.state.selection;
-        this.editor.chain().setTextSelection(this.from).updateAttributes(this.node.type.name, attributes).setTextSelection(oldSelection.from)
-            .run();
+        const { tr } = this.editor.state;
+        tr.setNodeMarkup(this.from, undefined, {
+            ...this.node.attrs,
+            ...attributes,
+        });
+        this.editor.view.dispatch(tr);
     }
 }
 
@@ -3528,8 +4220,8 @@ img.ProseMirror-separator {
   display: inline !important;
   border: none !important;
   margin: 0 !important;
-  width: 1px !important;
-  height: 1px !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .ProseMirror-gapcursor {
@@ -3594,6 +4286,10 @@ class Editor extends EventEmitter {
     constructor(options = {}) {
         super();
         this.isFocused = false;
+        /**
+         * The editor is considered initialized after the `create` event has been emitted.
+         */
+        this.isInitialized = false;
         this.extensionStorage = {};
         this.options = {
             element: document.createElement('div'),
@@ -3605,9 +4301,11 @@ class Editor extends EventEmitter {
             editable: true,
             editorProps: {},
             parseOptions: {},
+            coreExtensionOptions: {},
             enableInputRules: true,
             enablePasteRules: true,
             enableCoreExtensions: true,
+            enableContentCheck: false,
             onBeforeCreate: () => null,
             onCreate: () => null,
             onUpdate: () => null,
@@ -3616,6 +4314,9 @@ class Editor extends EventEmitter {
             onFocus: () => null,
             onBlur: () => null,
             onDestroy: () => null,
+            onContentError: ({ error }) => { throw error; },
+            onPaste: () => null,
+            onDrop: () => null,
         };
         this.isCapturingTransaction = false;
         this.capturedTransaction = null;
@@ -3625,6 +4326,7 @@ class Editor extends EventEmitter {
         this.createSchema();
         this.on('beforeCreate', this.options.onBeforeCreate);
         this.emit('beforeCreate', { editor: this });
+        this.on('contentError', this.options.onContentError);
         this.createView();
         this.injectCSS();
         this.on('create', this.options.onCreate);
@@ -3634,12 +4336,15 @@ class Editor extends EventEmitter {
         this.on('focus', this.options.onFocus);
         this.on('blur', this.options.onBlur);
         this.on('destroy', this.options.onDestroy);
+        this.on('drop', ({ event, slice, moved }) => this.options.onDrop(event, slice, moved));
+        this.on('paste', ({ event, slice }) => this.options.onPaste(event, slice));
         window.setTimeout(() => {
             if (this.isDestroyed) {
                 return;
             }
             this.commands.focus(this.options.autofocus);
             this.emit('create', { editor: this });
+            this.isInitialized = true;
         }, 0);
     }
     /**
@@ -3721,6 +4426,7 @@ class Editor extends EventEmitter {
      *
      * @param plugin A ProseMirror plugin
      * @param handlePlugins Control how to merge the plugin into the existing plugins.
+     * @returns The new editor state
      */
     registerPlugin(plugin, handlePlugins) {
         const plugins = isFunction(handlePlugins)
@@ -3728,29 +4434,58 @@ class Editor extends EventEmitter {
             : [...this.state.plugins, plugin];
         const state = this.state.reconfigure({ plugins });
         this.view.updateState(state);
+        return state;
     }
     /**
      * Unregister a ProseMirror plugin.
      *
-     * @param nameOrPluginKey The plugins name
+     * @param nameOrPluginKeyToRemove The plugins name
+     * @returns The new editor state or undefined if the editor is destroyed
      */
-    unregisterPlugin(nameOrPluginKey) {
+    unregisterPlugin(nameOrPluginKeyToRemove) {
         if (this.isDestroyed) {
-            return;
+            return undefined;
         }
-        // @ts-ignore
-        const name = typeof nameOrPluginKey === 'string' ? `${nameOrPluginKey}$` : nameOrPluginKey.key;
-        const state = this.state.reconfigure({
+        const prevPlugins = this.state.plugins;
+        let plugins = prevPlugins;
+        [].concat(nameOrPluginKeyToRemove).forEach(nameOrPluginKey => {
             // @ts-ignore
-            plugins: this.state.plugins.filter(plugin => !plugin.key.startsWith(name)),
+            const name = typeof nameOrPluginKey === 'string' ? `${nameOrPluginKey}$` : nameOrPluginKey.key;
+            // @ts-ignore
+            plugins = prevPlugins.filter(plugin => !plugin.key.startsWith(name));
+        });
+        if (prevPlugins.length === plugins.length) {
+            // No plugin was removed, so we don’t need to update the state
+            return undefined;
+        }
+        const state = this.state.reconfigure({
+            plugins,
         });
         this.view.updateState(state);
+        return state;
     }
     /**
      * Creates an extension manager.
      */
     createExtensionManager() {
-        const coreExtensions = this.options.enableCoreExtensions ? Object.values(extensions) : [];
+        var _a, _b;
+        const coreExtensions = this.options.enableCoreExtensions ? [
+            Editable,
+            ClipboardTextSerializer.configure({
+                blockSeparator: (_b = (_a = this.options.coreExtensionOptions) === null || _a === void 0 ? void 0 : _a.clipboardTextSerializer) === null || _b === void 0 ? void 0 : _b.blockSeparator,
+            }),
+            Commands,
+            FocusEvents,
+            Keymap,
+            Tabindex,
+            Drop,
+            Paste,
+        ].filter(ext => {
+            if (typeof this.options.enableCoreExtensions === 'object') {
+                return this.options.enableCoreExtensions[ext.name] !== false;
+            }
+            return true;
+        }) : [];
         const allExtensions = [...coreExtensions, ...this.options.extensions].filter(extension => {
             return ['extension', 'node', 'mark'].includes(extension === null || extension === void 0 ? void 0 : extension.type);
         });
@@ -3774,10 +4509,40 @@ class Editor extends EventEmitter {
      * Creates a ProseMirror view.
      */
     createView() {
-        const doc = createDocument(this.options.content, this.schema, this.options.parseOptions);
+        var _a;
+        let doc;
+        try {
+            doc = createDocument(this.options.content, this.schema, this.options.parseOptions, { errorOnInvalidContent: this.options.enableContentCheck });
+        }
+        catch (e) {
+            if (!(e instanceof Error) || !['[tiptap error]: Invalid JSON content', '[tiptap error]: Invalid HTML content'].includes(e.message)) {
+                // Not the content error we were expecting
+                throw e;
+            }
+            this.emit('contentError', {
+                editor: this,
+                error: e,
+                disableCollaboration: () => {
+                    if (this.storage.collaboration) {
+                        this.storage.collaboration.isDisabled = true;
+                    }
+                    // To avoid syncing back invalid content, reinitialize the extensions without the collaboration extension
+                    this.options.extensions = this.options.extensions.filter(extension => extension.name !== 'collaboration');
+                    // Restart the initialization process by recreating the extension manager with the new set of extensions
+                    this.createExtensionManager();
+                },
+            });
+            // Content is invalid, but attempt to create it anyway, stripping out the invalid parts
+            doc = createDocument(this.options.content, this.schema, this.options.parseOptions, { errorOnInvalidContent: false });
+        }
         const selection = resolveFocusPosition(doc, this.options.autofocus);
         this.view = new view.EditorView(this.options.element, {
             ...this.options.editorProps,
+            attributes: {
+                // add `role="textbox"` to the editor element
+                role: 'textbox',
+                ...(_a = this.options.editorProps) === null || _a === void 0 ? void 0 : _a.attributes,
+            },
             dispatchTransaction: this.dispatchTransaction.bind(this),
             state: state.EditorState.create({
                 doc,
@@ -3794,6 +4559,7 @@ class Editor extends EventEmitter {
         this.prependClass();
         // Let’s store the editor instance in the DOM element.
         // So we’ll have access to it for tests.
+        // @ts-ignore
         const dom = this.view.dom;
         dom.editor = this;
     }
@@ -3801,6 +4567,9 @@ class Editor extends EventEmitter {
      * Creates all node views.
      */
     createNodeViews() {
+        if (this.view.isDestroyed) {
+            return;
+        }
         this.view.setProps({
             nodeViews: this.extensionManager.nodeViews,
         });
@@ -3840,6 +4609,11 @@ class Editor extends EventEmitter {
         }
         const state = this.state.apply(transaction);
         const selectionHasChanged = !this.state.selection.eq(state.selection);
+        this.emit('beforeTransaction', {
+            editor: this,
+            transaction,
+            nextState: state,
+        });
         this.view.updateState(state);
         this.emit('transaction', {
             editor: this,
@@ -3932,6 +4706,12 @@ class Editor extends EventEmitter {
     destroy() {
         this.emit('destroy');
         if (this.view) {
+            // Cleanup our reference to prevent circular references which caused memory leaks
+            // @ts-ignore
+            const dom = this.view.dom;
+            if (dom && dom.editor) {
+                delete dom.editor;
+            }
             this.view.destroy();
         }
         this.removeAllListeners();
@@ -3964,6 +4744,7 @@ class Editor extends EventEmitter {
 /**
  * Build an input rule that adds a mark when the
  * matched text is typed into it.
+ * @see https://tiptap.dev/docs/editor/extensions/custom-extensions/extend-existing#input-rules
  */
 function markInputRule(config) {
     return new InputRule({
@@ -4007,6 +4788,7 @@ function markInputRule(config) {
 /**
  * Build an input rule that adds a node when the
  * matched text is typed into it.
+ * @see https://tiptap.dev/docs/editor/extensions/custom-extensions/extend-existing#input-rules
  */
 function nodeInputRule(config) {
     return new InputRule({
@@ -4033,7 +4815,8 @@ function nodeInputRule(config) {
                 tr.replaceWith(matchStart, end, newNode);
             }
             else if (match[0]) {
-                tr.insert(start - 1, config.type.create(attributes)).delete(tr.mapping.map(start), tr.mapping.map(end));
+                const insertionStart = config.type.isInline ? start : start - 1;
+                tr.insert(insertionStart, config.type.create(attributes)).delete(tr.mapping.map(start), tr.mapping.map(end));
             }
             tr.scrollIntoView();
         },
@@ -4045,6 +4828,7 @@ function nodeInputRule(config) {
  * matched text is typed into it. When using a regular expresion you’ll
  * probably want the regexp to start with `^`, so that the pattern can
  * only occur at the start of a textblock.
+ * @see https://tiptap.dev/docs/editor/extensions/custom-extensions/extend-existing#input-rules
  */
 function textblockTypeInputRule(config) {
     return new InputRule({
@@ -4065,6 +4849,7 @@ function textblockTypeInputRule(config) {
 /**
  * Build an input rule that replaces text when the
  * matched text is typed into it.
+ * @see https://tiptap.dev/docs/editor/extensions/custom-extensions/extend-existing#input-rules
  */
 function textInputRule(config) {
     return new InputRule({
@@ -4101,6 +4886,7 @@ function textInputRule(config) {
  * two nodes. You can pass a join predicate, which takes a regular
  * expression match and the node before the wrapped node, and can
  * return a boolean to indicate whether a join should happen.
+ * @see https://tiptap.dev/docs/editor/extensions/custom-extensions/extend-existing#input-rules
  */
 function wrappingInputRule(config) {
     return new InputRule({
@@ -4140,89 +4926,10 @@ function wrappingInputRule(config) {
     });
 }
 
-class Mark {
-    constructor(config = {}) {
-        this.type = 'mark';
-        this.name = 'mark';
-        this.parent = null;
-        this.child = null;
-        this.config = {
-            name: this.name,
-            defaultOptions: {},
-        };
-        this.config = {
-            ...this.config,
-            ...config,
-        };
-        this.name = this.config.name;
-        if (config.defaultOptions && Object.keys(config.defaultOptions).length > 0) {
-            console.warn(`[tiptap warn]: BREAKING CHANGE: "defaultOptions" is deprecated. Please use "addOptions" instead. Found in extension: "${this.name}".`);
-        }
-        // TODO: remove `addOptions` fallback
-        this.options = this.config.defaultOptions;
-        if (this.config.addOptions) {
-            this.options = callOrReturn(getExtensionField(this, 'addOptions', {
-                name: this.name,
-            }));
-        }
-        this.storage = callOrReturn(getExtensionField(this, 'addStorage', {
-            name: this.name,
-            options: this.options,
-        })) || {};
-    }
-    static create(config = {}) {
-        return new Mark(config);
-    }
-    configure(options = {}) {
-        // return a new instance so we can use the same extension
-        // with different calls of `configure`
-        const extension = this.extend();
-        extension.options = mergeDeep(this.options, options);
-        extension.storage = callOrReturn(getExtensionField(extension, 'addStorage', {
-            name: extension.name,
-            options: extension.options,
-        }));
-        return extension;
-    }
-    extend(extendedConfig = {}) {
-        const extension = new Mark({ ...this.config, ...extendedConfig });
-        extension.parent = this;
-        this.child = extension;
-        extension.name = extendedConfig.name ? extendedConfig.name : extension.parent.name;
-        if (extendedConfig.defaultOptions) {
-            console.warn(`[tiptap warn]: BREAKING CHANGE: "defaultOptions" is deprecated. Please use "addOptions" instead. Found in extension: "${extension.name}".`);
-        }
-        extension.options = callOrReturn(getExtensionField(extension, 'addOptions', {
-            name: extension.name,
-        }));
-        extension.storage = callOrReturn(getExtensionField(extension, 'addStorage', {
-            name: extension.name,
-            options: extension.options,
-        }));
-        return extension;
-    }
-    static handleExit({ editor, mark }) {
-        const { tr } = editor.state;
-        const currentPos = editor.state.selection.$from;
-        const isAtEnd = currentPos.pos === currentPos.end();
-        if (isAtEnd) {
-            const currentMarks = currentPos.marks();
-            const isInMark = !!currentMarks.find(m => (m === null || m === void 0 ? void 0 : m.type.name) === mark.name);
-            if (!isInMark) {
-                return false;
-            }
-            const removeMark = currentMarks.find(m => (m === null || m === void 0 ? void 0 : m.type.name) === mark.name);
-            if (removeMark) {
-                tr.removeStoredMark(removeMark);
-            }
-            tr.insertText(' ', currentPos.pos);
-            editor.view.dispatch(tr);
-            return true;
-        }
-        return false;
-    }
-}
-
+/**
+ * The Node class is used to create custom node extensions.
+ * @see https://tiptap.dev/api/extensions#create-a-new-extension
+ */
 class Node {
     constructor(config = {}) {
         this.type = 'node';
@@ -4259,20 +4966,24 @@ class Node {
     configure(options = {}) {
         // return a new instance so we can use the same extension
         // with different calls of `configure`
-        const extension = this.extend();
-        extension.options = mergeDeep(this.options, options);
-        extension.storage = callOrReturn(getExtensionField(extension, 'addStorage', {
-            name: extension.name,
-            options: extension.options,
-        }));
+        const extension = this.extend({
+            ...this.config,
+            addOptions: () => {
+                return mergeDeep(this.options, options);
+            },
+        });
+        // Always preserve the current name
+        extension.name = this.name;
+        // Set the parent to be our parent
+        extension.parent = this.parent;
         return extension;
     }
     extend(extendedConfig = {}) {
-        const extension = new Node({ ...this.config, ...extendedConfig });
+        const extension = new Node(extendedConfig);
         extension.parent = this;
         this.child = extension;
         extension.name = extendedConfig.name ? extendedConfig.name : extension.parent.name;
-        if (extendedConfig.defaultOptions) {
+        if (extendedConfig.defaultOptions && Object.keys(extendedConfig.defaultOptions).length > 0) {
             console.warn(`[tiptap warn]: BREAKING CHANGE: "defaultOptions" is deprecated. Please use "addOptions" instead. Found in extension: "${extension.name}".`);
         }
         extension.options = callOrReturn(getExtensionField(extension, 'addOptions', {
@@ -4290,6 +5001,10 @@ function isAndroid() {
     return navigator.platform === 'Android' || /android/i.test(navigator.userAgent);
 }
 
+/**
+ * Node views are used to customize the rendered DOM structure of a node.
+ * @see https://tiptap.dev/guide/node-views
+ */
 class NodeView {
     constructor(component, props, options) {
         this.isDragging = false;
@@ -4303,6 +5018,9 @@ class NodeView {
         this.extension = props.extension;
         this.node = props.node;
         this.decorations = props.decorations;
+        this.innerDecorations = props.innerDecorations;
+        this.view = props.view;
+        this.HTMLAttributes = props.HTMLAttributes;
         this.getPos = props.getPos;
         this.mount();
     }
@@ -4341,9 +5059,13 @@ class NodeView {
             y = handleBox.y - domBox.y + offsetY;
         }
         (_g = event.dataTransfer) === null || _g === void 0 ? void 0 : _g.setDragImage(this.dom, x, y);
+        const pos = this.getPos();
+        if (typeof pos !== 'number') {
+            return;
+        }
         // we need to tell ProseMirror that we want to move the whole node
         // so we create a NodeSelection
-        const selection = state.NodeSelection.create(view.state.doc, this.getPos());
+        const selection = state.NodeSelection.create(view.state.doc, pos);
         const transaction = view.state.tr.setSelection(selection);
         view.dispatch(transaction);
     }
@@ -4414,6 +5136,11 @@ class NodeView {
         }
         return true;
     }
+    /**
+     * Called when a DOM [mutation](https://developer.mozilla.org/en-US/docs/Web/API/MutationObserver) or a selection change happens within the view.
+     * @return `false` if the editor should re-read the selection or re-parse the range around the mutation
+     * @return `true` if it can safely be ignored.
+     */
     ignoreMutation(mutation) {
         if (!this.dom || !this.contentDOM) {
             return true;
@@ -4460,9 +5187,15 @@ class NodeView {
         }
         return true;
     }
+    /**
+     * Update the attributes of the prosemirror node.
+     */
     updateAttributes(attributes) {
         this.editor.commands.command(({ tr }) => {
             const pos = this.getPos();
+            if (typeof pos !== 'number') {
+                return false;
+            }
             tr.setNodeMarkup(pos, undefined, {
                 ...this.node.attrs,
                 ...attributes,
@@ -4470,8 +5203,14 @@ class NodeView {
             return true;
         });
     }
+    /**
+     * Delete the node.
+     */
     deleteNode() {
         const from = this.getPos();
+        if (typeof from !== 'number') {
+            return;
+        }
         const to = from + this.node.nodeSize;
         this.editor.commands.deleteRange({ from, to });
     }
@@ -4480,6 +5219,7 @@ class NodeView {
 /**
  * Build an paste rule that adds a mark when the
  * matched text is pasted into it.
+ * @see https://tiptap.dev/docs/editor/extensions/custom-extensions/extend-existing#paste-rules
  */
 function markPasteRule(config) {
     return new PasteRule({
@@ -4533,20 +5273,23 @@ function isString(value) {
 /**
  * Build an paste rule that adds a node when the
  * matched text is pasted into it.
+ * @see https://tiptap.dev/docs/editor/extensions/custom-extensions/extend-existing#paste-rules
  */
 function nodePasteRule(config) {
     return new PasteRule({
         find: config.find,
         handler({ match, chain, range, pasteEvent, }) {
             const attributes = callOrReturn(config.getAttributes, undefined, match, pasteEvent);
+            const content = callOrReturn(config.getContent, undefined, attributes);
             if (attributes === false || attributes === null) {
                 return null;
             }
+            const node = { type: config.type.name, attrs: attributes };
+            if (content) {
+                node.content = content;
+            }
             if (match.input) {
-                chain().deleteRange(range).insertContentAt(range.from, {
-                    type: config.type.name,
-                    attrs: attributes,
-                });
+                chain().deleteRange(range).insertContentAt(range.from, node);
             }
         },
     });
@@ -4555,6 +5298,7 @@ function nodePasteRule(config) {
 /**
  * Build an paste rule that replaces text when the
  * matched text is pasted into it.
+ * @see https://tiptap.dev/docs/editor/extensions/custom-extensions/extend-existing#paste-rules
  */
 function textPasteRule(config) {
     return new PasteRule({
@@ -4621,7 +5365,7 @@ exports.defaultBlockAt = defaultBlockAt;
 exports.deleteProps = deleteProps;
 exports.elementFromString = elementFromString;
 exports.escapeForRegEx = escapeForRegEx;
-exports.extensions = extensions;
+exports.extensions = index;
 exports.findChildren = findChildren;
 exports.findChildrenInRange = findChildrenInRange;
 exports.findDuplicates = findDuplicates;
@@ -4694,14 +5438,21 @@ exports.textblockTypeInputRule = textblockTypeInputRule;
 exports.wrappingInputRule = wrappingInputRule;
 
 
-},{"@tiptap/pm/commands":24,"@tiptap/pm/keymap":28,"@tiptap/pm/model":29,"@tiptap/pm/schema-list":30,"@tiptap/pm/state":31,"@tiptap/pm/transform":32,"@tiptap/pm/view":33}],3:[function(require,module,exports){
+},{"@tiptap/pm/commands":26,"@tiptap/pm/keymap":30,"@tiptap/pm/model":31,"@tiptap/pm/schema-list":32,"@tiptap/pm/state":33,"@tiptap/pm/transform":34,"@tiptap/pm/view":35}],3:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
 
+/**
+ * Matches a blockquote to a `>` as input.
+ */
 const inputRegex = /^\s*>\s$/;
+/**
+ * This extension allows you to create blockquotes.
+ * @see https://tiptap.dev/api/nodes/blockquote
+ */
 const Blockquote = core.Node.create({
     name: 'blockquote',
     addOptions() {
@@ -4749,7 +5500,7 @@ const Blockquote = core.Node.create({
 });
 
 exports.Blockquote = Blockquote;
-exports["default"] = Blockquote;
+exports.default = Blockquote;
 exports.inputRegex = inputRegex;
 
 
@@ -4760,10 +5511,26 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
 
-const starInputRegex = /(?:^|\s)((?:\*\*)((?:[^*]+))(?:\*\*))$/;
-const starPasteRegex = /(?:^|\s)((?:\*\*)((?:[^*]+))(?:\*\*))/g;
-const underscoreInputRegex = /(?:^|\s)((?:__)((?:[^__]+))(?:__))$/;
-const underscorePasteRegex = /(?:^|\s)((?:__)((?:[^__]+))(?:__))/g;
+/**
+ * Matches bold text via `**` as input.
+ */
+const starInputRegex = /(?:^|\s)(\*\*(?!\s+\*\*)((?:[^*]+))\*\*(?!\s+\*\*))$/;
+/**
+ * Matches bold text via `**` while pasting.
+ */
+const starPasteRegex = /(?:^|\s)(\*\*(?!\s+\*\*)((?:[^*]+))\*\*(?!\s+\*\*))/g;
+/**
+ * Matches bold text via `__` as input.
+ */
+const underscoreInputRegex = /(?:^|\s)(__(?!\s+__)((?:[^_]+))__(?!\s+__))$/;
+/**
+ * Matches bold text via `__` while pasting.
+ */
+const underscorePasteRegex = /(?:^|\s)(__(?!\s+__)((?:[^_]+))__(?!\s+__))/g;
+/**
+ * This extension allows you to mark text as bold.
+ * @see https://tiptap.dev/api/marks/bold
+ */
 const Bold = core.Mark.create({
     name: 'bold',
     addOptions() {
@@ -4779,6 +5546,10 @@ const Bold = core.Mark.create({
             {
                 tag: 'b',
                 getAttrs: node => node.style.fontWeight !== 'normal' && null,
+            },
+            {
+                style: 'font-weight=400',
+                clearMark: mark => mark.type.name === this.name,
             },
             {
                 style: 'font-weight',
@@ -4835,7 +5606,7 @@ const Bold = core.Mark.create({
 });
 
 exports.Bold = Bold;
-exports["default"] = Bold;
+exports.default = Bold;
 exports.starInputRegex = starInputRegex;
 exports.starPasteRegex = starPasteRegex;
 exports.underscoreInputRegex = underscoreInputRegex;
@@ -4849,75 +5620,18 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
 
-const ListItem = core.Node.create({
-    name: 'listItem',
-    addOptions() {
-        return {
-            HTMLAttributes: {},
-            bulletListTypeName: 'bulletList',
-            orderedListTypeName: 'orderedList',
-        };
-    },
-    content: 'paragraph block*',
-    defining: true,
-    parseHTML() {
-        return [
-            {
-                tag: 'li',
-            },
-        ];
-    },
-    renderHTML({ HTMLAttributes }) {
-        return ['li', core.mergeAttributes(this.options.HTMLAttributes, HTMLAttributes), 0];
-    },
-    addKeyboardShortcuts() {
-        return {
-            Enter: () => this.editor.commands.splitListItem(this.name),
-            Tab: () => this.editor.commands.sinkListItem(this.name),
-            'Shift-Tab': () => this.editor.commands.liftListItem(this.name),
-        };
-    },
-});
-
-const TextStyle = core.Mark.create({
-    name: 'textStyle',
-    addOptions() {
-        return {
-            HTMLAttributes: {},
-        };
-    },
-    parseHTML() {
-        return [
-            {
-                tag: 'span',
-                getAttrs: element => {
-                    const hasStyles = element.hasAttribute('style');
-                    if (!hasStyles) {
-                        return false;
-                    }
-                    return {};
-                },
-            },
-        ];
-    },
-    renderHTML({ HTMLAttributes }) {
-        return ['span', core.mergeAttributes(this.options.HTMLAttributes, HTMLAttributes), 0];
-    },
-    addCommands() {
-        return {
-            removeEmptyTextStyle: () => ({ state, commands }) => {
-                const attributes = core.getMarkAttributes(state, this.type);
-                const hasStyles = Object.entries(attributes).some(([, value]) => !!value);
-                if (hasStyles) {
-                    return true;
-                }
-                return commands.unsetMark(this.name);
-            },
-        };
-    },
-});
-
+const ListItemName = 'listItem';
+const TextStyleName = 'textStyle';
+/**
+ * Matches a bullet list to a dash or asterisk.
+ */
 const inputRegex = /^\s*([-+*])\s$/;
+/**
+ * This extension allows you to create bullet lists.
+ * This requires the ListItem extension
+ * @see https://tiptap.dev/api/nodes/bullet-list
+ * @see https://tiptap.dev/api/nodes/list-item.
+ */
 const BulletList = core.Node.create({
     name: 'bulletList',
     addOptions() {
@@ -4944,7 +5658,7 @@ const BulletList = core.Node.create({
         return {
             toggleBulletList: () => ({ commands, chain }) => {
                 if (this.options.keepAttributes) {
-                    return chain().toggleList(this.name, this.options.itemTypeName, this.options.keepMarks).updateAttributes(ListItem.name, this.editor.getAttributes(TextStyle.name)).run();
+                    return chain().toggleList(this.name, this.options.itemTypeName, this.options.keepMarks).updateAttributes(ListItemName, this.editor.getAttributes(TextStyleName)).run();
                 }
                 return commands.toggleList(this.name, this.options.itemTypeName, this.options.keepMarks);
             },
@@ -4966,7 +5680,7 @@ const BulletList = core.Node.create({
                 type: this.type,
                 keepMarks: this.options.keepMarks,
                 keepAttributes: this.options.keepAttributes,
-                getAttributes: () => { return this.editor.getAttributes(TextStyle.name); },
+                getAttributes: () => { return this.editor.getAttributes(TextStyleName); },
                 editor: this.editor,
             });
         }
@@ -4977,7 +5691,7 @@ const BulletList = core.Node.create({
 });
 
 exports.BulletList = BulletList;
-exports["default"] = BulletList;
+exports.default = BulletList;
 exports.inputRegex = inputRegex;
 
 
@@ -4989,8 +5703,18 @@ Object.defineProperty(exports, '__esModule', { value: true });
 var core = require('@tiptap/core');
 var state = require('@tiptap/pm/state');
 
+/**
+ * Matches a code block with backticks.
+ */
 const backtickInputRegex = /^```([a-z]+)?[\s\n]$/;
+/**
+ * Matches a code block with tildes.
+ */
 const tildeInputRegex = /^~~~([a-z]+)?[\s\n]$/;
+/**
+ * This extension allows you to create code blocks.
+ * @see https://tiptap.dev/api/nodes/code-block
+ */
 const CodeBlock = core.Node.create({
     name: 'codeBlock',
     addOptions() {
@@ -4998,6 +5722,7 @@ const CodeBlock = core.Node.create({
             languageClassPrefix: 'language-',
             exitOnTripleEnter: true,
             exitOnArrowDown: true,
+            defaultLanguage: null,
             HTMLAttributes: {},
         };
     },
@@ -5009,7 +5734,7 @@ const CodeBlock = core.Node.create({
     addAttributes() {
         return {
             language: {
-                default: null,
+                default: this.options.defaultLanguage,
                 parseHTML: element => {
                     var _a;
                     const { languageClassPrefix } = this.options;
@@ -5105,8 +5830,8 @@ const CodeBlock = core.Node.create({
                 if (!this.options.exitOnArrowDown) {
                     return false;
                 }
-                const { state } = editor;
-                const { selection, doc } = state;
+                const { state: state$1 } = editor;
+                const { selection, doc } = state$1;
                 const { $from, empty } = selection;
                 if (!empty || $from.parent.type !== this.type) {
                     return false;
@@ -5121,7 +5846,10 @@ const CodeBlock = core.Node.create({
                 }
                 const nodeAfter = doc.nodeAt(after);
                 if (nodeAfter) {
-                    return false;
+                    return editor.commands.command(({ tr }) => {
+                        tr.setSelection(state.Selection.near(doc.resolve(after)));
+                        return true;
+                    });
                 }
                 return editor.commands.exitCode();
             },
@@ -5167,15 +5895,18 @@ const CodeBlock = core.Node.create({
                         if (!text || !language) {
                             return false;
                         }
-                        const { tr } = view.state;
-                        // create an empty code block
-                        tr.replaceSelectionWith(this.type.create({ language }));
-                        // put cursor inside the newly created code block
-                        tr.setSelection(state.TextSelection.near(tr.doc.resolve(Math.max(0, tr.selection.from - 2))));
-                        // add text to code block
+                        const { tr, schema } = view.state;
+                        // prepare a text node
                         // strip carriage return chars from text pasted as code
                         // see: https://github.com/ProseMirror/prosemirror-view/commit/a50a6bcceb4ce52ac8fcc6162488d8875613aacd
-                        tr.insertText(text.replace(/\r\n?/g, '\n'));
+                        const textNode = schema.text(text.replace(/\r\n?/g, '\n'));
+                        // create a code block with the text node
+                        // replace selection with the code block
+                        tr.replaceSelectionWith(this.type.create({ language }, textNode));
+                        if (tr.selection.$from.parent.type !== this.type) {
+                            // put cursor inside the newly created code block
+                            tr.setSelection(state.TextSelection.near(tr.doc.resolve(Math.max(0, tr.selection.from - 2))));
+                        }
                         // store meta information
                         // this is useful for other plugins that depends on the paste event
                         // like the paste rule plugin
@@ -5191,19 +5922,35 @@ const CodeBlock = core.Node.create({
 
 exports.CodeBlock = CodeBlock;
 exports.backtickInputRegex = backtickInputRegex;
-exports["default"] = CodeBlock;
+exports.default = CodeBlock;
 exports.tildeInputRegex = tildeInputRegex;
 
 
-},{"@tiptap/core":2,"@tiptap/pm/state":31}],7:[function(require,module,exports){
+},{"@tiptap/core":2,"@tiptap/pm/state":33}],7:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
 
-const inputRegex = /(?:^|\s)((?:`)((?:[^`]+))(?:`))$/;
-const pasteRegex = /(?:^|\s)((?:`)((?:[^`]+))(?:`))/g;
+/**
+ * Regular expressions to match inline code blocks enclosed in backticks.
+ *  It matches:
+ *     - An opening backtick, followed by
+ *     - Any text that doesn't include a backtick (captured for marking), followed by
+ *     - A closing backtick.
+ *  This ensures that any text between backticks is formatted as code,
+ *  regardless of the surrounding characters (exception being another backtick).
+ */
+const inputRegex = /(?<!`)`([^`]+)`(?!`)/;
+/**
+ * Matches inline code while pasting.
+ */
+const pasteRegex = /(?<!`)`([^`]+)`(?!`)/g;
+/**
+ * This extension allows you to mark text as inline code.
+ * @see https://tiptap.dev/api/marks/code
+ */
 const Code = core.Mark.create({
     name: 'code',
     addOptions() {
@@ -5259,7 +6006,7 @@ const Code = core.Mark.create({
 });
 
 exports.Code = Code;
-exports["default"] = Code;
+exports.default = Code;
 exports.inputRegex = inputRegex;
 exports.pasteRegex = pasteRegex;
 
@@ -5271,6 +6018,10 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
 
+/**
+ * The default document node which represents the top level node of the editor.
+ * @see https://tiptap.dev/api/nodes/document
+ */
 const Document = core.Node.create({
     name: 'doc',
     topNode: true,
@@ -5278,7 +6029,7 @@ const Document = core.Node.create({
 });
 
 exports.Document = Document;
-exports["default"] = Document;
+exports.default = Document;
 
 
 },{"@tiptap/core":2}],9:[function(require,module,exports){
@@ -5289,6 +6040,12 @@ Object.defineProperty(exports, '__esModule', { value: true });
 var core = require('@tiptap/core');
 var dropcursor = require('@tiptap/pm/dropcursor');
 
+/**
+ * This extension allows you to add a drop cursor to your editor.
+ * A drop cursor is a line that appears when you drag and drop content
+ * inbetween nodes.
+ * @see https://tiptap.dev/api/extensions/dropcursor
+ */
 const Dropcursor = core.Extension.create({
     name: 'dropCursor',
     addOptions() {
@@ -5306,10 +6063,10 @@ const Dropcursor = core.Extension.create({
 });
 
 exports.Dropcursor = Dropcursor;
-exports["default"] = Dropcursor;
+exports.default = Dropcursor;
 
 
-},{"@tiptap/core":2,"@tiptap/pm/dropcursor":25}],10:[function(require,module,exports){
+},{"@tiptap/core":2,"@tiptap/pm/dropcursor":27}],10:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
@@ -5317,6 +6074,12 @@ Object.defineProperty(exports, '__esModule', { value: true });
 var core = require('@tiptap/core');
 var gapcursor = require('@tiptap/pm/gapcursor');
 
+/**
+ * This extension allows you to add a gap cursor to your editor.
+ * A gap cursor is a cursor that appears when you click on a place
+ * where no content is present, for example inbetween nodes.
+ * @see https://tiptap.dev/api/extensions/gapcursor
+ */
 const Gapcursor = core.Extension.create({
     name: 'gapCursor',
     addProseMirrorPlugins() {
@@ -5338,16 +6101,20 @@ const Gapcursor = core.Extension.create({
 });
 
 exports.Gapcursor = Gapcursor;
-exports["default"] = Gapcursor;
+exports.default = Gapcursor;
 
 
-},{"@tiptap/core":2,"@tiptap/pm/gapcursor":26}],11:[function(require,module,exports){
+},{"@tiptap/core":2,"@tiptap/pm/gapcursor":28}],11:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
 
+/**
+ * This extension allows you to insert hard breaks.
+ * @see https://www.tiptap.dev/api/nodes/hard-break
+ */
 const HardBreak = core.Node.create({
     name: 'hardBreak',
     addOptions() {
@@ -5359,6 +6126,7 @@ const HardBreak = core.Node.create({
     inline: true,
     group: 'inline',
     selectable: false,
+    linebreakReplacement: true,
     parseHTML() {
         return [
             { tag: 'br' },
@@ -5409,7 +6177,7 @@ const HardBreak = core.Node.create({
 });
 
 exports.HardBreak = HardBreak;
-exports["default"] = HardBreak;
+exports.default = HardBreak;
 
 
 },{"@tiptap/core":2}],12:[function(require,module,exports){
@@ -5419,6 +6187,10 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
 
+/**
+ * This extension allows you to create headings.
+ * @see https://www.tiptap.dev/api/nodes/heading
+ */
 const Heading = core.Node.create({
     name: 'heading',
     addOptions() {
@@ -5490,7 +6262,7 @@ const Heading = core.Node.create({
 });
 
 exports.Heading = Heading;
-exports["default"] = Heading;
+exports.default = Heading;
 
 
 },{"@tiptap/core":2}],13:[function(require,module,exports){
@@ -5500,8 +6272,18 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
 
-const inputRegex = /(?:^|\s)((?:==)((?:[^~=]+))(?:==))$/;
-const pasteRegex = /(?:^|\s)((?:==)((?:[^~=]+))(?:==))/g;
+/**
+ * Matches a highlight to a ==highlight== on input.
+ */
+const inputRegex = /(?:^|\s)(==(?!\s+==)((?:[^=]+))==(?!\s+==))$/;
+/**
+ * Matches a highlight to a ==highlight== on paste.
+ */
+const pasteRegex = /(?:^|\s)(==(?!\s+==)((?:[^=]+))==(?!\s+==))/g;
+/**
+ * This extension allows you to highlight text.
+ * @see https://www.tiptap.dev/api/marks/highlight
+ */
 const Highlight = core.Mark.create({
     name: 'highlight',
     addOptions() {
@@ -5577,7 +6359,7 @@ const Highlight = core.Mark.create({
 });
 
 exports.Highlight = Highlight;
-exports["default"] = Highlight;
+exports.default = Highlight;
 exports.inputRegex = inputRegex;
 exports.pasteRegex = pasteRegex;
 
@@ -5590,6 +6372,15 @@ Object.defineProperty(exports, '__esModule', { value: true });
 var core = require('@tiptap/core');
 var history = require('@tiptap/pm/history');
 
+/**
+ * This extension allows you to undo and redo recent changes.
+ * @see https://www.tiptap.dev/api/extensions/history
+ *
+ * **Important**: If the `@tiptap/extension-collaboration` package is used, make sure to remove
+ * the `history` extension, as it is not compatible with the `collaboration` extension.
+ *
+ * `@tiptap/extension-collaboration` uses its own history implementation.
+ */
 const History = core.Extension.create({
     name: 'history',
     addOptions() {
@@ -5626,10 +6417,10 @@ const History = core.Extension.create({
 });
 
 exports.History = History;
-exports["default"] = History;
+exports.default = History;
 
 
-},{"@tiptap/core":2,"@tiptap/pm/history":27}],15:[function(require,module,exports){
+},{"@tiptap/core":2,"@tiptap/pm/history":29}],15:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
@@ -5637,6 +6428,10 @@ Object.defineProperty(exports, '__esModule', { value: true });
 var core = require('@tiptap/core');
 var state = require('@tiptap/pm/state');
 
+/**
+ * This extension allows you to insert horizontal rules.
+ * @see https://www.tiptap.dev/api/nodes/horizontal-rule
+ */
 const HorizontalRule = core.Node.create({
     name: 'horizontalRule',
     addOptions() {
@@ -5654,10 +6449,21 @@ const HorizontalRule = core.Node.create({
     addCommands() {
         return {
             setHorizontalRule: () => ({ chain, state: state$1 }) => {
-                const { $to: $originTo } = state$1.selection;
+                const { selection } = state$1;
+                const { $from: $originFrom, $to: $originTo } = selection;
                 const currentChain = chain();
-                if ($originTo.parentOffset === 0) {
-                    currentChain.insertContentAt(Math.max($originTo.pos - 2, 0), { type: this.name });
+                if ($originFrom.parentOffset === 0) {
+                    currentChain.insertContentAt({
+                        from: Math.max($originFrom.pos - 1, 0),
+                        to: $originTo.pos,
+                    }, {
+                        type: this.name,
+                    });
+                }
+                else if (core.isNodeSelection(selection)) {
+                    currentChain.insertContentAt($originTo.pos, {
+                        type: this.name,
+                    });
                 }
                 else {
                     currentChain.insertContent({ type: this.name });
@@ -5707,17 +6513,24 @@ const HorizontalRule = core.Node.create({
 });
 
 exports.HorizontalRule = HorizontalRule;
-exports["default"] = HorizontalRule;
+exports.default = HorizontalRule;
 
 
-},{"@tiptap/core":2,"@tiptap/pm/state":31}],16:[function(require,module,exports){
+},{"@tiptap/core":2,"@tiptap/pm/state":33}],16:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
 
+/**
+ * Matches an image to a ![image](src "title") on input.
+ */
 const inputRegex = /(?:^|\s)(!\[(.+|:?)]\((\S+)(?:(?:\s+)["'](\S+)["'])?\))$/;
+/**
+ * This extension allows you to insert images.
+ * @see https://www.tiptap.dev/api/nodes/image
+ */
 const Image = core.Node.create({
     name: 'image',
     addOptions() {
@@ -5784,7 +6597,7 @@ const Image = core.Node.create({
 });
 
 exports.Image = Image;
-exports["default"] = Image;
+exports.default = Image;
 exports.inputRegex = inputRegex;
 
 
@@ -5795,10 +6608,26 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
 
-const starInputRegex = /(?:^|\s)((?:\*)((?:[^*]+))(?:\*))$/;
-const starPasteRegex = /(?:^|\s)((?:\*)((?:[^*]+))(?:\*))/g;
-const underscoreInputRegex = /(?:^|\s)((?:_)((?:[^_]+))(?:_))$/;
-const underscorePasteRegex = /(?:^|\s)((?:_)((?:[^_]+))(?:_))/g;
+/**
+ * Matches an italic to a *italic* on input.
+ */
+const starInputRegex = /(?:^|\s)(\*(?!\s+\*)((?:[^*]+))\*(?!\s+\*))$/;
+/**
+ * Matches an italic to a *italic* on paste.
+ */
+const starPasteRegex = /(?:^|\s)(\*(?!\s+\*)((?:[^*]+))\*(?!\s+\*))/g;
+/**
+ * Matches an italic to a _italic_ on input.
+ */
+const underscoreInputRegex = /(?:^|\s)(_(?!\s+_)((?:[^_]+))_(?!\s+_))$/;
+/**
+ * Matches an italic to a _italic_ on paste.
+ */
+const underscorePasteRegex = /(?:^|\s)(_(?!\s+_)((?:[^_]+))_(?!\s+_))/g;
+/**
+ * This extension allows you to create italic text.
+ * @see https://www.tiptap.dev/api/marks/italic
+ */
 const Italic = core.Mark.create({
     name: 'italic',
     addOptions() {
@@ -5814,6 +6643,10 @@ const Italic = core.Mark.create({
             {
                 tag: 'i',
                 getAttrs: node => node.style.fontStyle !== 'normal' && null,
+            },
+            {
+                style: 'font-style=normal',
+                clearMark: mark => mark.type.name === this.name,
             },
             {
                 style: 'font-style=italic',
@@ -5869,7 +6702,7 @@ const Italic = core.Mark.create({
 });
 
 exports.Italic = Italic;
-exports["default"] = Italic;
+exports.default = Italic;
 exports.starInputRegex = starInputRegex;
 exports.starPasteRegex = starPasteRegex;
 exports.underscoreInputRegex = underscoreInputRegex;
@@ -5882,7 +6715,438 @@ exports.underscorePasteRegex = underscorePasteRegex;
 Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
+var linkifyjs = require('linkifyjs');
+var state = require('@tiptap/pm/state');
 
+/**
+ * Check if the provided tokens form a valid link structure, which can either be a single link token
+ * or a link token surrounded by parentheses or square brackets.
+ *
+ * This ensures that only complete and valid text is hyperlinked, preventing cases where a valid
+ * top-level domain (TLD) is immediately followed by an invalid character, like a number. For
+ * example, with the `find` method from Linkify, entering `example.com1` would result in
+ * `example.com` being linked and the trailing `1` left as plain text. By using the `tokenize`
+ * method, we can perform more comprehensive validation on the input text.
+ */
+function isValidLinkStructure(tokens) {
+    if (tokens.length === 1) {
+        return tokens[0].isLink;
+    }
+    if (tokens.length === 3 && tokens[1].isLink) {
+        return ['()', '[]'].includes(tokens[0].value + tokens[2].value);
+    }
+    return false;
+}
+/**
+ * This plugin allows you to automatically add links to your editor.
+ * @param options The plugin options
+ * @returns The plugin instance
+ */
+function autolink(options) {
+    return new state.Plugin({
+        key: new state.PluginKey('autolink'),
+        appendTransaction: (transactions, oldState, newState) => {
+            /**
+             * Does the transaction change the document?
+             */
+            const docChanges = transactions.some(transaction => transaction.docChanged) && !oldState.doc.eq(newState.doc);
+            /**
+             * Prevent autolink if the transaction is not a document change or if the transaction has the meta `preventAutolink`.
+             */
+            const preventAutolink = transactions.some(transaction => transaction.getMeta('preventAutolink'));
+            /**
+             * Prevent autolink if the transaction is not a document change
+             * or if the transaction has the meta `preventAutolink`.
+             */
+            if (!docChanges || preventAutolink) {
+                return;
+            }
+            const { tr } = newState;
+            const transform = core.combineTransactionSteps(oldState.doc, [...transactions]);
+            const changes = core.getChangedRanges(transform);
+            changes.forEach(({ newRange }) => {
+                // Now let’s see if we can add new links.
+                const nodesInChangedRanges = core.findChildrenInRange(newState.doc, newRange, node => node.isTextblock);
+                let textBlock;
+                let textBeforeWhitespace;
+                if (nodesInChangedRanges.length > 1) {
+                    // Grab the first node within the changed ranges (ex. the first of two paragraphs when hitting enter).
+                    textBlock = nodesInChangedRanges[0];
+                    textBeforeWhitespace = newState.doc.textBetween(textBlock.pos, textBlock.pos + textBlock.node.nodeSize, undefined, ' ');
+                }
+                else if (nodesInChangedRanges.length
+                    // We want to make sure to include the block seperator argument to treat hard breaks like spaces.
+                    && newState.doc.textBetween(newRange.from, newRange.to, ' ', ' ').endsWith(' ')) {
+                    textBlock = nodesInChangedRanges[0];
+                    textBeforeWhitespace = newState.doc.textBetween(textBlock.pos, newRange.to, undefined, ' ');
+                }
+                if (textBlock && textBeforeWhitespace) {
+                    const wordsBeforeWhitespace = textBeforeWhitespace.split(' ').filter(s => s !== '');
+                    if (wordsBeforeWhitespace.length <= 0) {
+                        return false;
+                    }
+                    const lastWordBeforeSpace = wordsBeforeWhitespace[wordsBeforeWhitespace.length - 1];
+                    const lastWordAndBlockOffset = textBlock.pos + textBeforeWhitespace.lastIndexOf(lastWordBeforeSpace);
+                    if (!lastWordBeforeSpace) {
+                        return false;
+                    }
+                    const linksBeforeSpace = linkifyjs.tokenize(lastWordBeforeSpace).map(t => t.toObject(options.defaultProtocol));
+                    if (!isValidLinkStructure(linksBeforeSpace)) {
+                        return false;
+                    }
+                    linksBeforeSpace
+                        .filter(link => link.isLink)
+                        // Calculate link position.
+                        .map(link => ({
+                        ...link,
+                        from: lastWordAndBlockOffset + link.start + 1,
+                        to: lastWordAndBlockOffset + link.end + 1,
+                    }))
+                        // ignore link inside code mark
+                        .filter(link => {
+                        if (!newState.schema.marks.code) {
+                            return true;
+                        }
+                        return !newState.doc.rangeHasMark(link.from, link.to, newState.schema.marks.code);
+                    })
+                        // validate link
+                        .filter(link => options.validate(link.value))
+                        // check whether should autolink
+                        .filter(link => options.shouldAutoLink(link.value))
+                        // Add link mark.
+                        .forEach(link => {
+                        if (core.getMarksBetween(link.from, link.to, newState.doc).some(item => item.mark.type === options.type)) {
+                            return;
+                        }
+                        tr.addMark(link.from, link.to, options.type.create({
+                            href: link.href,
+                        }));
+                    });
+                }
+            });
+            if (!tr.steps.length) {
+                return;
+            }
+            return tr;
+        },
+    });
+}
+
+function clickHandler(options) {
+    return new state.Plugin({
+        key: new state.PluginKey('handleClickLink'),
+        props: {
+            handleClick: (view, pos, event) => {
+                var _a, _b;
+                if (event.button !== 0) {
+                    return false;
+                }
+                if (!view.editable) {
+                    return false;
+                }
+                let a = event.target;
+                const els = [];
+                while (a.nodeName !== 'DIV') {
+                    els.push(a);
+                    a = a.parentNode;
+                }
+                if (!els.find(value => value.nodeName === 'A')) {
+                    return false;
+                }
+                const attrs = core.getAttributes(view.state, options.type.name);
+                const link = event.target;
+                const href = (_a = link === null || link === void 0 ? void 0 : link.href) !== null && _a !== void 0 ? _a : attrs.href;
+                const target = (_b = link === null || link === void 0 ? void 0 : link.target) !== null && _b !== void 0 ? _b : attrs.target;
+                if (link && href) {
+                    window.open(href, target);
+                    return true;
+                }
+                return false;
+            },
+        },
+    });
+}
+
+function pasteHandler(options) {
+    return new state.Plugin({
+        key: new state.PluginKey('handlePasteLink'),
+        props: {
+            handlePaste: (view, event, slice) => {
+                const { state } = view;
+                const { selection } = state;
+                const { empty } = selection;
+                if (empty) {
+                    return false;
+                }
+                let textContent = '';
+                slice.content.forEach(node => {
+                    textContent += node.textContent;
+                });
+                const link = linkifyjs.find(textContent, { defaultProtocol: options.defaultProtocol }).find(item => item.isLink && item.value === textContent);
+                if (!textContent || !link) {
+                    return false;
+                }
+                options.editor.commands.setMark(options.type, {
+                    href: link.href,
+                });
+                return true;
+            },
+        },
+    });
+}
+
+const pasteRegex = /https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z]{2,}\b(?:[-a-zA-Z0-9@:%._+~#=?!&/]*)(?:[-a-zA-Z0-9@:%._+~#=?!&/]*)/gi;
+// From DOMPurify
+// https://github.com/cure53/DOMPurify/blob/main/src/regexp.js
+// eslint-disable-next-line no-control-regex
+const ATTR_WHITESPACE = /[\u0000-\u0020\u00A0\u1680\u180E\u2000-\u2029\u205F\u3000]/g;
+function isAllowedUri(uri, protocols) {
+    const allowedProtocols = [
+        'http',
+        'https',
+        'ftp',
+        'ftps',
+        'mailto',
+        'tel',
+        'callto',
+        'sms',
+        'cid',
+        'xmpp',
+    ];
+    if (protocols) {
+        protocols.forEach(protocol => {
+            const nextProtocol = typeof protocol === 'string' ? protocol : protocol.scheme;
+            if (nextProtocol) {
+                allowedProtocols.push(nextProtocol);
+            }
+        });
+    }
+    return (!uri
+        || uri
+            .replace(ATTR_WHITESPACE, '')
+            .match(new RegExp(
+        // eslint-disable-next-line no-useless-escape
+        `^(?:(?:${allowedProtocols.join('|')}):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))`, 'i')));
+}
+/**
+ * This extension allows you to create links.
+ * @see https://www.tiptap.dev/api/marks/link
+ */
+const Link = core.Mark.create({
+    name: 'link',
+    priority: 1000,
+    keepOnSplit: false,
+    exitable: true,
+    onCreate() {
+        if (this.options.validate && !this.options.shouldAutoLink) {
+            // Copy the validate function to the shouldAutoLink option
+            this.options.shouldAutoLink = this.options.validate;
+            console.warn('The `validate` option is deprecated. Rename to the `shouldAutoLink` option instead.');
+        }
+        this.options.protocols.forEach(protocol => {
+            if (typeof protocol === 'string') {
+                linkifyjs.registerCustomProtocol(protocol);
+                return;
+            }
+            linkifyjs.registerCustomProtocol(protocol.scheme, protocol.optionalSlashes);
+        });
+    },
+    onDestroy() {
+        linkifyjs.reset();
+    },
+    inclusive() {
+        return this.options.autolink;
+    },
+    addOptions() {
+        return {
+            openOnClick: true,
+            linkOnPaste: true,
+            autolink: true,
+            protocols: [],
+            defaultProtocol: 'http',
+            HTMLAttributes: {
+                target: '_blank',
+                rel: 'noopener noreferrer nofollow',
+                class: null,
+            },
+            isAllowedUri: (url, ctx) => !!isAllowedUri(url, ctx.protocols),
+            validate: url => !!url,
+            shouldAutoLink: url => !!url,
+        };
+    },
+    addAttributes() {
+        return {
+            href: {
+                default: null,
+                parseHTML(element) {
+                    return element.getAttribute('href');
+                },
+            },
+            target: {
+                default: this.options.HTMLAttributes.target,
+            },
+            rel: {
+                default: this.options.HTMLAttributes.rel,
+            },
+            class: {
+                default: this.options.HTMLAttributes.class,
+            },
+        };
+    },
+    parseHTML() {
+        return [
+            {
+                tag: 'a[href]',
+                getAttrs: dom => {
+                    const href = dom.getAttribute('href');
+                    // prevent XSS attacks
+                    if (!href
+                        || !this.options.isAllowedUri(href, {
+                            defaultValidate: url => !!isAllowedUri(url, this.options.protocols),
+                            protocols: this.options.protocols,
+                            defaultProtocol: this.options.defaultProtocol,
+                        })) {
+                        return false;
+                    }
+                    return null;
+                },
+            },
+        ];
+    },
+    renderHTML({ HTMLAttributes }) {
+        // prevent XSS attacks
+        if (!this.options.isAllowedUri(HTMLAttributes.href, {
+            defaultValidate: href => !!isAllowedUri(href, this.options.protocols),
+            protocols: this.options.protocols,
+            defaultProtocol: this.options.defaultProtocol,
+        })) {
+            // strip out the href
+            return [
+                'a',
+                core.mergeAttributes(this.options.HTMLAttributes, { ...HTMLAttributes, href: '' }),
+                0,
+            ];
+        }
+        return ['a', core.mergeAttributes(this.options.HTMLAttributes, HTMLAttributes), 0];
+    },
+    addCommands() {
+        return {
+            setLink: attributes => ({ chain }) => {
+                const { href } = attributes;
+                if (!this.options.isAllowedUri(href, {
+                    defaultValidate: url => !!isAllowedUri(url, this.options.protocols),
+                    protocols: this.options.protocols,
+                    defaultProtocol: this.options.defaultProtocol,
+                })) {
+                    return false;
+                }
+                return chain().setMark(this.name, attributes).setMeta('preventAutolink', true).run();
+            },
+            toggleLink: attributes => ({ chain }) => {
+                const { href } = attributes;
+                if (!this.options.isAllowedUri(href, {
+                    defaultValidate: url => !!isAllowedUri(url, this.options.protocols),
+                    protocols: this.options.protocols,
+                    defaultProtocol: this.options.defaultProtocol,
+                })) {
+                    return false;
+                }
+                return chain()
+                    .toggleMark(this.name, attributes, { extendEmptyMarkRange: true })
+                    .setMeta('preventAutolink', true)
+                    .run();
+            },
+            unsetLink: () => ({ chain }) => {
+                return chain()
+                    .unsetMark(this.name, { extendEmptyMarkRange: true })
+                    .setMeta('preventAutolink', true)
+                    .run();
+            },
+        };
+    },
+    addPasteRules() {
+        return [
+            core.markPasteRule({
+                find: text => {
+                    const foundLinks = [];
+                    if (text) {
+                        const { protocols, defaultProtocol } = this.options;
+                        const links = linkifyjs.find(text).filter(item => item.isLink
+                            && this.options.isAllowedUri(item.value, {
+                                defaultValidate: href => !!isAllowedUri(href, protocols),
+                                protocols,
+                                defaultProtocol,
+                            }));
+                        if (links.length) {
+                            links.forEach(link => foundLinks.push({
+                                text: link.value,
+                                data: {
+                                    href: link.href,
+                                },
+                                index: link.start,
+                            }));
+                        }
+                    }
+                    return foundLinks;
+                },
+                type: this.type,
+                getAttributes: match => {
+                    var _a;
+                    return {
+                        href: (_a = match.data) === null || _a === void 0 ? void 0 : _a.href,
+                    };
+                },
+            }),
+        ];
+    },
+    addProseMirrorPlugins() {
+        const plugins = [];
+        const { protocols, defaultProtocol } = this.options;
+        if (this.options.autolink) {
+            plugins.push(autolink({
+                type: this.type,
+                defaultProtocol: this.options.defaultProtocol,
+                validate: url => this.options.isAllowedUri(url, {
+                    defaultValidate: href => !!isAllowedUri(href, protocols),
+                    protocols,
+                    defaultProtocol,
+                }),
+                shouldAutoLink: this.options.shouldAutoLink,
+            }));
+        }
+        if (this.options.openOnClick === true) {
+            plugins.push(clickHandler({
+                type: this.type,
+            }));
+        }
+        if (this.options.linkOnPaste) {
+            plugins.push(pasteHandler({
+                editor: this.editor,
+                defaultProtocol: this.options.defaultProtocol,
+                type: this.type,
+            }));
+        }
+        return plugins;
+    },
+});
+
+exports.Link = Link;
+exports.default = Link;
+exports.isAllowedUri = isAllowedUri;
+exports.pasteRegex = pasteRegex;
+
+
+},{"@tiptap/core":2,"@tiptap/pm/state":33,"linkifyjs":37}],19:[function(require,module,exports){
+'use strict';
+
+Object.defineProperty(exports, '__esModule', { value: true });
+
+var core = require('@tiptap/core');
+
+/**
+ * This extension allows you to create list items.
+ * @see https://www.tiptap.dev/api/nodes/list-item
+ */
 const ListItem = core.Node.create({
     name: 'listItem',
     addOptions() {
@@ -5914,85 +7178,28 @@ const ListItem = core.Node.create({
 });
 
 exports.ListItem = ListItem;
-exports["default"] = ListItem;
+exports.default = ListItem;
 
 
-},{"@tiptap/core":2}],19:[function(require,module,exports){
+},{"@tiptap/core":2}],20:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
 
-const ListItem = core.Node.create({
-    name: 'listItem',
-    addOptions() {
-        return {
-            HTMLAttributes: {},
-            bulletListTypeName: 'bulletList',
-            orderedListTypeName: 'orderedList',
-        };
-    },
-    content: 'paragraph block*',
-    defining: true,
-    parseHTML() {
-        return [
-            {
-                tag: 'li',
-            },
-        ];
-    },
-    renderHTML({ HTMLAttributes }) {
-        return ['li', core.mergeAttributes(this.options.HTMLAttributes, HTMLAttributes), 0];
-    },
-    addKeyboardShortcuts() {
-        return {
-            Enter: () => this.editor.commands.splitListItem(this.name),
-            Tab: () => this.editor.commands.sinkListItem(this.name),
-            'Shift-Tab': () => this.editor.commands.liftListItem(this.name),
-        };
-    },
-});
-
-const TextStyle = core.Mark.create({
-    name: 'textStyle',
-    addOptions() {
-        return {
-            HTMLAttributes: {},
-        };
-    },
-    parseHTML() {
-        return [
-            {
-                tag: 'span',
-                getAttrs: element => {
-                    const hasStyles = element.hasAttribute('style');
-                    if (!hasStyles) {
-                        return false;
-                    }
-                    return {};
-                },
-            },
-        ];
-    },
-    renderHTML({ HTMLAttributes }) {
-        return ['span', core.mergeAttributes(this.options.HTMLAttributes, HTMLAttributes), 0];
-    },
-    addCommands() {
-        return {
-            removeEmptyTextStyle: () => ({ state, commands }) => {
-                const attributes = core.getMarkAttributes(state, this.type);
-                const hasStyles = Object.entries(attributes).some(([, value]) => !!value);
-                if (hasStyles) {
-                    return true;
-                }
-                return commands.unsetMark(this.name);
-            },
-        };
-    },
-});
-
+const ListItemName = 'listItem';
+const TextStyleName = 'textStyle';
+/**
+ * Matches an ordered list to a 1. on input (or any number followed by a dot).
+ */
 const inputRegex = /^(\d+)\.\s$/;
+/**
+ * This extension allows you to create ordered lists.
+ * This requires the ListItem extension
+ * @see https://www.tiptap.dev/api/nodes/ordered-list
+ * @see https://www.tiptap.dev/api/nodes/list-item
+ */
 const OrderedList = core.Node.create({
     name: 'orderedList',
     addOptions() {
@@ -6017,6 +7224,10 @@ const OrderedList = core.Node.create({
                         : 1;
                 },
             },
+            type: {
+                default: undefined,
+                parseHTML: element => element.getAttribute('type'),
+            },
         };
     },
     parseHTML() {
@@ -6036,7 +7247,7 @@ const OrderedList = core.Node.create({
         return {
             toggleOrderedList: () => ({ commands, chain }) => {
                 if (this.options.keepAttributes) {
-                    return chain().toggleList(this.name, this.options.itemTypeName, this.options.keepMarks).updateAttributes(ListItem.name, this.editor.getAttributes(TextStyle.name)).run();
+                    return chain().toggleList(this.name, this.options.itemTypeName, this.options.keepMarks).updateAttributes(ListItemName, this.editor.getAttributes(TextStyleName)).run();
                 }
                 return commands.toggleList(this.name, this.options.itemTypeName, this.options.keepMarks);
             },
@@ -6060,7 +7271,7 @@ const OrderedList = core.Node.create({
                 type: this.type,
                 keepMarks: this.options.keepMarks,
                 keepAttributes: this.options.keepAttributes,
-                getAttributes: match => ({ start: +match[1], ...this.editor.getAttributes(TextStyle.name) }),
+                getAttributes: match => ({ start: +match[1], ...this.editor.getAttributes(TextStyleName) }),
                 joinPredicate: (match, node) => node.childCount + node.attrs.start === +match[1],
                 editor: this.editor,
             });
@@ -6072,17 +7283,21 @@ const OrderedList = core.Node.create({
 });
 
 exports.OrderedList = OrderedList;
-exports["default"] = OrderedList;
+exports.default = OrderedList;
 exports.inputRegex = inputRegex;
 
 
-},{"@tiptap/core":2}],20:[function(require,module,exports){
+},{"@tiptap/core":2}],21:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
 
+/**
+ * This extension allows you to create paragraphs.
+ * @see https://www.tiptap.dev/api/nodes/paragraph
+ */
 const Paragraph = core.Node.create({
     name: 'paragraph',
     priority: 1000,
@@ -6116,18 +7331,28 @@ const Paragraph = core.Node.create({
 });
 
 exports.Paragraph = Paragraph;
-exports["default"] = Paragraph;
+exports.default = Paragraph;
 
 
-},{"@tiptap/core":2}],21:[function(require,module,exports){
+},{"@tiptap/core":2}],22:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
 
-const inputRegex = /(?:^|\s)((?:~~)((?:[^~]+))(?:~~))$/;
-const pasteRegex = /(?:^|\s)((?:~~)((?:[^~]+))(?:~~))/g;
+/**
+ * Matches a strike to a ~~strike~~ on input.
+ */
+const inputRegex = /(?:^|\s)(~~(?!\s+~~)((?:[^~]+))~~(?!\s+~~))$/;
+/**
+ * Matches a strike to a ~~strike~~ on paste.
+ */
+const pasteRegex = /(?:^|\s)(~~(?!\s+~~)((?:[^~]+))~~(?!\s+~~))/g;
+/**
+ * This extension allows you to create strike text.
+ * @see https://www.tiptap.dev/api/marks/strike
+ */
 const Strike = core.Mark.create({
     name: 'strike',
     addOptions() {
@@ -6170,14 +7395,9 @@ const Strike = core.Mark.create({
         };
     },
     addKeyboardShortcuts() {
-        const shortcuts = {};
-        if (core.isMacOS()) {
-            shortcuts['Mod-Shift-s'] = () => this.editor.commands.toggleStrike();
-        }
-        else {
-            shortcuts['Ctrl-Shift-s'] = () => this.editor.commands.toggleStrike();
-        }
-        return shortcuts;
+        return {
+            'Mod-Shift-s': () => this.editor.commands.toggleStrike(),
+        };
     },
     addInputRules() {
         return [
@@ -6198,18 +7418,22 @@ const Strike = core.Mark.create({
 });
 
 exports.Strike = Strike;
-exports["default"] = Strike;
+exports.default = Strike;
 exports.inputRegex = inputRegex;
 exports.pasteRegex = pasteRegex;
 
 
-},{"@tiptap/core":2}],22:[function(require,module,exports){
+},{"@tiptap/core":2}],23:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
 
+/**
+ * This extension allows you to align text.
+ * @see https://www.tiptap.dev/api/extensions/text-align
+ */
 const TextAlign = core.Extension.create({
     name: 'textAlign',
     addOptions() {
@@ -6226,7 +7450,10 @@ const TextAlign = core.Extension.create({
                 attributes: {
                     textAlign: {
                         default: this.options.defaultAlignment,
-                        parseHTML: element => element.style.textAlign || this.options.defaultAlignment,
+                        parseHTML: element => {
+                            const alignment = element.style.textAlign || this.options.defaultAlignment;
+                            return this.options.alignments.includes(alignment) ? alignment : this.options.defaultAlignment;
+                        },
                         renderHTML: attributes => {
                             if (attributes.textAlign === this.options.defaultAlignment) {
                                 return {};
@@ -6244,10 +7471,14 @@ const TextAlign = core.Extension.create({
                 if (!this.options.alignments.includes(alignment)) {
                     return false;
                 }
-                return this.options.types.every(type => commands.updateAttributes(type, { textAlign: alignment }));
+                return this.options.types
+                    .map(type => commands.updateAttributes(type, { textAlign: alignment }))
+                    .every(response => response);
             },
             unsetTextAlign: () => ({ commands }) => {
-                return this.options.types.every(type => commands.resetAttributes(type, 'textAlign'));
+                return this.options.types
+                    .map(type => commands.resetAttributes(type, 'textAlign'))
+                    .every(response => response);
             },
         };
     },
@@ -6262,66 +7493,305 @@ const TextAlign = core.Extension.create({
 });
 
 exports.TextAlign = TextAlign;
-exports["default"] = TextAlign;
+exports.default = TextAlign;
 
 
-},{"@tiptap/core":2}],23:[function(require,module,exports){
+},{"@tiptap/core":2}],24:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
 
+/**
+ * This extension allows you to create text nodes.
+ * @see https://www.tiptap.dev/api/nodes/text
+ */
 const Text = core.Node.create({
     name: 'text',
     group: 'inline',
 });
 
 exports.Text = Text;
-exports["default"] = Text;
+exports.default = Text;
 
 
-},{"@tiptap/core":2}],24:[function(require,module,exports){
+},{"@tiptap/core":2}],25:[function(require,module,exports){
+'use strict';
+
+Object.defineProperty(exports, '__esModule', { value: true });
+
+var core = require('@tiptap/core');
+
+const YOUTUBE_REGEX = /^(https?:\/\/)?(www\.|music\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)\/(?!channel\/)(?!@)(.+)?$/;
+const YOUTUBE_REGEX_GLOBAL = /^(https?:\/\/)?(www\.|music\.)?(youtube\.com|youtu\.be)\/(?!channel\/)(?!@)(.+)?$/g;
+const isValidYoutubeUrl = (url) => {
+    return url.match(YOUTUBE_REGEX);
+};
+const getYoutubeEmbedUrl = (nocookie) => {
+    return nocookie ? 'https://www.youtube-nocookie.com/embed/' : 'https://www.youtube.com/embed/';
+};
+const getEmbedUrlFromYoutubeUrl = (options) => {
+    const { url, allowFullscreen, autoplay, ccLanguage, ccLoadPolicy, controls, disableKBcontrols, enableIFrameApi, endTime, interfaceLanguage, ivLoadPolicy, loop, modestBranding, nocookie, origin, playlist, progressBarColor, startAt, } = options;
+    if (!isValidYoutubeUrl(url)) {
+        return null;
+    }
+    // if is already an embed url, return it
+    if (url.includes('/embed/')) {
+        return url;
+    }
+    // if is a youtu.be url, get the id after the /
+    if (url.includes('youtu.be')) {
+        const id = url.split('/').pop();
+        if (!id) {
+            return null;
+        }
+        return `${getYoutubeEmbedUrl(nocookie)}${id}`;
+    }
+    const videoIdRegex = /(?:v=|shorts\/)([-\w]+)/gm;
+    const matches = videoIdRegex.exec(url);
+    if (!matches || !matches[1]) {
+        return null;
+    }
+    let outputUrl = `${getYoutubeEmbedUrl(nocookie)}${matches[1]}`;
+    const params = [];
+    if (allowFullscreen === false) {
+        params.push('fs=0');
+    }
+    if (autoplay) {
+        params.push('autoplay=1');
+    }
+    if (ccLanguage) {
+        params.push(`cc_lang_pref=${ccLanguage}`);
+    }
+    if (ccLoadPolicy) {
+        params.push('cc_load_policy=1');
+    }
+    if (!controls) {
+        params.push('controls=0');
+    }
+    if (disableKBcontrols) {
+        params.push('disablekb=1');
+    }
+    if (enableIFrameApi) {
+        params.push('enablejsapi=1');
+    }
+    if (endTime) {
+        params.push(`end=${endTime}`);
+    }
+    if (interfaceLanguage) {
+        params.push(`hl=${interfaceLanguage}`);
+    }
+    if (ivLoadPolicy) {
+        params.push(`iv_load_policy=${ivLoadPolicy}`);
+    }
+    if (loop) {
+        params.push('loop=1');
+    }
+    if (modestBranding) {
+        params.push('modestbranding=1');
+    }
+    if (origin) {
+        params.push(`origin=${origin}`);
+    }
+    if (playlist) {
+        params.push(`playlist=${playlist}`);
+    }
+    if (startAt) {
+        params.push(`start=${startAt}`);
+    }
+    if (progressBarColor) {
+        params.push(`color=${progressBarColor}`);
+    }
+    if (params.length) {
+        outputUrl += `?${params.join('&')}`;
+    }
+    return outputUrl;
+};
+
+/**
+ * This extension adds support for youtube videos.
+ * @see https://www.tiptap.dev/api/nodes/youtube
+ */
+const Youtube = core.Node.create({
+    name: 'youtube',
+    addOptions() {
+        return {
+            addPasteHandler: true,
+            allowFullscreen: true,
+            autoplay: false,
+            ccLanguage: undefined,
+            ccLoadPolicy: undefined,
+            controls: true,
+            disableKBcontrols: false,
+            enableIFrameApi: false,
+            endTime: 0,
+            height: 480,
+            interfaceLanguage: undefined,
+            ivLoadPolicy: 0,
+            loop: false,
+            modestBranding: false,
+            HTMLAttributes: {},
+            inline: false,
+            nocookie: false,
+            origin: '',
+            playlist: '',
+            progressBarColor: undefined,
+            width: 640,
+        };
+    },
+    inline() {
+        return this.options.inline;
+    },
+    group() {
+        return this.options.inline ? 'inline' : 'block';
+    },
+    draggable: true,
+    addAttributes() {
+        return {
+            src: {
+                default: null,
+            },
+            start: {
+                default: 0,
+            },
+            width: {
+                default: this.options.width,
+            },
+            height: {
+                default: this.options.height,
+            },
+        };
+    },
+    parseHTML() {
+        return [
+            {
+                tag: 'div[data-youtube-video] iframe',
+            },
+        ];
+    },
+    addCommands() {
+        return {
+            setYoutubeVideo: (options) => ({ commands }) => {
+                if (!isValidYoutubeUrl(options.src)) {
+                    return false;
+                }
+                return commands.insertContent({
+                    type: this.name,
+                    attrs: options,
+                });
+            },
+        };
+    },
+    addPasteRules() {
+        if (!this.options.addPasteHandler) {
+            return [];
+        }
+        return [
+            core.nodePasteRule({
+                find: YOUTUBE_REGEX_GLOBAL,
+                type: this.type,
+                getAttributes: match => {
+                    return { src: match.input };
+                },
+            }),
+        ];
+    },
+    renderHTML({ HTMLAttributes }) {
+        const embedUrl = getEmbedUrlFromYoutubeUrl({
+            url: HTMLAttributes.src,
+            allowFullscreen: this.options.allowFullscreen,
+            autoplay: this.options.autoplay,
+            ccLanguage: this.options.ccLanguage,
+            ccLoadPolicy: this.options.ccLoadPolicy,
+            controls: this.options.controls,
+            disableKBcontrols: this.options.disableKBcontrols,
+            enableIFrameApi: this.options.enableIFrameApi,
+            endTime: this.options.endTime,
+            interfaceLanguage: this.options.interfaceLanguage,
+            ivLoadPolicy: this.options.ivLoadPolicy,
+            loop: this.options.loop,
+            modestBranding: this.options.modestBranding,
+            nocookie: this.options.nocookie,
+            origin: this.options.origin,
+            playlist: this.options.playlist,
+            progressBarColor: this.options.progressBarColor,
+            startAt: HTMLAttributes.start || 0,
+        });
+        HTMLAttributes.src = embedUrl;
+        return [
+            'div',
+            { 'data-youtube-video': '' },
+            [
+                'iframe',
+                core.mergeAttributes(this.options.HTMLAttributes, {
+                    width: this.options.width,
+                    height: this.options.height,
+                    allowfullscreen: this.options.allowFullscreen,
+                    autoplay: this.options.autoplay,
+                    ccLanguage: this.options.ccLanguage,
+                    ccLoadPolicy: this.options.ccLoadPolicy,
+                    disableKBcontrols: this.options.disableKBcontrols,
+                    enableIFrameApi: this.options.enableIFrameApi,
+                    endTime: this.options.endTime,
+                    interfaceLanguage: this.options.interfaceLanguage,
+                    ivLoadPolicy: this.options.ivLoadPolicy,
+                    loop: this.options.loop,
+                    modestBranding: this.options.modestBranding,
+                    origin: this.options.origin,
+                    playlist: this.options.playlist,
+                    progressBarColor: this.options.progressBarColor,
+                }, HTMLAttributes),
+            ],
+        ];
+    },
+});
+
+exports.Youtube = Youtube;
+exports.default = Youtube;
+
+
+},{"@tiptap/core":2}],26:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// commands/index.ts
 var _prosemirrorcommands = require('prosemirror-commands'); _createStarExport(_prosemirrorcommands);
 
-},{"prosemirror-commands":36}],25:[function(require,module,exports){
+},{"prosemirror-commands":39}],27:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// dropcursor/index.ts
 var _prosemirrordropcursor = require('prosemirror-dropcursor'); _createStarExport(_prosemirrordropcursor);
 
-},{"prosemirror-dropcursor":37}],26:[function(require,module,exports){
+},{"prosemirror-dropcursor":40}],28:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// gapcursor/index.ts
 var _prosemirrorgapcursor = require('prosemirror-gapcursor'); _createStarExport(_prosemirrorgapcursor);
 
-},{"prosemirror-gapcursor":38}],27:[function(require,module,exports){
+},{"prosemirror-gapcursor":41}],29:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// history/index.ts
 var _prosemirrorhistory = require('prosemirror-history'); _createStarExport(_prosemirrorhistory);
 
-},{"prosemirror-history":39}],28:[function(require,module,exports){
+},{"prosemirror-history":42}],30:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// keymap/index.ts
 var _prosemirrorkeymap = require('prosemirror-keymap'); _createStarExport(_prosemirrorkeymap);
 
-},{"prosemirror-keymap":40}],29:[function(require,module,exports){
+},{"prosemirror-keymap":43}],31:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// model/index.ts
 var _prosemirrormodel = require('prosemirror-model'); _createStarExport(_prosemirrormodel);
 
-},{"prosemirror-model":41}],30:[function(require,module,exports){
+},{"prosemirror-model":44}],32:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// schema-list/index.ts
 var _prosemirrorschemalist = require('prosemirror-schema-list'); _createStarExport(_prosemirrorschemalist);
 
-},{"prosemirror-schema-list":42}],31:[function(require,module,exports){
+},{"prosemirror-schema-list":45}],33:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// state/index.ts
 var _prosemirrorstate = require('prosemirror-state'); _createStarExport(_prosemirrorstate);
 
-},{"prosemirror-state":43}],32:[function(require,module,exports){
+},{"prosemirror-state":46}],34:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// transform/index.ts
 var _prosemirrortransform = require('prosemirror-transform'); _createStarExport(_prosemirrortransform);
 
-},{"prosemirror-transform":44}],33:[function(require,module,exports){
+},{"prosemirror-transform":47}],35:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// view/index.ts
 var _prosemirrorview = require('prosemirror-view'); _createStarExport(_prosemirrorview);
 
-},{"prosemirror-view":45}],34:[function(require,module,exports){
+},{"prosemirror-view":48}],36:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
@@ -6346,16 +7816,21 @@ var extensionParagraph = require('@tiptap/extension-paragraph');
 var extensionStrike = require('@tiptap/extension-strike');
 var extensionText = require('@tiptap/extension-text');
 
+/**
+ * The starter kit is a collection of essential editor extensions.
+ *
+ * It’s a good starting point for building your own editor.
+ */
 const StarterKit = core.Extension.create({
     name: 'starterKit',
     addExtensions() {
         var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t;
         const extensions = [];
-        if (this.options.blockquote !== false) {
-            extensions.push(extensionBlockquote.Blockquote.configure((_a = this.options) === null || _a === void 0 ? void 0 : _a.blockquote));
-        }
         if (this.options.bold !== false) {
-            extensions.push(extensionBold.Bold.configure((_b = this.options) === null || _b === void 0 ? void 0 : _b.bold));
+            extensions.push(extensionBold.Bold.configure((_a = this.options) === null || _a === void 0 ? void 0 : _a.bold));
+        }
+        if (this.options.blockquote !== false) {
+            extensions.push(extensionBlockquote.Blockquote.configure((_b = this.options) === null || _b === void 0 ? void 0 : _b.blockquote));
         }
         if (this.options.bulletList !== false) {
             extensions.push(extensionBulletList.BulletList.configure((_c = this.options) === null || _c === void 0 ? void 0 : _c.bulletList));
@@ -6410,10 +7885,1884 @@ const StarterKit = core.Extension.create({
 });
 
 exports.StarterKit = StarterKit;
-exports["default"] = StarterKit;
+exports.default = StarterKit;
 
 
-},{"@tiptap/core":2,"@tiptap/extension-blockquote":3,"@tiptap/extension-bold":4,"@tiptap/extension-bullet-list":5,"@tiptap/extension-code":7,"@tiptap/extension-code-block":6,"@tiptap/extension-document":8,"@tiptap/extension-dropcursor":9,"@tiptap/extension-gapcursor":10,"@tiptap/extension-hard-break":11,"@tiptap/extension-heading":12,"@tiptap/extension-history":14,"@tiptap/extension-horizontal-rule":15,"@tiptap/extension-italic":17,"@tiptap/extension-list-item":18,"@tiptap/extension-ordered-list":19,"@tiptap/extension-paragraph":20,"@tiptap/extension-strike":21,"@tiptap/extension-text":23}],35:[function(require,module,exports){
+},{"@tiptap/core":2,"@tiptap/extension-blockquote":3,"@tiptap/extension-bold":4,"@tiptap/extension-bullet-list":5,"@tiptap/extension-code":7,"@tiptap/extension-code-block":6,"@tiptap/extension-document":8,"@tiptap/extension-dropcursor":9,"@tiptap/extension-gapcursor":10,"@tiptap/extension-hard-break":11,"@tiptap/extension-heading":12,"@tiptap/extension-history":14,"@tiptap/extension-horizontal-rule":15,"@tiptap/extension-italic":17,"@tiptap/extension-list-item":19,"@tiptap/extension-ordered-list":20,"@tiptap/extension-paragraph":21,"@tiptap/extension-strike":22,"@tiptap/extension-text":24}],37:[function(require,module,exports){
+'use strict';
+
+Object.defineProperty(exports, '__esModule', { value: true });
+
+// THIS FILE IS AUTOMATICALLY GENERATED DO NOT EDIT DIRECTLY
+// See update-tlds.js for encoding/decoding format
+// https://data.iana.org/TLD/tlds-alpha-by-domain.txt
+const encodedTlds = 'aaa1rp3bb0ott3vie4c1le2ogado5udhabi7c0ademy5centure6ountant0s9o1tor4d0s1ult4e0g1ro2tna4f0l1rica5g0akhan5ency5i0g1rbus3force5tel5kdn3l0ibaba4pay4lfinanz6state5y2sace3tom5m0azon4ericanexpress7family11x2fam3ica3sterdam8nalytics7droid5quan4z2o0l2partments8p0le4q0uarelle8r0ab1mco4chi3my2pa2t0e3s0da2ia2sociates9t0hleta5torney7u0ction5di0ble3o3spost5thor3o0s4w0s2x0a2z0ure5ba0by2idu3namex4d1k2r0celona5laycard4s5efoot5gains6seball5ketball8uhaus5yern5b0c1t1va3cg1n2d1e0ats2uty4er2ntley5rlin4st0buy5t2f1g1h0arti5i0ble3d1ke2ng0o3o1z2j1lack0friday9ockbuster8g1omberg7ue3m0s1w2n0pparibas9o0ats3ehringer8fa2m1nd2o0k0ing5sch2tik2on4t1utique6x2r0adesco6idgestone9oadway5ker3ther5ussels7s1t1uild0ers6siness6y1zz3v1w1y1z0h3ca0b1fe2l0l1vinklein9m0era3p2non3petown5ital0one8r0avan4ds2e0er0s4s2sa1e1h1ino4t0ering5holic7ba1n1re3c1d1enter4o1rn3f0a1d2g1h0anel2nel4rity4se2t2eap3intai5ristmas6ome4urch5i0priani6rcle4sco3tadel4i0c2y3k1l0aims4eaning6ick2nic1que6othing5ud3ub0med6m1n1o0ach3des3ffee4llege4ogne5m0mbank4unity6pany2re3uter5sec4ndos3struction8ulting7tact3ractors9oking4l1p2rsica5untry4pon0s4rses6pa2r0edit0card4union9icket5own3s1uise0s6u0isinella9v1w1x1y0mru3ou3z2dad1nce3ta1e1ing3sun4y2clk3ds2e0al0er2s3gree4livery5l1oitte5ta3mocrat6ntal2ist5si0gn4v2hl2iamonds6et2gital5rect0ory7scount3ver5h2y2j1k1m1np2o0cs1tor4g1mains5t1wnload7rive4tv2ubai3nlop4pont4rban5vag2r2z2earth3t2c0o2deka3u0cation8e1g1mail3erck5nergy4gineer0ing9terprises10pson4quipment8r0icsson6ni3s0q1tate5t1u0rovision8s2vents5xchange6pert3osed4ress5traspace10fage2il1rwinds6th3mily4n0s2rm0ers5shion4t3edex3edback6rrari3ero6i0delity5o2lm2nal1nce1ial7re0stone6mdale6sh0ing5t0ness6j1k1lickr3ghts4r2orist4wers5y2m1o0o0d1tball6rd1ex2sale4um3undation8x2r0ee1senius7l1ogans4ntier7tr2ujitsu5n0d2rniture7tbol5yi3ga0l0lery3o1up4me0s3p1rden4y2b0iz3d0n2e0a1nt0ing5orge5f1g0ee3h1i0ft0s3ves2ing5l0ass3e1obal2o4m0ail3bh2o1x2n1odaddy5ld0point6f2o0dyear5g0le4p1t1v2p1q1r0ainger5phics5tis4een3ipe3ocery4up4s1t1u0cci3ge2ide2tars5ru3w1y2hair2mburg5ngout5us3bo2dfc0bank7ealth0care8lp1sinki6re1mes5iphop4samitsu7tachi5v2k0t2m1n1ockey4ldings5iday5medepot5goods5s0ense7nda3rse3spital5t0ing5t0els3mail5use3w2r1sbc3t1u0ghes5yatt3undai7ibm2cbc2e1u2d1e0ee3fm2kano4l1m0amat4db2mo0bilien9n0c1dustries8finiti5o2g1k1stitute6urance4e4t0ernational10uit4vestments10o1piranga7q1r0ish4s0maili5t0anbul7t0au2v3jaguar4va3cb2e0ep2tzt3welry6io2ll2m0p2nj2o0bs1urg4t1y2p0morgan6rs3uegos4niper7kaufen5ddi3e0rryhotels6logistics9properties14fh2g1h1i0a1ds2m1ndle4tchen5wi3m1n1oeln3matsu5sher5p0mg2n2r0d1ed3uokgroup8w1y0oto4z2la0caixa5mborghini8er3ncaster6d0rover6xess5salle5t0ino3robe5w0yer5b1c1ds2ease3clerc5frak4gal2o2xus4gbt3i0dl2fe0insurance9style7ghting6ke2lly3mited4o2ncoln4k2psy3ve1ing5k1lc1p2oan0s3cker3us3l1ndon4tte1o3ve3pl0financial11r1s1t0d0a3u0ndbeck6xe1ury5v1y2ma0drid4if1son4keup4n0agement7go3p1rket0ing3s4riott5shalls7ttel5ba2c0kinsey7d1e0d0ia3et2lbourne7me1orial6n0u2rckmsd7g1h1iami3crosoft7l1ni1t2t0subishi9k1l0b1s2m0a2n1o0bi0le4da2e1i1m1nash3ey2ster5rmon3tgage6scow4to0rcycles9v0ie4p1q1r1s0d2t0n1r2u0seum3ic4v1w1x1y1z2na0b1goya4me2vy3ba2c1e0c1t0bank4flix4work5ustar5w0s2xt0direct7us4f0l2g0o2hk2i0co2ke1on3nja3ssan1y5l1o0kia3rton4w0ruz3tv4p1r0a1w2tt2u1yc2z2obi1server7ffice5kinawa6layan0group9lo3m0ega4ne1g1l0ine5oo2pen3racle3nge4g0anic5igins6saka4tsuka4t2vh3pa0ge2nasonic7ris2s1tners4s1y3y2ccw3e0t2f0izer5g1h0armacy6d1ilips5one2to0graphy6s4ysio5ics1tet2ures6d1n0g1k2oneer5zza4k1l0ace2y0station9umbing5s3m1n0c2ohl2ker3litie5rn2st3r0america6xi3ess3ime3o0d0uctions8f1gressive8mo2perties3y5tection8u0dential9s1t1ub2w0c2y2qa1pon3uebec3st5racing4dio4e0ad1lestate6tor2y4cipes5d0stone5umbrella9hab3ise0n3t2liance6n0t0als5pair3ort3ublican8st0aurant8view0s5xroth6ich0ardli6oh3l1o1p2o0cks3deo3gers4om3s0vp3u0gby3hr2n2w0e2yukyu6sa0arland6fe0ty4kura4le1on3msclub4ung5ndvik0coromant12ofi4p1rl2s1ve2xo3b0i1s2c0b1haeffler7midt4olarships8ol3ule3warz5ience5ot3d1e0arch3t2cure1ity6ek2lect4ner3rvices6ven3w1x0y3fr2g1h0angrila6rp3ell3ia1ksha5oes2p0ping5uji3w3i0lk2na1gles5te3j1k0i0n2y0pe4l0ing4m0art3ile4n0cf3o0ccer3ial4ftbank4ware6hu2lar2utions7ng1y2y2pa0ce3ort2t3r0l2s1t0ada2ples4r1tebank4farm7c0group6ockholm6rage3e3ream4udio2y3yle4u0cks3pplies3y2ort5rf1gery5zuki5v1watch4iss4x1y0dney4stems6z2tab1ipei4lk2obao4rget4tamotors6r2too4x0i3c0i2d0k2eam2ch0nology8l1masek5nnis4va3f1g1h0d1eater2re6iaa2ckets5enda4ps2res2ol4j0maxx4x2k0maxx5l1m0all4n1o0day3kyo3ols3p1ray3shiba5tal3urs3wn2yota3s3r0ade1ing4ining5vel0ers0insurance16ust3v2t1ube2i1nes3shu4v0s2w1z2ua1bank3s2g1k1nicom3versity8o2ol2ps2s1y1z2va0cations7na1guard7c1e0gas3ntures6risign5mögensberater2ung14sicherung10t2g1i0ajes4deo3g1king4llas4n1p1rgin4sa1ion4va1o3laanderen9n1odka3lvo3te1ing3o2yage5u2wales2mart4ter4ng0gou5tch0es6eather0channel12bcam3er2site5d0ding5ibo2r3f1hoswho6ien2ki2lliamhill9n0dows4e1ners6me2olterskluwer11odside6rk0s2ld3w2s1tc1f3xbox3erox4ihuan4n2xx2yz3yachts4hoo3maxun5ndex5e1odobashi7ga2kohama6u0tube6t1un3za0ppos4ra3ero3ip2m1one3uerich6w2';
+// Internationalized domain names containing non-ASCII
+const encodedUtlds = 'ελ1υ2бг1ел3дети4ею2католик6ом3мкд2он1сква6онлайн5рг3рус2ф2сайт3рб3укр3қаз3հայ3ישראל5קום3ابوظبي5رامكو5لاردن4بحرين5جزائر5سعودية6عليان5مغرب5مارات5یران5بارت2زار4يتك3ھارت5تونس4سودان3رية5شبكة4عراق2ب2مان4فلسطين6قطر3كاثوليك6وم3مصر2ليسيا5وريتانيا7قع4همراه5پاکستان7ڀارت4कॉम3नेट3भारत0म्3ोत5संगठन5বাংলা5ভারত2ৰত4ਭਾਰਤ4ભારત4ଭାରତ4இந்தியா6லங்கை6சிங்கப்பூர்11భారత్5ಭಾರತ4ഭാരതം5ලංකා4คอม3ไทย3ລາວ3გე2みんな3アマゾン4クラウド4グーグル4コム2ストア3セール3ファッション6ポイント4世界2中信1国1國1文网3亚马逊3企业2佛山2信息2健康2八卦2公司1益2台湾1灣2商城1店1标2嘉里0大酒店5在线2大拿2天主教3娱乐2家電2广东2微博2慈善2我爱你3手机2招聘2政务1府2新加坡2闻2时尚2書籍2机构2淡马锡3游戏2澳門2点看2移动2组织机构4网址1店1站1络2联通2谷歌2购物2通販2集团2電訊盈科4飞利浦3食品2餐厅2香格里拉3港2닷넷1컴2삼성2한국2';
+
+/**
+ * @template A
+ * @template B
+ * @param {A} target
+ * @param {B} properties
+ * @return {A & B}
+ */
+const assign = (target, properties) => {
+  for (const key in properties) {
+    target[key] = properties[key];
+  }
+  return target;
+};
+
+/**
+ * Finite State Machine generation utilities
+ */
+
+/**
+ * @template T
+ * @typedef {{ [group: string]: T[] }} Collections
+ */
+
+/**
+ * @typedef {{ [group: string]: true }} Flags
+ */
+
+// Keys in scanner Collections instances
+const numeric = 'numeric';
+const ascii = 'ascii';
+const alpha = 'alpha';
+const asciinumeric = 'asciinumeric';
+const alphanumeric = 'alphanumeric';
+const domain = 'domain';
+const emoji = 'emoji';
+const scheme = 'scheme';
+const slashscheme = 'slashscheme';
+const whitespace = 'whitespace';
+
+/**
+ * @template T
+ * @param {string} name
+ * @param {Collections<T>} groups to register in
+ * @returns {T[]} Current list of tokens in the given collection
+ */
+function registerGroup(name, groups) {
+  if (!(name in groups)) {
+    groups[name] = [];
+  }
+  return groups[name];
+}
+
+/**
+ * @template T
+ * @param {T} t token to add
+ * @param {Collections<T>} groups
+ * @param {Flags} flags
+ */
+function addToGroups(t, flags, groups) {
+  if (flags[numeric]) {
+    flags[asciinumeric] = true;
+    flags[alphanumeric] = true;
+  }
+  if (flags[ascii]) {
+    flags[asciinumeric] = true;
+    flags[alpha] = true;
+  }
+  if (flags[asciinumeric]) {
+    flags[alphanumeric] = true;
+  }
+  if (flags[alpha]) {
+    flags[alphanumeric] = true;
+  }
+  if (flags[alphanumeric]) {
+    flags[domain] = true;
+  }
+  if (flags[emoji]) {
+    flags[domain] = true;
+  }
+  for (const k in flags) {
+    const group = registerGroup(k, groups);
+    if (group.indexOf(t) < 0) {
+      group.push(t);
+    }
+  }
+}
+
+/**
+ * @template T
+ * @param {T} t token to check
+ * @param {Collections<T>} groups
+ * @returns {Flags} group flags that contain this token
+ */
+function flagsForToken(t, groups) {
+  const result = {};
+  for (const c in groups) {
+    if (groups[c].indexOf(t) >= 0) {
+      result[c] = true;
+    }
+  }
+  return result;
+}
+
+/**
+ * @template T
+ * @typedef {null | T } Transition
+ */
+
+/**
+ * Define a basic state machine state. j is the list of character transitions,
+ * jr is the list of regex-match transitions, jd is the default state to
+ * transition to t is the accepting token type, if any. If this is the terminal
+ * state, then it does not emit a token.
+ *
+ * The template type T represents the type of the token this state accepts. This
+ * should be a string (such as of the token exports in `text.js`) or a
+ * MultiToken subclass (from `multi.js`)
+ *
+ * @template T
+ * @param {T} [token] Token that this state emits
+ */
+function State(token = null) {
+  // this.n = null; // DEBUG: State name
+  /** @type {{ [input: string]: State<T> }} j */
+  this.j = {}; // IMPLEMENTATION 1
+  // this.j = []; // IMPLEMENTATION 2
+  /** @type {[RegExp, State<T>][]} jr */
+  this.jr = [];
+  /** @type {?State<T>} jd */
+  this.jd = null;
+  /** @type {?T} t */
+  this.t = token;
+}
+
+/**
+ * Scanner token groups
+ * @type Collections<string>
+ */
+State.groups = {};
+State.prototype = {
+  accepts() {
+    return !!this.t;
+  },
+  /**
+   * Follow an existing transition from the given input to the next state.
+   * Does not mutate.
+   * @param {string} input character or token type to transition on
+   * @returns {?State<T>} the next state, if any
+   */
+  go(input) {
+    const state = this;
+    const nextState = state.j[input];
+    if (nextState) {
+      return nextState;
+    }
+    for (let i = 0; i < state.jr.length; i++) {
+      const regex = state.jr[i][0];
+      const nextState = state.jr[i][1]; // note: might be empty to prevent default jump
+      if (nextState && regex.test(input)) {
+        return nextState;
+      }
+    }
+    // Nowhere left to jump! Return default, if any
+    return state.jd;
+  },
+  /**
+   * Whether the state has a transition for the given input. Set the second
+   * argument to true to only look for an exact match (and not a default or
+   * regular-expression-based transition)
+   * @param {string} input
+   * @param {boolean} exactOnly
+   */
+  has(input, exactOnly = false) {
+    return exactOnly ? input in this.j : !!this.go(input);
+  },
+  /**
+   * Short for "transition all"; create a transition from the array of items
+   * in the given list to the same final resulting state.
+   * @param {string | string[]} inputs Group of inputs to transition on
+   * @param {Transition<T> | State<T>} [next] Transition options
+   * @param {Flags} [flags] Collections flags to add token to
+   * @param {Collections<T>} [groups] Master list of token groups
+   */
+  ta(inputs, next, flags, groups) {
+    for (let i = 0; i < inputs.length; i++) {
+      this.tt(inputs[i], next, flags, groups);
+    }
+  },
+  /**
+   * Short for "take regexp transition"; defines a transition for this state
+   * when it encounters a token which matches the given regular expression
+   * @param {RegExp} regexp Regular expression transition (populate first)
+   * @param {T | State<T>} [next] Transition options
+   * @param {Flags} [flags] Collections flags to add token to
+   * @param {Collections<T>} [groups] Master list of token groups
+   * @returns {State<T>} taken after the given input
+   */
+  tr(regexp, next, flags, groups) {
+    groups = groups || State.groups;
+    let nextState;
+    if (next && next.j) {
+      nextState = next;
+    } else {
+      // Token with maybe token groups
+      nextState = new State(next);
+      if (flags && groups) {
+        addToGroups(next, flags, groups);
+      }
+    }
+    this.jr.push([regexp, nextState]);
+    return nextState;
+  },
+  /**
+   * Short for "take transitions", will take as many sequential transitions as
+   * the length of the given input and returns the
+   * resulting final state.
+   * @param {string | string[]} input
+   * @param {T | State<T>} [next] Transition options
+   * @param {Flags} [flags] Collections flags to add token to
+   * @param {Collections<T>} [groups] Master list of token groups
+   * @returns {State<T>} taken after the given input
+   */
+  ts(input, next, flags, groups) {
+    let state = this;
+    const len = input.length;
+    if (!len) {
+      return state;
+    }
+    for (let i = 0; i < len - 1; i++) {
+      state = state.tt(input[i]);
+    }
+    return state.tt(input[len - 1], next, flags, groups);
+  },
+  /**
+   * Short for "take transition", this is a method for building/working with
+   * state machines.
+   *
+   * If a state already exists for the given input, returns it.
+   *
+   * If a token is specified, that state will emit that token when reached by
+   * the linkify engine.
+   *
+   * If no state exists, it will be initialized with some default transitions
+   * that resemble existing default transitions.
+   *
+   * If a state is given for the second argument, that state will be
+   * transitioned to on the given input regardless of what that input
+   * previously did.
+   *
+   * Specify a token group flags to define groups that this token belongs to.
+   * The token will be added to corresponding entires in the given groups
+   * object.
+   *
+   * @param {string} input character, token type to transition on
+   * @param {T | State<T>} [next] Transition options
+   * @param {Flags} [flags] Collections flags to add token to
+   * @param {Collections<T>} [groups] Master list of groups
+   * @returns {State<T>} taken after the given input
+   */
+  tt(input, next, flags, groups) {
+    groups = groups || State.groups;
+    const state = this;
+
+    // Check if existing state given, just a basic transition
+    if (next && next.j) {
+      state.j[input] = next;
+      return next;
+    }
+    const t = next;
+
+    // Take the transition with the usual default mechanisms and use that as
+    // a template for creating the next state
+    let nextState,
+      templateState = state.go(input);
+    if (templateState) {
+      nextState = new State();
+      assign(nextState.j, templateState.j);
+      nextState.jr.push.apply(nextState.jr, templateState.jr);
+      nextState.jd = templateState.jd;
+      nextState.t = templateState.t;
+    } else {
+      nextState = new State();
+    }
+    if (t) {
+      // Ensure newly token is in the same groups as the old token
+      if (groups) {
+        if (nextState.t && typeof nextState.t === 'string') {
+          const allFlags = assign(flagsForToken(nextState.t, groups), flags);
+          addToGroups(t, allFlags, groups);
+        } else if (flags) {
+          addToGroups(t, flags, groups);
+        }
+      }
+      nextState.t = t; // overwrite anything that was previously there
+    }
+    state.j[input] = nextState;
+    return nextState;
+  }
+};
+
+// Helper functions to improve minification (not exported outside linkifyjs module)
+
+/**
+ * @template T
+ * @param {State<T>} state
+ * @param {string | string[]} input
+ * @param {Flags} [flags]
+ * @param {Collections<T>} [groups]
+ */
+const ta = (state, input, next, flags, groups) => state.ta(input, next, flags, groups);
+
+/**
+ * @template T
+ * @param {State<T>} state
+ * @param {RegExp} regexp
+ * @param {T | State<T>} [next]
+ * @param {Flags} [flags]
+ * @param {Collections<T>} [groups]
+ */
+const tr = (state, regexp, next, flags, groups) => state.tr(regexp, next, flags, groups);
+
+/**
+ * @template T
+ * @param {State<T>} state
+ * @param {string | string[]} input
+ * @param {T | State<T>} [next]
+ * @param {Flags} [flags]
+ * @param {Collections<T>} [groups]
+ */
+const ts = (state, input, next, flags, groups) => state.ts(input, next, flags, groups);
+
+/**
+ * @template T
+ * @param {State<T>} state
+ * @param {string} input
+ * @param {T | State<T>} [next]
+ * @param {Collections<T>} [groups]
+ * @param {Flags} [flags]
+ */
+const tt = (state, input, next, flags, groups) => state.tt(input, next, flags, groups);
+
+/******************************************************************************
+Text Tokens
+Identifiers for token outputs from the regexp scanner
+******************************************************************************/
+
+// A valid web domain token
+const WORD = 'WORD'; // only contains a-z
+const UWORD = 'UWORD'; // contains letters other than a-z, used for IDN
+const ASCIINUMERICAL = 'ASCIINUMERICAL'; // contains a-z, 0-9
+const ALPHANUMERICAL = 'ALPHANUMERICAL'; // contains numbers and letters other than a-z, used for IDN
+
+// Special case of word
+const LOCALHOST = 'LOCALHOST';
+
+// Valid top-level domain, special case of WORD (see tlds.js)
+const TLD = 'TLD';
+
+// Valid IDN TLD, special case of UWORD (see tlds.js)
+const UTLD = 'UTLD';
+
+// The scheme portion of a web URI protocol. Supported types include: `mailto`,
+// `file`, and user-defined custom protocols. Limited to schemes that contain
+// only letters
+const SCHEME = 'SCHEME';
+
+// Similar to SCHEME, except makes distinction for schemes that must always be
+// followed by `://`, not just `:`. Supported types include `http`, `https`,
+// `ftp`, `ftps`
+const SLASH_SCHEME = 'SLASH_SCHEME';
+
+// Any sequence of digits 0-9
+const NUM = 'NUM';
+
+// Any number of consecutive whitespace characters that are not newline
+const WS = 'WS';
+
+// New line (unix style)
+const NL = 'NL'; // \n
+
+// Opening/closing bracket classes
+// TODO: Rename OPEN -> LEFT and CLOSE -> RIGHT in v5 to fit with Unicode names
+// Also rename angle brackes to LESSTHAN and GREATER THAN
+const OPENBRACE = 'OPENBRACE'; // {
+const CLOSEBRACE = 'CLOSEBRACE'; // }
+const OPENBRACKET = 'OPENBRACKET'; // [
+const CLOSEBRACKET = 'CLOSEBRACKET'; // ]
+const OPENPAREN = 'OPENPAREN'; // (
+const CLOSEPAREN = 'CLOSEPAREN'; // )
+const OPENANGLEBRACKET = 'OPENANGLEBRACKET'; // <
+const CLOSEANGLEBRACKET = 'CLOSEANGLEBRACKET'; // >
+const FULLWIDTHLEFTPAREN = 'FULLWIDTHLEFTPAREN'; // （
+const FULLWIDTHRIGHTPAREN = 'FULLWIDTHRIGHTPAREN'; // ）
+const LEFTCORNERBRACKET = 'LEFTCORNERBRACKET'; // 「
+const RIGHTCORNERBRACKET = 'RIGHTCORNERBRACKET'; // 」
+const LEFTWHITECORNERBRACKET = 'LEFTWHITECORNERBRACKET'; // 『
+const RIGHTWHITECORNERBRACKET = 'RIGHTWHITECORNERBRACKET'; // 』
+const FULLWIDTHLESSTHAN = 'FULLWIDTHLESSTHAN'; // ＜
+const FULLWIDTHGREATERTHAN = 'FULLWIDTHGREATERTHAN'; // ＞
+
+// Various symbols
+const AMPERSAND = 'AMPERSAND'; // &
+const APOSTROPHE = 'APOSTROPHE'; // '
+const ASTERISK = 'ASTERISK'; // *
+const AT = 'AT'; // @
+const BACKSLASH = 'BACKSLASH'; // \
+const BACKTICK = 'BACKTICK'; // `
+const CARET = 'CARET'; // ^
+const COLON = 'COLON'; // :
+const COMMA = 'COMMA'; // ,
+const DOLLAR = 'DOLLAR'; // $
+const DOT = 'DOT'; // .
+const EQUALS = 'EQUALS'; // =
+const EXCLAMATION = 'EXCLAMATION'; // !
+const HYPHEN = 'HYPHEN'; // -
+const PERCENT = 'PERCENT'; // %
+const PIPE = 'PIPE'; // |
+const PLUS = 'PLUS'; // +
+const POUND = 'POUND'; // #
+const QUERY = 'QUERY'; // ?
+const QUOTE = 'QUOTE'; // "
+const FULLWIDTHMIDDLEDOT = 'FULLWIDTHMIDDLEDOT'; // ・
+
+const SEMI = 'SEMI'; // ;
+const SLASH = 'SLASH'; // /
+const TILDE = 'TILDE'; // ~
+const UNDERSCORE = 'UNDERSCORE'; // _
+
+// Emoji symbol
+const EMOJI$1 = 'EMOJI';
+
+// Default token - anything that is not one of the above
+const SYM = 'SYM';
+
+var tk = /*#__PURE__*/Object.freeze({
+	__proto__: null,
+	WORD: WORD,
+	UWORD: UWORD,
+	ASCIINUMERICAL: ASCIINUMERICAL,
+	ALPHANUMERICAL: ALPHANUMERICAL,
+	LOCALHOST: LOCALHOST,
+	TLD: TLD,
+	UTLD: UTLD,
+	SCHEME: SCHEME,
+	SLASH_SCHEME: SLASH_SCHEME,
+	NUM: NUM,
+	WS: WS,
+	NL: NL,
+	OPENBRACE: OPENBRACE,
+	CLOSEBRACE: CLOSEBRACE,
+	OPENBRACKET: OPENBRACKET,
+	CLOSEBRACKET: CLOSEBRACKET,
+	OPENPAREN: OPENPAREN,
+	CLOSEPAREN: CLOSEPAREN,
+	OPENANGLEBRACKET: OPENANGLEBRACKET,
+	CLOSEANGLEBRACKET: CLOSEANGLEBRACKET,
+	FULLWIDTHLEFTPAREN: FULLWIDTHLEFTPAREN,
+	FULLWIDTHRIGHTPAREN: FULLWIDTHRIGHTPAREN,
+	LEFTCORNERBRACKET: LEFTCORNERBRACKET,
+	RIGHTCORNERBRACKET: RIGHTCORNERBRACKET,
+	LEFTWHITECORNERBRACKET: LEFTWHITECORNERBRACKET,
+	RIGHTWHITECORNERBRACKET: RIGHTWHITECORNERBRACKET,
+	FULLWIDTHLESSTHAN: FULLWIDTHLESSTHAN,
+	FULLWIDTHGREATERTHAN: FULLWIDTHGREATERTHAN,
+	AMPERSAND: AMPERSAND,
+	APOSTROPHE: APOSTROPHE,
+	ASTERISK: ASTERISK,
+	AT: AT,
+	BACKSLASH: BACKSLASH,
+	BACKTICK: BACKTICK,
+	CARET: CARET,
+	COLON: COLON,
+	COMMA: COMMA,
+	DOLLAR: DOLLAR,
+	DOT: DOT,
+	EQUALS: EQUALS,
+	EXCLAMATION: EXCLAMATION,
+	HYPHEN: HYPHEN,
+	PERCENT: PERCENT,
+	PIPE: PIPE,
+	PLUS: PLUS,
+	POUND: POUND,
+	QUERY: QUERY,
+	QUOTE: QUOTE,
+	FULLWIDTHMIDDLEDOT: FULLWIDTHMIDDLEDOT,
+	SEMI: SEMI,
+	SLASH: SLASH,
+	TILDE: TILDE,
+	UNDERSCORE: UNDERSCORE,
+	EMOJI: EMOJI$1,
+	SYM: SYM
+});
+
+// Note that these two Unicode ones expand into a really big one with Babel
+const ASCII_LETTER = /[a-z]/;
+const LETTER = /\p{L}/u; // Any Unicode character with letter data type
+const EMOJI = /\p{Emoji}/u; // Any Unicode emoji character
+const EMOJI_VARIATION$1 = /\ufe0f/;
+const DIGIT = /\d/;
+const SPACE = /\s/;
+
+var regexp = /*#__PURE__*/Object.freeze({
+	__proto__: null,
+	ASCII_LETTER: ASCII_LETTER,
+	LETTER: LETTER,
+	EMOJI: EMOJI,
+	EMOJI_VARIATION: EMOJI_VARIATION$1,
+	DIGIT: DIGIT,
+	SPACE: SPACE
+});
+
+/**
+	The scanner provides an interface that takes a string of text as input, and
+	outputs an array of tokens instances that can be used for easy URL parsing.
+*/
+const CR = '\r'; // carriage-return character
+const LF = '\n'; // line-feed character
+const EMOJI_VARIATION = '\ufe0f'; // Variation selector, follows heart and others
+const EMOJI_JOINER = '\u200d'; // zero-width joiner
+const OBJECT_REPLACEMENT = '\ufffc'; // whitespace placeholder that sometimes appears in rich text editors
+
+let tlds = null,
+  utlds = null; // don't change so only have to be computed once
+
+/**
+ * Scanner output token:
+ * - `t` is the token name (e.g., 'NUM', 'EMOJI', 'TLD')
+ * - `v` is the value of the token (e.g., '123', '❤️', 'com')
+ * - `s` is the start index of the token in the original string
+ * - `e` is the end index of the token in the original string
+ * @typedef {{t: string, v: string, s: number, e: number}} Token
+ */
+
+/**
+ * @template T
+ * @typedef {{ [collection: string]: T[] }} Collections
+ */
+
+/**
+ * Initialize the scanner character-based state machine for the given start
+ * state
+ * @param {[string, boolean][]} customSchemes List of custom schemes, where each
+ * item is a length-2 tuple with the first element set to the string scheme, and
+ * the second element set to `true` if the `://` after the scheme is optional
+ */
+function init$2(customSchemes = []) {
+  // Frequently used states (name argument removed during minification)
+  /** @type Collections<string> */
+  const groups = {}; // of tokens
+  State.groups = groups;
+  /** @type State<string> */
+  const Start = new State();
+  if (tlds == null) {
+    tlds = decodeTlds(encodedTlds);
+  }
+  if (utlds == null) {
+    utlds = decodeTlds(encodedUtlds);
+  }
+
+  // States for special URL symbols that accept immediately after start
+  tt(Start, "'", APOSTROPHE);
+  tt(Start, '{', OPENBRACE);
+  tt(Start, '}', CLOSEBRACE);
+  tt(Start, '[', OPENBRACKET);
+  tt(Start, ']', CLOSEBRACKET);
+  tt(Start, '(', OPENPAREN);
+  tt(Start, ')', CLOSEPAREN);
+  tt(Start, '<', OPENANGLEBRACKET);
+  tt(Start, '>', CLOSEANGLEBRACKET);
+  tt(Start, '（', FULLWIDTHLEFTPAREN);
+  tt(Start, '）', FULLWIDTHRIGHTPAREN);
+  tt(Start, '「', LEFTCORNERBRACKET);
+  tt(Start, '」', RIGHTCORNERBRACKET);
+  tt(Start, '『', LEFTWHITECORNERBRACKET);
+  tt(Start, '』', RIGHTWHITECORNERBRACKET);
+  tt(Start, '＜', FULLWIDTHLESSTHAN);
+  tt(Start, '＞', FULLWIDTHGREATERTHAN);
+  tt(Start, '&', AMPERSAND);
+  tt(Start, '*', ASTERISK);
+  tt(Start, '@', AT);
+  tt(Start, '`', BACKTICK);
+  tt(Start, '^', CARET);
+  tt(Start, ':', COLON);
+  tt(Start, ',', COMMA);
+  tt(Start, '$', DOLLAR);
+  tt(Start, '.', DOT);
+  tt(Start, '=', EQUALS);
+  tt(Start, '!', EXCLAMATION);
+  tt(Start, '-', HYPHEN);
+  tt(Start, '%', PERCENT);
+  tt(Start, '|', PIPE);
+  tt(Start, '+', PLUS);
+  tt(Start, '#', POUND);
+  tt(Start, '?', QUERY);
+  tt(Start, '"', QUOTE);
+  tt(Start, '/', SLASH);
+  tt(Start, ';', SEMI);
+  tt(Start, '~', TILDE);
+  tt(Start, '_', UNDERSCORE);
+  tt(Start, '\\', BACKSLASH);
+  tt(Start, '・', FULLWIDTHMIDDLEDOT);
+  const Num = tr(Start, DIGIT, NUM, {
+    [numeric]: true
+  });
+  tr(Num, DIGIT, Num);
+  const Asciinumeric = tr(Num, ASCII_LETTER, ASCIINUMERICAL, {
+    [asciinumeric]: true
+  });
+  const Alphanumeric = tr(Num, LETTER, ALPHANUMERICAL, {
+    [alphanumeric]: true
+  });
+
+  // State which emits a word token
+  const Word = tr(Start, ASCII_LETTER, WORD, {
+    [ascii]: true
+  });
+  tr(Word, DIGIT, Asciinumeric);
+  tr(Word, ASCII_LETTER, Word);
+  tr(Asciinumeric, DIGIT, Asciinumeric);
+  tr(Asciinumeric, ASCII_LETTER, Asciinumeric);
+
+  // Same as previous, but specific to non-fsm.ascii alphabet words
+  const UWord = tr(Start, LETTER, UWORD, {
+    [alpha]: true
+  });
+  tr(UWord, ASCII_LETTER); // Non-accepting
+  tr(UWord, DIGIT, Alphanumeric);
+  tr(UWord, LETTER, UWord);
+  tr(Alphanumeric, DIGIT, Alphanumeric);
+  tr(Alphanumeric, ASCII_LETTER); // Non-accepting
+  tr(Alphanumeric, LETTER, Alphanumeric); // Non-accepting
+
+  // Whitespace jumps
+  // Tokens of only non-newline whitespace are arbitrarily long
+  // If any whitespace except newline, more whitespace!
+  const Nl = tt(Start, LF, NL, {
+    [whitespace]: true
+  });
+  const Cr = tt(Start, CR, WS, {
+    [whitespace]: true
+  });
+  const Ws = tr(Start, SPACE, WS, {
+    [whitespace]: true
+  });
+  tt(Start, OBJECT_REPLACEMENT, Ws);
+  tt(Cr, LF, Nl); // \r\n
+  tt(Cr, OBJECT_REPLACEMENT, Ws);
+  tr(Cr, SPACE, Ws);
+  tt(Ws, CR); // non-accepting state to avoid mixing whitespaces
+  tt(Ws, LF); // non-accepting state to avoid mixing whitespaces
+  tr(Ws, SPACE, Ws);
+  tt(Ws, OBJECT_REPLACEMENT, Ws);
+
+  // Emoji tokens. They are not grouped by the scanner except in cases where a
+  // zero-width joiner is present
+  const Emoji = tr(Start, EMOJI, EMOJI$1, {
+    [emoji]: true
+  });
+  tt(Emoji, '#'); // no transition, emoji regex seems to match #
+  tr(Emoji, EMOJI, Emoji);
+  tt(Emoji, EMOJI_VARIATION, Emoji);
+  // tt(Start, EMOJI_VARIATION, Emoji); // This one is sketchy
+
+  const EmojiJoiner = tt(Emoji, EMOJI_JOINER);
+  tt(EmojiJoiner, '#');
+  tr(EmojiJoiner, EMOJI, Emoji);
+  // tt(EmojiJoiner, EMOJI_VARIATION, Emoji); // also sketchy
+
+  // Generates states for top-level domains
+  // Note that this is most accurate when tlds are in alphabetical order
+  const wordjr = [[ASCII_LETTER, Word], [DIGIT, Asciinumeric]];
+  const uwordjr = [[ASCII_LETTER, null], [LETTER, UWord], [DIGIT, Alphanumeric]];
+  for (let i = 0; i < tlds.length; i++) {
+    fastts(Start, tlds[i], TLD, WORD, wordjr);
+  }
+  for (let i = 0; i < utlds.length; i++) {
+    fastts(Start, utlds[i], UTLD, UWORD, uwordjr);
+  }
+  addToGroups(TLD, {
+    tld: true,
+    ascii: true
+  }, groups);
+  addToGroups(UTLD, {
+    utld: true,
+    alpha: true
+  }, groups);
+
+  // Collect the states generated by different protocols. NOTE: If any new TLDs
+  // get added that are also protocols, set the token to be the same as the
+  // protocol to ensure parsing works as expected.
+  fastts(Start, 'file', SCHEME, WORD, wordjr);
+  fastts(Start, 'mailto', SCHEME, WORD, wordjr);
+  fastts(Start, 'http', SLASH_SCHEME, WORD, wordjr);
+  fastts(Start, 'https', SLASH_SCHEME, WORD, wordjr);
+  fastts(Start, 'ftp', SLASH_SCHEME, WORD, wordjr);
+  fastts(Start, 'ftps', SLASH_SCHEME, WORD, wordjr);
+  addToGroups(SCHEME, {
+    scheme: true,
+    ascii: true
+  }, groups);
+  addToGroups(SLASH_SCHEME, {
+    slashscheme: true,
+    ascii: true
+  }, groups);
+
+  // Register custom schemes. Assumes each scheme is asciinumeric with hyphens
+  customSchemes = customSchemes.sort((a, b) => a[0] > b[0] ? 1 : -1);
+  for (let i = 0; i < customSchemes.length; i++) {
+    const sch = customSchemes[i][0];
+    const optionalSlashSlash = customSchemes[i][1];
+    const flags = optionalSlashSlash ? {
+      [scheme]: true
+    } : {
+      [slashscheme]: true
+    };
+    if (sch.indexOf('-') >= 0) {
+      flags[domain] = true;
+    } else if (!ASCII_LETTER.test(sch)) {
+      flags[numeric] = true; // numbers only
+    } else if (DIGIT.test(sch)) {
+      flags[asciinumeric] = true;
+    } else {
+      flags[ascii] = true;
+    }
+    ts(Start, sch, sch, flags);
+  }
+
+  // Localhost token
+  ts(Start, 'localhost', LOCALHOST, {
+    ascii: true
+  });
+
+  // Set default transition for start state (some symbol)
+  Start.jd = new State(SYM);
+  return {
+    start: Start,
+    tokens: assign({
+      groups
+    }, tk)
+  };
+}
+
+/**
+	Given a string, returns an array of TOKEN instances representing the
+	composition of that string.
+
+	@method run
+	@param {State<string>} start scanner starting state
+	@param {string} str input string to scan
+	@return {Token[]} list of tokens, each with a type and value
+*/
+function run$1(start, str) {
+  // State machine is not case sensitive, so input is tokenized in lowercased
+  // form (still returns regular case). Uses selective `toLowerCase` because
+  // lowercasing the entire string causes the length and character position to
+  // vary in some non-English strings with V8-based runtimes.
+  const iterable = stringToArray(str.replace(/[A-Z]/g, c => c.toLowerCase()));
+  const charCount = iterable.length; // <= len if there are emojis, etc
+  const tokens = []; // return value
+
+  // cursor through the string itself, accounting for characters that have
+  // width with length 2 such as emojis
+  let cursor = 0;
+
+  // Cursor through the array-representation of the string
+  let charCursor = 0;
+
+  // Tokenize the string
+  while (charCursor < charCount) {
+    let state = start;
+    let nextState = null;
+    let tokenLength = 0;
+    let latestAccepting = null;
+    let sinceAccepts = -1;
+    let charsSinceAccepts = -1;
+    while (charCursor < charCount && (nextState = state.go(iterable[charCursor]))) {
+      state = nextState;
+
+      // Keep track of the latest accepting state
+      if (state.accepts()) {
+        sinceAccepts = 0;
+        charsSinceAccepts = 0;
+        latestAccepting = state;
+      } else if (sinceAccepts >= 0) {
+        sinceAccepts += iterable[charCursor].length;
+        charsSinceAccepts++;
+      }
+      tokenLength += iterable[charCursor].length;
+      cursor += iterable[charCursor].length;
+      charCursor++;
+    }
+
+    // Roll back to the latest accepting state
+    cursor -= sinceAccepts;
+    charCursor -= charsSinceAccepts;
+    tokenLength -= sinceAccepts;
+
+    // No more jumps, just make a new token from the last accepting one
+    tokens.push({
+      t: latestAccepting.t,
+      // token type/name
+      v: str.slice(cursor - tokenLength, cursor),
+      // string value
+      s: cursor - tokenLength,
+      // start index
+      e: cursor // end index (excluding)
+    });
+  }
+  return tokens;
+}
+
+/**
+ * Convert a String to an Array of characters, taking into account that some
+ * characters like emojis take up two string indexes.
+ *
+ * Adapted from core-js (MIT license)
+ * https://github.com/zloirock/core-js/blob/2d69cf5f99ab3ea3463c395df81e5a15b68f49d9/packages/core-js/internals/string-multibyte.js
+ *
+ * @function stringToArray
+ * @param {string} str
+ * @returns {string[]}
+ */
+function stringToArray(str) {
+  const result = [];
+  const len = str.length;
+  let index = 0;
+  while (index < len) {
+    let first = str.charCodeAt(index);
+    let second;
+    let char = first < 0xd800 || first > 0xdbff || index + 1 === len || (second = str.charCodeAt(index + 1)) < 0xdc00 || second > 0xdfff ? str[index] // single character
+    : str.slice(index, index + 2); // two-index characters
+    result.push(char);
+    index += char.length;
+  }
+  return result;
+}
+
+/**
+ * Fast version of ts function for when transition defaults are well known
+ * @param {State<string>} state
+ * @param {string} input
+ * @param {string} t
+ * @param {string} defaultt
+ * @param {[RegExp, State<string>][]} jr
+ * @returns {State<string>}
+ */
+function fastts(state, input, t, defaultt, jr) {
+  let next;
+  const len = input.length;
+  for (let i = 0; i < len - 1; i++) {
+    const char = input[i];
+    if (state.j[char]) {
+      next = state.j[char];
+    } else {
+      next = new State(defaultt);
+      next.jr = jr.slice();
+      state.j[char] = next;
+    }
+    state = next;
+  }
+  next = new State(t);
+  next.jr = jr.slice();
+  state.j[input[len - 1]] = next;
+  return next;
+}
+
+/**
+ * Converts a string of Top-Level Domain names encoded in update-tlds.js back
+ * into a list of strings.
+ * @param {str} encoded encoded TLDs string
+ * @returns {str[]} original TLDs list
+ */
+function decodeTlds(encoded) {
+  const words = [];
+  const stack = [];
+  let i = 0;
+  let digits = '0123456789';
+  while (i < encoded.length) {
+    let popDigitCount = 0;
+    while (digits.indexOf(encoded[i + popDigitCount]) >= 0) {
+      popDigitCount++; // encountered some digits, have to pop to go one level up trie
+    }
+    if (popDigitCount > 0) {
+      words.push(stack.join('')); // whatever preceded the pop digits must be a word
+      for (let popCount = parseInt(encoded.substring(i, i + popDigitCount), 10); popCount > 0; popCount--) {
+        stack.pop();
+      }
+      i += popDigitCount;
+    } else {
+      stack.push(encoded[i]); // drop down a level into the trie
+      i++;
+    }
+  }
+  return words;
+}
+
+/**
+ * An object where each key is a valid DOM Event Name such as `click` or `focus`
+ * and each value is an event handler function.
+ *
+ * https://developer.mozilla.org/en-US/docs/Web/API/Element#events
+ * @typedef {?{ [event: string]: Function }} EventListeners
+ */
+
+/**
+ * All formatted properties required to render a link, including `tagName`,
+ * `attributes`, `content` and `eventListeners`.
+ * @typedef {{ tagName: any, attributes: {[attr: string]: any}, content: string,
+ * eventListeners: EventListeners }} IntermediateRepresentation
+ */
+
+/**
+ * Specify either an object described by the template type `O` or a function.
+ *
+ * The function takes a string value (usually the link's href attribute), the
+ * link type (`'url'`, `'hashtag`', etc.) and an internal token representation
+ * of the link. It should return an object of the template type `O`
+ * @template O
+ * @typedef {O | ((value: string, type: string, token: MultiToken) => O)} OptObj
+ */
+
+/**
+ * Specify either a function described by template type `F` or an object.
+ *
+ * Each key in the object should be a link type (`'url'`, `'hashtag`', etc.). Each
+ * value should be a function with template type `F` that is called when the
+ * corresponding link type is encountered.
+ * @template F
+ * @typedef {F | { [type: string]: F}} OptFn
+ */
+
+/**
+ * Specify either a value with template type `V`, a function that returns `V` or
+ * an object where each value resolves to `V`.
+ *
+ * The function takes a string value (usually the link's href attribute), the
+ * link type (`'url'`, `'hashtag`', etc.) and an internal token representation
+ * of the link. It should return an object of the template type `V`
+ *
+ * For the object, each key should be a link type (`'url'`, `'hashtag`', etc.).
+ * Each value should either have type `V` or a function that returns V. This
+ * function similarly takes a string value and a token.
+ *
+ * Example valid types for `Opt<string>`:
+ *
+ * ```js
+ * 'hello'
+ * (value, type, token) => 'world'
+ * { url: 'hello', email: (value, token) => 'world'}
+ * ```
+ * @template V
+ * @typedef {V | ((value: string, type: string, token: MultiToken) => V) | { [type: string]: V | ((value: string, token: MultiToken) => V) }} Opt
+ */
+
+/**
+ * See available options: https://linkify.js.org/docs/options.html
+ * @typedef {{
+ * 	defaultProtocol?: string,
+ *  events?: OptObj<EventListeners>,
+ * 	format?: Opt<string>,
+ * 	formatHref?: Opt<string>,
+ * 	nl2br?: boolean,
+ * 	tagName?: Opt<any>,
+ * 	target?: Opt<string>,
+ * 	rel?: Opt<string>,
+ * 	validate?: Opt<boolean>,
+ * 	truncate?: Opt<number>,
+ * 	className?: Opt<string>,
+ * 	attributes?: OptObj<({ [attr: string]: any })>,
+ *  ignoreTags?: string[],
+ * 	render?: OptFn<((ir: IntermediateRepresentation) => any)>
+ * }} Opts
+ */
+
+/**
+ * @type Required<Opts>
+ */
+const defaults = {
+  defaultProtocol: 'http',
+  events: null,
+  format: noop,
+  formatHref: noop,
+  nl2br: false,
+  tagName: 'a',
+  target: null,
+  rel: null,
+  validate: true,
+  truncate: Infinity,
+  className: null,
+  attributes: null,
+  ignoreTags: [],
+  render: null
+};
+
+/**
+ * Utility class for linkify interfaces to apply specified
+ * {@link Opts formatting and rendering options}.
+ *
+ * @param {Opts | Options} [opts] Option value overrides.
+ * @param {(ir: IntermediateRepresentation) => any} [defaultRender] (For
+ *   internal use) default render function that determines how to generate an
+ *   HTML element based on a link token's derived tagName, attributes and HTML.
+ *   Similar to render option
+ */
+function Options(opts, defaultRender = null) {
+  let o = assign({}, defaults);
+  if (opts) {
+    o = assign(o, opts instanceof Options ? opts.o : opts);
+  }
+
+  // Ensure all ignored tags are uppercase
+  const ignoredTags = o.ignoreTags;
+  const uppercaseIgnoredTags = [];
+  for (let i = 0; i < ignoredTags.length; i++) {
+    uppercaseIgnoredTags.push(ignoredTags[i].toUpperCase());
+  }
+  /** @protected */
+  this.o = o;
+  if (defaultRender) {
+    this.defaultRender = defaultRender;
+  }
+  this.ignoreTags = uppercaseIgnoredTags;
+}
+Options.prototype = {
+  o: defaults,
+  /**
+   * @type string[]
+   */
+  ignoreTags: [],
+  /**
+   * @param {IntermediateRepresentation} ir
+   * @returns {any}
+   */
+  defaultRender(ir) {
+    return ir;
+  },
+  /**
+   * Returns true or false based on whether a token should be displayed as a
+   * link based on the user options.
+   * @param {MultiToken} token
+   * @returns {boolean}
+   */
+  check(token) {
+    return this.get('validate', token.toString(), token);
+  },
+  // Private methods
+
+  /**
+   * Resolve an option's value based on the value of the option and the given
+   * params. If operator and token are specified and the target option is
+   * callable, automatically calls the function with the given argument.
+   * @template {keyof Opts} K
+   * @param {K} key Name of option to use
+   * @param {string} [operator] will be passed to the target option if it's a
+   * function. If not specified, RAW function value gets returned
+   * @param {MultiToken} [token] The token from linkify.tokenize
+   * @returns {Opts[K] | any}
+   */
+  get(key, operator, token) {
+    const isCallable = operator != null;
+    let option = this.o[key];
+    if (!option) {
+      return option;
+    }
+    if (typeof option === 'object') {
+      option = token.t in option ? option[token.t] : defaults[key];
+      if (typeof option === 'function' && isCallable) {
+        option = option(operator, token);
+      }
+    } else if (typeof option === 'function' && isCallable) {
+      option = option(operator, token.t, token);
+    }
+    return option;
+  },
+  /**
+   * @template {keyof Opts} L
+   * @param {L} key Name of options object to use
+   * @param {string} [operator]
+   * @param {MultiToken} [token]
+   * @returns {Opts[L] | any}
+   */
+  getObj(key, operator, token) {
+    let obj = this.o[key];
+    if (typeof obj === 'function' && operator != null) {
+      obj = obj(operator, token.t, token);
+    }
+    return obj;
+  },
+  /**
+   * Convert the given token to a rendered element that may be added to the
+   * calling-interface's DOM
+   * @param {MultiToken} token Token to render to an HTML element
+   * @returns {any} Render result; e.g., HTML string, DOM element, React
+   *   Component, etc.
+   */
+  render(token) {
+    const ir = token.render(this); // intermediate representation
+    const renderFn = this.get('render', null, token) || this.defaultRender;
+    return renderFn(ir, token.t, token);
+  }
+};
+function noop(val) {
+  return val;
+}
+
+var options = /*#__PURE__*/Object.freeze({
+	__proto__: null,
+	defaults: defaults,
+	Options: Options,
+	assign: assign
+});
+
+/******************************************************************************
+	Multi-Tokens
+	Tokens composed of arrays of TextTokens
+******************************************************************************/
+
+/**
+ * @param {string} value
+ * @param {Token[]} tokens
+ */
+function MultiToken(value, tokens) {
+  this.t = 'token';
+  this.v = value;
+  this.tk = tokens;
+}
+
+/**
+ * Abstract class used for manufacturing tokens of text tokens. That is rather
+ * than the value for a token being a small string of text, it's value an array
+ * of text tokens.
+ *
+ * Used for grouping together URLs, emails, hashtags, and other potential
+ * creations.
+ * @class MultiToken
+ * @property {string} t
+ * @property {string} v
+ * @property {Token[]} tk
+ * @abstract
+ */
+MultiToken.prototype = {
+  isLink: false,
+  /**
+   * Return the string this token represents.
+   * @return {string}
+   */
+  toString() {
+    return this.v;
+  },
+  /**
+   * What should the value for this token be in the `href` HTML attribute?
+   * Returns the `.toString` value by default.
+   * @param {string} [scheme]
+   * @return {string}
+   */
+  toHref(scheme) {
+    return this.toString();
+  },
+  /**
+   * @param {Options} options Formatting options
+   * @returns {string}
+   */
+  toFormattedString(options) {
+    const val = this.toString();
+    const truncate = options.get('truncate', val, this);
+    const formatted = options.get('format', val, this);
+    return truncate && formatted.length > truncate ? formatted.substring(0, truncate) + '…' : formatted;
+  },
+  /**
+   *
+   * @param {Options} options
+   * @returns {string}
+   */
+  toFormattedHref(options) {
+    return options.get('formatHref', this.toHref(options.get('defaultProtocol')), this);
+  },
+  /**
+   * The start index of this token in the original input string
+   * @returns {number}
+   */
+  startIndex() {
+    return this.tk[0].s;
+  },
+  /**
+   * The end index of this token in the original input string (up to this
+   * index but not including it)
+   * @returns {number}
+   */
+  endIndex() {
+    return this.tk[this.tk.length - 1].e;
+  },
+  /**
+  	Returns an object  of relevant values for this token, which includes keys
+  	* type - Kind of token ('url', 'email', etc.)
+  	* value - Original text
+  	* href - The value that should be added to the anchor tag's href
+  		attribute
+  		@method toObject
+  	@param {string} [protocol] `'http'` by default
+  */
+  toObject(protocol = defaults.defaultProtocol) {
+    return {
+      type: this.t,
+      value: this.toString(),
+      isLink: this.isLink,
+      href: this.toHref(protocol),
+      start: this.startIndex(),
+      end: this.endIndex()
+    };
+  },
+  /**
+   *
+   * @param {Options} options Formatting option
+   */
+  toFormattedObject(options) {
+    return {
+      type: this.t,
+      value: this.toFormattedString(options),
+      isLink: this.isLink,
+      href: this.toFormattedHref(options),
+      start: this.startIndex(),
+      end: this.endIndex()
+    };
+  },
+  /**
+   * Whether this token should be rendered as a link according to the given options
+   * @param {Options} options
+   * @returns {boolean}
+   */
+  validate(options) {
+    return options.get('validate', this.toString(), this);
+  },
+  /**
+   * Return an object that represents how this link should be rendered.
+   * @param {Options} options Formattinng options
+   */
+  render(options) {
+    const token = this;
+    const href = this.toHref(options.get('defaultProtocol'));
+    const formattedHref = options.get('formatHref', href, this);
+    const tagName = options.get('tagName', href, token);
+    const content = this.toFormattedString(options);
+    const attributes = {};
+    const className = options.get('className', href, token);
+    const target = options.get('target', href, token);
+    const rel = options.get('rel', href, token);
+    const attrs = options.getObj('attributes', href, token);
+    const eventListeners = options.getObj('events', href, token);
+    attributes.href = formattedHref;
+    if (className) {
+      attributes.class = className;
+    }
+    if (target) {
+      attributes.target = target;
+    }
+    if (rel) {
+      attributes.rel = rel;
+    }
+    if (attrs) {
+      assign(attributes, attrs);
+    }
+    return {
+      tagName,
+      attributes,
+      content,
+      eventListeners
+    };
+  }
+};
+
+/**
+ * Create a new token that can be emitted by the parser state machine
+ * @param {string} type readable type of the token
+ * @param {object} props properties to assign or override, including isLink = true or false
+ * @returns {new (value: string, tokens: Token[]) => MultiToken} new token class
+ */
+function createTokenClass(type, props) {
+  class Token extends MultiToken {
+    constructor(value, tokens) {
+      super(value, tokens);
+      this.t = type;
+    }
+  }
+  for (const p in props) {
+    Token.prototype[p] = props[p];
+  }
+  Token.t = type;
+  return Token;
+}
+
+/**
+	Represents a list of tokens making up a valid email address
+*/
+const Email = createTokenClass('email', {
+  isLink: true,
+  toHref() {
+    return 'mailto:' + this.toString();
+  }
+});
+
+/**
+	Represents some plain text
+*/
+const Text = createTokenClass('text');
+
+/**
+	Multi-linebreak token - represents a line break
+	@class Nl
+*/
+const Nl = createTokenClass('nl');
+
+/**
+	Represents a list of text tokens making up a valid URL
+	@class Url
+*/
+const Url = createTokenClass('url', {
+  isLink: true,
+  /**
+  	Lowercases relevant parts of the domain and adds the protocol if
+  	required. Note that this will not escape unsafe HTML characters in the
+  	URL.
+  		@param {string} [scheme] default scheme (e.g., 'https')
+  	@return {string} the full href
+  */
+  toHref(scheme = defaults.defaultProtocol) {
+    // Check if already has a prefix scheme
+    return this.hasProtocol() ? this.v : `${scheme}://${this.v}`;
+  },
+  /**
+   * Check whether this URL token has a protocol
+   * @return {boolean}
+   */
+  hasProtocol() {
+    const tokens = this.tk;
+    return tokens.length >= 2 && tokens[0].t !== LOCALHOST && tokens[1].t === COLON;
+  }
+});
+
+var multi = /*#__PURE__*/Object.freeze({
+	__proto__: null,
+	MultiToken: MultiToken,
+	Base: MultiToken,
+	createTokenClass: createTokenClass,
+	Email: Email,
+	Text: Text,
+	Nl: Nl,
+	Url: Url
+});
+
+/**
+	Not exactly parser, more like the second-stage scanner (although we can
+	theoretically hotswap the code here with a real parser in the future... but
+	for a little URL-finding utility abstract syntax trees may be a little
+	overkill).
+
+	URL format: http://en.wikipedia.org/wiki/URI_scheme
+	Email format: http://en.wikipedia.org/wiki/EmailAddress (links to RFC in
+	reference)
+
+	@module linkify
+	@submodule parser
+	@main run
+*/
+const makeState = arg => new State(arg);
+
+/**
+ * Generate the parser multi token-based state machine
+ * @param {{ groups: Collections<string> }} tokens
+ */
+function init$1({
+  groups
+}) {
+  // Types of characters the URL can definitely end in
+  const qsAccepting = groups.domain.concat([AMPERSAND, ASTERISK, AT, BACKSLASH, BACKTICK, CARET, DOLLAR, EQUALS, HYPHEN, NUM, PERCENT, PIPE, PLUS, POUND, SLASH, SYM, TILDE, UNDERSCORE]);
+
+  // Types of tokens that can follow a URL and be part of the query string
+  // but cannot be the very last characters
+  // Characters that cannot appear in the URL at all should be excluded
+  const qsNonAccepting = [COLON, COMMA, DOT, EXCLAMATION, PERCENT, QUERY, QUOTE, SEMI, OPENANGLEBRACKET, CLOSEANGLEBRACKET, OPENBRACE, CLOSEBRACE, CLOSEBRACKET, OPENBRACKET, OPENPAREN, CLOSEPAREN, FULLWIDTHLEFTPAREN, FULLWIDTHRIGHTPAREN, LEFTCORNERBRACKET, RIGHTCORNERBRACKET, LEFTWHITECORNERBRACKET, RIGHTWHITECORNERBRACKET, FULLWIDTHLESSTHAN, FULLWIDTHGREATERTHAN];
+
+  // For addresses without the mailto prefix
+  // Tokens allowed in the localpart of the email
+  const localpartAccepting = [AMPERSAND, APOSTROPHE, ASTERISK, BACKSLASH, BACKTICK, CARET, DOLLAR, EQUALS, HYPHEN, OPENBRACE, CLOSEBRACE, PERCENT, PIPE, PLUS, POUND, QUERY, SLASH, SYM, TILDE, UNDERSCORE];
+
+  // The universal starting state.
+  /**
+   * @type State<Token>
+   */
+  const Start = makeState();
+  const Localpart = tt(Start, TILDE); // Local part of the email address
+  ta(Localpart, localpartAccepting, Localpart);
+  ta(Localpart, groups.domain, Localpart);
+  const Domain = makeState(),
+    Scheme = makeState(),
+    SlashScheme = makeState();
+  ta(Start, groups.domain, Domain); // parsed string ends with a potential domain name (A)
+  ta(Start, groups.scheme, Scheme); // e.g., 'mailto'
+  ta(Start, groups.slashscheme, SlashScheme); // e.g., 'http'
+
+  ta(Domain, localpartAccepting, Localpart);
+  ta(Domain, groups.domain, Domain);
+  const LocalpartAt = tt(Domain, AT); // Local part of the email address plus @
+
+  tt(Localpart, AT, LocalpartAt); // close to an email address now
+
+  // Local part of an email address can be e.g. 'http' or 'mailto'
+  tt(Scheme, AT, LocalpartAt);
+  tt(SlashScheme, AT, LocalpartAt);
+  const LocalpartDot = tt(Localpart, DOT); // Local part of the email address plus '.' (localpart cannot end in .)
+  ta(LocalpartDot, localpartAccepting, Localpart);
+  ta(LocalpartDot, groups.domain, Localpart);
+  const EmailDomain = makeState();
+  ta(LocalpartAt, groups.domain, EmailDomain); // parsed string starts with local email info + @ with a potential domain name
+  ta(EmailDomain, groups.domain, EmailDomain);
+  const EmailDomainDot = tt(EmailDomain, DOT); // domain followed by DOT
+  ta(EmailDomainDot, groups.domain, EmailDomain);
+  const Email$1 = makeState(Email); // Possible email address (could have more tlds)
+  ta(EmailDomainDot, groups.tld, Email$1);
+  ta(EmailDomainDot, groups.utld, Email$1);
+  tt(LocalpartAt, LOCALHOST, Email$1);
+
+  // Hyphen can jump back to a domain name
+  const EmailDomainHyphen = tt(EmailDomain, HYPHEN); // parsed string starts with local email info + @ with a potential domain name
+  tt(EmailDomainHyphen, HYPHEN, EmailDomainHyphen);
+  ta(EmailDomainHyphen, groups.domain, EmailDomain);
+  ta(Email$1, groups.domain, EmailDomain);
+  tt(Email$1, DOT, EmailDomainDot);
+  tt(Email$1, HYPHEN, EmailDomainHyphen);
+
+  // Final possible email states
+  const EmailColon = tt(Email$1, COLON); // URL followed by colon (potential port number here)
+  /*const EmailColonPort = */
+  ta(EmailColon, groups.numeric, Email); // URL followed by colon and port number
+
+  // Account for dots and hyphens. Hyphens are usually parts of domain names
+  // (but not TLDs)
+  const DomainHyphen = tt(Domain, HYPHEN); // domain followed by hyphen
+  const DomainDot = tt(Domain, DOT); // domain followed by DOT
+  tt(DomainHyphen, HYPHEN, DomainHyphen);
+  ta(DomainHyphen, groups.domain, Domain);
+  ta(DomainDot, localpartAccepting, Localpart);
+  ta(DomainDot, groups.domain, Domain);
+  const DomainDotTld = makeState(Url); // Simplest possible URL with no query string
+  ta(DomainDot, groups.tld, DomainDotTld);
+  ta(DomainDot, groups.utld, DomainDotTld);
+  ta(DomainDotTld, groups.domain, Domain);
+  ta(DomainDotTld, localpartAccepting, Localpart);
+  tt(DomainDotTld, DOT, DomainDot);
+  tt(DomainDotTld, HYPHEN, DomainHyphen);
+  tt(DomainDotTld, AT, LocalpartAt);
+  const DomainDotTldColon = tt(DomainDotTld, COLON); // URL followed by colon (potential port number here)
+  const DomainDotTldColonPort = makeState(Url); // TLD followed by a port number
+  ta(DomainDotTldColon, groups.numeric, DomainDotTldColonPort);
+
+  // Long URL with optional port and maybe query string
+  const Url$1 = makeState(Url);
+
+  // URL with extra symbols at the end, followed by an opening bracket
+  const UrlNonaccept = makeState(); // URL followed by some symbols (will not be part of the final URL)
+
+  // Query strings
+  ta(Url$1, qsAccepting, Url$1);
+  ta(Url$1, qsNonAccepting, UrlNonaccept);
+  ta(UrlNonaccept, qsAccepting, Url$1);
+  ta(UrlNonaccept, qsNonAccepting, UrlNonaccept);
+
+  // Become real URLs after `SLASH` or `COLON NUM SLASH`
+  // Here works with or without scheme:// prefix
+  tt(DomainDotTld, SLASH, Url$1);
+  tt(DomainDotTldColonPort, SLASH, Url$1);
+
+  // Note that domains that begin with schemes are treated slighly differently
+  const SchemeColon = tt(Scheme, COLON); // e.g., 'mailto:'
+  const SlashSchemeColon = tt(SlashScheme, COLON); // e.g., 'http:'
+  const SlashSchemeColonSlash = tt(SlashSchemeColon, SLASH); // e.g., 'http:/'
+
+  const UriPrefix = tt(SlashSchemeColonSlash, SLASH); // e.g., 'http://'
+
+  // Scheme states can transition to domain states
+  ta(Scheme, groups.domain, Domain);
+  tt(Scheme, DOT, DomainDot);
+  tt(Scheme, HYPHEN, DomainHyphen);
+  ta(SlashScheme, groups.domain, Domain);
+  tt(SlashScheme, DOT, DomainDot);
+  tt(SlashScheme, HYPHEN, DomainHyphen);
+
+  // Force URL with scheme prefix followed by anything sane
+  ta(SchemeColon, groups.domain, Url$1);
+  tt(SchemeColon, SLASH, Url$1);
+  tt(SchemeColon, QUERY, Url$1);
+  ta(UriPrefix, groups.domain, Url$1);
+  ta(UriPrefix, qsAccepting, Url$1);
+  tt(UriPrefix, SLASH, Url$1);
+  const bracketPairs = [[OPENBRACE, CLOSEBRACE],
+  // {}
+  [OPENBRACKET, CLOSEBRACKET],
+  // []
+  [OPENPAREN, CLOSEPAREN],
+  // ()
+  [OPENANGLEBRACKET, CLOSEANGLEBRACKET],
+  // <>
+  [FULLWIDTHLEFTPAREN, FULLWIDTHRIGHTPAREN],
+  // （）
+  [LEFTCORNERBRACKET, RIGHTCORNERBRACKET],
+  // 「」
+  [LEFTWHITECORNERBRACKET, RIGHTWHITECORNERBRACKET],
+  // 『』
+  [FULLWIDTHLESSTHAN, FULLWIDTHGREATERTHAN] // ＜＞
+  ];
+  for (let i = 0; i < bracketPairs.length; i++) {
+    const [OPEN, CLOSE] = bracketPairs[i];
+    const UrlOpen = tt(Url$1, OPEN); // URL followed by open bracket
+
+    // Continue not accepting for open brackets
+    tt(UrlNonaccept, OPEN, UrlOpen);
+
+    // Closing bracket component. This character WILL be included in the URL
+    tt(UrlOpen, CLOSE, Url$1);
+
+    // URL that beings with an opening bracket, followed by a symbols.
+    // Note that the final state can still be `UrlOpen` (if the URL has a
+    // single opening bracket for some reason).
+    const UrlOpenQ = makeState(Url);
+    ta(UrlOpen, qsAccepting, UrlOpenQ);
+    const UrlOpenSyms = makeState(); // UrlOpen followed by some symbols it cannot end it
+    ta(UrlOpen, qsNonAccepting);
+
+    // URL that begins with an opening bracket, followed by some symbols
+    ta(UrlOpenQ, qsAccepting, UrlOpenQ);
+    ta(UrlOpenQ, qsNonAccepting, UrlOpenSyms);
+    ta(UrlOpenSyms, qsAccepting, UrlOpenQ);
+    ta(UrlOpenSyms, qsNonAccepting, UrlOpenSyms);
+
+    // Close brace/bracket to become regular URL
+    tt(UrlOpenQ, CLOSE, Url$1);
+    tt(UrlOpenSyms, CLOSE, Url$1);
+  }
+  tt(Start, LOCALHOST, DomainDotTld); // localhost is a valid URL state
+  tt(Start, NL, Nl); // single new line
+
+  return {
+    start: Start,
+    tokens: tk
+  };
+}
+
+/**
+ * Run the parser state machine on a list of scanned string-based tokens to
+ * create a list of multi tokens, each of which represents a URL, email address,
+ * plain text, etc.
+ *
+ * @param {State<MultiToken>} start parser start state
+ * @param {string} input the original input used to generate the given tokens
+ * @param {Token[]} tokens list of scanned tokens
+ * @returns {MultiToken[]}
+ */
+function run(start, input, tokens) {
+  let len = tokens.length;
+  let cursor = 0;
+  let multis = [];
+  let textTokens = [];
+  while (cursor < len) {
+    let state = start;
+    let secondState = null;
+    let nextState = null;
+    let multiLength = 0;
+    let latestAccepting = null;
+    let sinceAccepts = -1;
+    while (cursor < len && !(secondState = state.go(tokens[cursor].t))) {
+      // Starting tokens with nowhere to jump to.
+      // Consider these to be just plain text
+      textTokens.push(tokens[cursor++]);
+    }
+    while (cursor < len && (nextState = secondState || state.go(tokens[cursor].t))) {
+      // Get the next state
+      secondState = null;
+      state = nextState;
+
+      // Keep track of the latest accepting state
+      if (state.accepts()) {
+        sinceAccepts = 0;
+        latestAccepting = state;
+      } else if (sinceAccepts >= 0) {
+        sinceAccepts++;
+      }
+      cursor++;
+      multiLength++;
+    }
+    if (sinceAccepts < 0) {
+      // No accepting state was found, part of a regular text token add
+      // the first text token to the text tokens array and try again from
+      // the next
+      cursor -= multiLength;
+      if (cursor < len) {
+        textTokens.push(tokens[cursor]);
+        cursor++;
+      }
+    } else {
+      // Accepting state!
+      // First close off the textTokens (if available)
+      if (textTokens.length > 0) {
+        multis.push(initMultiToken(Text, input, textTokens));
+        textTokens = [];
+      }
+
+      // Roll back to the latest accepting state
+      cursor -= sinceAccepts;
+      multiLength -= sinceAccepts;
+
+      // Create a new multitoken
+      const Multi = latestAccepting.t;
+      const subtokens = tokens.slice(cursor - multiLength, cursor);
+      multis.push(initMultiToken(Multi, input, subtokens));
+    }
+  }
+
+  // Finally close off the textTokens (if available)
+  if (textTokens.length > 0) {
+    multis.push(initMultiToken(Text, input, textTokens));
+  }
+  return multis;
+}
+
+/**
+ * Utility function for instantiating a new multitoken with all the relevant
+ * fields during parsing.
+ * @param {new (value: string, tokens: Token[]) => MultiToken} Multi class to instantiate
+ * @param {string} input original input string
+ * @param {Token[]} tokens consecutive tokens scanned from input string
+ * @returns {MultiToken}
+ */
+function initMultiToken(Multi, input, tokens) {
+  const startIdx = tokens[0].s;
+  const endIdx = tokens[tokens.length - 1].e;
+  const value = input.slice(startIdx, endIdx);
+  return new Multi(value, tokens);
+}
+
+const warn = typeof console !== 'undefined' && console && console.warn || (() => {});
+const warnAdvice = 'until manual call of linkify.init(). Register all schemes and plugins before invoking linkify the first time.';
+
+// Side-effect initialization state
+const INIT = {
+  scanner: null,
+  parser: null,
+  tokenQueue: [],
+  pluginQueue: [],
+  customSchemes: [],
+  initialized: false
+};
+
+/**
+ * @typedef {{
+ * 	start: State<string>,
+ * 	tokens: { groups: Collections<string> } & typeof tk
+ * }} ScannerInit
+ */
+
+/**
+ * @typedef {{
+ * 	start: State<MultiToken>,
+ * 	tokens: typeof multi
+ * }} ParserInit
+ */
+
+/**
+ * @typedef {(arg: { scanner: ScannerInit }) => void} TokenPlugin
+ */
+
+/**
+ * @typedef {(arg: { scanner: ScannerInit, parser: ParserInit }) => void} Plugin
+ */
+
+/**
+ * De-register all plugins and reset the internal state-machine. Used for
+ * testing; not required in practice.
+ * @private
+ */
+function reset() {
+  State.groups = {};
+  INIT.scanner = null;
+  INIT.parser = null;
+  INIT.tokenQueue = [];
+  INIT.pluginQueue = [];
+  INIT.customSchemes = [];
+  INIT.initialized = false;
+  return INIT;
+}
+
+/**
+ * Register a token plugin to allow the scanner to recognize additional token
+ * types before the parser state machine is constructed from the results.
+ * @param {string} name of plugin to register
+ * @param {TokenPlugin} plugin function that accepts the scanner state machine
+ * and available scanner tokens and collections and extends the state machine to
+ * recognize additional tokens or groups.
+ */
+function registerTokenPlugin(name, plugin) {
+  if (typeof plugin !== 'function') {
+    throw new Error(`linkifyjs: Invalid token plugin ${plugin} (expects function)`);
+  }
+  for (let i = 0; i < INIT.tokenQueue.length; i++) {
+    if (name === INIT.tokenQueue[i][0]) {
+      warn(`linkifyjs: token plugin "${name}" already registered - will be overwritten`);
+      INIT.tokenQueue[i] = [name, plugin];
+      return;
+    }
+  }
+  INIT.tokenQueue.push([name, plugin]);
+  if (INIT.initialized) {
+    warn(`linkifyjs: already initialized - will not register token plugin "${name}" ${warnAdvice}`);
+  }
+}
+
+/**
+ * Register a linkify plugin
+ * @param {string} name of plugin to register
+ * @param {Plugin} plugin function that accepts the parser state machine and
+ * extends the parser to recognize additional link types
+ */
+function registerPlugin(name, plugin) {
+  if (typeof plugin !== 'function') {
+    throw new Error(`linkifyjs: Invalid plugin ${plugin} (expects function)`);
+  }
+  for (let i = 0; i < INIT.pluginQueue.length; i++) {
+    if (name === INIT.pluginQueue[i][0]) {
+      warn(`linkifyjs: plugin "${name}" already registered - will be overwritten`);
+      INIT.pluginQueue[i] = [name, plugin];
+      return;
+    }
+  }
+  INIT.pluginQueue.push([name, plugin]);
+  if (INIT.initialized) {
+    warn(`linkifyjs: already initialized - will not register plugin "${name}" ${warnAdvice}`);
+  }
+}
+
+/**
+ * Detect URLs with the following additional protocol. Anything with format
+ * "protocol://..." will be considered a link. If `optionalSlashSlash` is set to
+ * `true`, anything with format "protocol:..." will be considered a link.
+ * @param {string} scheme
+ * @param {boolean} [optionalSlashSlash]
+ */
+function registerCustomProtocol(scheme, optionalSlashSlash = false) {
+  if (INIT.initialized) {
+    warn(`linkifyjs: already initialized - will not register custom scheme "${scheme}" ${warnAdvice}`);
+  }
+  if (!/^[0-9a-z]+(-[0-9a-z]+)*$/.test(scheme)) {
+    throw new Error(`linkifyjs: incorrect scheme format.
+1. Must only contain digits, lowercase ASCII letters or "-"
+2. Cannot start or end with "-"
+3. "-" cannot repeat`);
+  }
+  INIT.customSchemes.push([scheme, optionalSlashSlash]);
+}
+
+/**
+ * Initialize the linkify state machine. Called automatically the first time
+ * linkify is called on a string, but may be called manually as well.
+ */
+function init() {
+  // Initialize scanner state machine and plugins
+  INIT.scanner = init$2(INIT.customSchemes);
+  for (let i = 0; i < INIT.tokenQueue.length; i++) {
+    INIT.tokenQueue[i][1]({
+      scanner: INIT.scanner
+    });
+  }
+
+  // Initialize parser state machine and plugins
+  INIT.parser = init$1(INIT.scanner.tokens);
+  for (let i = 0; i < INIT.pluginQueue.length; i++) {
+    INIT.pluginQueue[i][1]({
+      scanner: INIT.scanner,
+      parser: INIT.parser
+    });
+  }
+  INIT.initialized = true;
+  return INIT;
+}
+
+/**
+ * Parse a string into tokens that represent linkable and non-linkable sub-components
+ * @param {string} str
+ * @return {MultiToken[]} tokens
+ */
+function tokenize(str) {
+  if (!INIT.initialized) {
+    init();
+  }
+  return run(INIT.parser.start, str, run$1(INIT.scanner.start, str));
+}
+tokenize.scan = run$1; // for testing
+
+/**
+ * Find a list of linkable items in the given string.
+ * @param {string} str string to find links in
+ * @param {string | Opts} [type] either formatting options or specific type of
+ * links to find, e.g., 'url' or 'email'
+ * @param {Opts} [opts] formatting options for final output. Cannot be specified
+ * if opts already provided in `type` argument
+ */
+function find(str, type = null, opts = null) {
+  if (type && typeof type === 'object') {
+    if (opts) {
+      throw Error(`linkifyjs: Invalid link type ${type}; must be a string`);
+    }
+    opts = type;
+    type = null;
+  }
+  const options = new Options(opts);
+  const tokens = tokenize(str);
+  const filtered = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.isLink && (!type || token.t === type) && options.check(token)) {
+      filtered.push(token.toFormattedObject(options));
+    }
+  }
+  return filtered;
+}
+
+/**
+ * Is the given string valid linkable text of some sort. Note that this does not
+ * trim the text for you.
+ *
+ * Optionally pass in a second `type` param, which is the type of link to test
+ * for.
+ *
+ * For example,
+ *
+ *     linkify.test(str, 'email');
+ *
+ * Returns `true` if str is a valid email.
+ * @param {string} str string to test for links
+ * @param {string} [type] optional specific link type to look for
+ * @returns boolean true/false
+ */
+function test(str, type = null) {
+  const tokens = tokenize(str);
+  return tokens.length === 1 && tokens[0].isLink && (!type || tokens[0].t === type);
+}
+
+exports.MultiToken = MultiToken;
+exports.Options = Options;
+exports.State = State;
+exports.createTokenClass = createTokenClass;
+exports.find = find;
+exports.init = init;
+exports.multi = multi;
+exports.options = options;
+exports.regexp = regexp;
+exports.registerCustomProtocol = registerCustomProtocol;
+exports.registerPlugin = registerPlugin;
+exports.registerTokenPlugin = registerTokenPlugin;
+exports.reset = reset;
+exports.stringToArray = stringToArray;
+exports.test = test;
+exports.text = multi;
+exports.tokenize = tokenize;
+
+},{}],38:[function(require,module,exports){
 'use strict';
 
 // ::- Persistent data structure representing an ordered mapping from
@@ -6554,149 +9903,118 @@ OrderedMap.from = function(value) {
 
 module.exports = OrderedMap;
 
-},{}],36:[function(require,module,exports){
+},{}],39:[function(require,module,exports){
 'use strict';
 
-function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
-
-Object.defineProperty(exports, '__esModule', {
-  value: true
-});
-
 var prosemirrorTransform = require('prosemirror-transform');
-
 var prosemirrorModel = require('prosemirror-model');
-
 var prosemirrorState = require('prosemirror-state');
-
 var deleteSelection = function deleteSelection(state, dispatch) {
   if (state.selection.empty) return false;
   if (dispatch) dispatch(state.tr.deleteSelection().scrollIntoView());
   return true;
 };
-
 function atBlockStart(state, view) {
   var $cursor = state.selection.$cursor;
   if (!$cursor || (view ? !view.endOfTextblock("backward", state) : $cursor.parentOffset > 0)) return null;
   return $cursor;
 }
-
 var joinBackward = function joinBackward(state, dispatch, view) {
   var $cursor = atBlockStart(state, view);
   if (!$cursor) return false;
   var $cut = findCutBefore($cursor);
-
   if (!$cut) {
     var range = $cursor.blockRange(),
-        target = range && prosemirrorTransform.liftTarget(range);
+      target = range && prosemirrorTransform.liftTarget(range);
     if (target == null) return false;
     if (dispatch) dispatch(state.tr.lift(range, target).scrollIntoView());
     return true;
   }
-
   var before = $cut.nodeBefore;
-  if (!before.type.spec.isolating && deleteBarrier(state, $cut, dispatch)) return true;
-
+  if (deleteBarrier(state, $cut, dispatch, -1)) return true;
   if ($cursor.parent.content.size == 0 && (textblockAt(before, "end") || prosemirrorState.NodeSelection.isSelectable(before))) {
-    var delStep = prosemirrorTransform.replaceStep(state.doc, $cursor.before(), $cursor.after(), prosemirrorModel.Slice.empty);
-
-    if (delStep && delStep.slice.size < delStep.to - delStep.from) {
-      if (dispatch) {
-        var tr = state.tr.step(delStep);
-        tr.setSelection(textblockAt(before, "end") ? prosemirrorState.Selection.findFrom(tr.doc.resolve(tr.mapping.map($cut.pos, -1)), -1) : prosemirrorState.NodeSelection.create(tr.doc, $cut.pos - before.nodeSize));
-        dispatch(tr.scrollIntoView());
+    for (var depth = $cursor.depth;; depth--) {
+      var delStep = prosemirrorTransform.replaceStep(state.doc, $cursor.before(depth), $cursor.after(depth), prosemirrorModel.Slice.empty);
+      if (delStep && delStep.slice.size < delStep.to - delStep.from) {
+        if (dispatch) {
+          var tr = state.tr.step(delStep);
+          tr.setSelection(textblockAt(before, "end") ? prosemirrorState.Selection.findFrom(tr.doc.resolve(tr.mapping.map($cut.pos, -1)), -1) : prosemirrorState.NodeSelection.create(tr.doc, $cut.pos - before.nodeSize));
+          dispatch(tr.scrollIntoView());
+        }
+        return true;
       }
-
-      return true;
+      if (depth == 1 || $cursor.node(depth - 1).childCount > 1) break;
     }
   }
-
   if (before.isAtom && $cut.depth == $cursor.depth - 1) {
     if (dispatch) dispatch(state.tr["delete"]($cut.pos - before.nodeSize, $cut.pos).scrollIntoView());
     return true;
   }
-
   return false;
 };
-
 var joinTextblockBackward = function joinTextblockBackward(state, dispatch, view) {
   var $cursor = atBlockStart(state, view);
   if (!$cursor) return false;
   var $cut = findCutBefore($cursor);
   return $cut ? joinTextblocksAround(state, $cut, dispatch) : false;
 };
-
 var joinTextblockForward = function joinTextblockForward(state, dispatch, view) {
   var $cursor = atBlockEnd(state, view);
   if (!$cursor) return false;
   var $cut = findCutAfter($cursor);
   return $cut ? joinTextblocksAround(state, $cut, dispatch) : false;
 };
-
 function joinTextblocksAround(state, $cut, dispatch) {
   var before = $cut.nodeBefore,
-      beforeText = before,
-      beforePos = $cut.pos - 1;
-
+    beforeText = before,
+    beforePos = $cut.pos - 1;
   for (; !beforeText.isTextblock; beforePos--) {
     if (beforeText.type.spec.isolating) return false;
     var child = beforeText.lastChild;
     if (!child) return false;
     beforeText = child;
   }
-
   var after = $cut.nodeAfter,
-      afterText = after,
-      afterPos = $cut.pos + 1;
-
+    afterText = after,
+    afterPos = $cut.pos + 1;
   for (; !afterText.isTextblock; afterPos++) {
     if (afterText.type.spec.isolating) return false;
     var _child = afterText.firstChild;
     if (!_child) return false;
     afterText = _child;
   }
-
   var step = prosemirrorTransform.replaceStep(state.doc, beforePos, afterPos, prosemirrorModel.Slice.empty);
   if (!step || step.from != beforePos || step instanceof prosemirrorTransform.ReplaceStep && step.slice.size >= afterPos - beforePos) return false;
-
   if (dispatch) {
     var tr = state.tr.step(step);
     tr.setSelection(prosemirrorState.TextSelection.create(tr.doc, beforePos));
     dispatch(tr.scrollIntoView());
   }
-
   return true;
 }
-
 function textblockAt(node, side) {
   var only = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : false;
-
   for (var scan = node; scan; scan = side == "start" ? scan.firstChild : scan.lastChild) {
     if (scan.isTextblock) return true;
     if (only && scan.childCount != 1) return false;
   }
-
   return false;
 }
-
 var selectNodeBackward = function selectNodeBackward(state, dispatch, view) {
   var _state$selection = state.selection,
-      $head = _state$selection.$head,
-      empty = _state$selection.empty,
-      $cut = $head;
+    $head = _state$selection.$head,
+    empty = _state$selection.empty,
+    $cut = $head;
   if (!empty) return false;
-
   if ($head.parent.isTextblock) {
     if (view ? !view.endOfTextblock("backward", state) : $head.parentOffset > 0) return false;
     $cut = findCutBefore($head);
   }
-
   var node = $cut && $cut.nodeBefore;
   if (!node || !prosemirrorState.NodeSelection.isSelectable(node)) return false;
   if (dispatch) dispatch(state.tr.setSelection(prosemirrorState.NodeSelection.create(state.doc, $cut.pos - node.nodeSize)).scrollIntoView());
   return true;
 };
-
 function findCutBefore($pos) {
   if (!$pos.parent.type.spec.isolating) for (var i = $pos.depth - 1; i >= 0; i--) {
     if ($pos.index(i) > 0) return $pos.doc.resolve($pos.before(i + 1));
@@ -6704,61 +10022,50 @@ function findCutBefore($pos) {
   }
   return null;
 }
-
 function atBlockEnd(state, view) {
   var $cursor = state.selection.$cursor;
   if (!$cursor || (view ? !view.endOfTextblock("forward", state) : $cursor.parentOffset < $cursor.parent.content.size)) return null;
   return $cursor;
 }
-
 var joinForward = function joinForward(state, dispatch, view) {
   var $cursor = atBlockEnd(state, view);
   if (!$cursor) return false;
   var $cut = findCutAfter($cursor);
   if (!$cut) return false;
   var after = $cut.nodeAfter;
-  if (deleteBarrier(state, $cut, dispatch)) return true;
-
+  if (deleteBarrier(state, $cut, dispatch, 1)) return true;
   if ($cursor.parent.content.size == 0 && (textblockAt(after, "start") || prosemirrorState.NodeSelection.isSelectable(after))) {
     var delStep = prosemirrorTransform.replaceStep(state.doc, $cursor.before(), $cursor.after(), prosemirrorModel.Slice.empty);
-
     if (delStep && delStep.slice.size < delStep.to - delStep.from) {
       if (dispatch) {
         var tr = state.tr.step(delStep);
         tr.setSelection(textblockAt(after, "start") ? prosemirrorState.Selection.findFrom(tr.doc.resolve(tr.mapping.map($cut.pos)), 1) : prosemirrorState.NodeSelection.create(tr.doc, tr.mapping.map($cut.pos)));
         dispatch(tr.scrollIntoView());
       }
-
       return true;
     }
   }
-
   if (after.isAtom && $cut.depth == $cursor.depth - 1) {
     if (dispatch) dispatch(state.tr["delete"]($cut.pos, $cut.pos + after.nodeSize).scrollIntoView());
     return true;
   }
-
   return false;
 };
-
 var selectNodeForward = function selectNodeForward(state, dispatch, view) {
   var _state$selection2 = state.selection,
-      $head = _state$selection2.$head,
-      empty = _state$selection2.empty,
-      $cut = $head;
+    $head = _state$selection2.$head,
+    empty = _state$selection2.empty,
+    $cut = $head;
   if (!empty) return false;
-
   if ($head.parent.isTextblock) {
     if (view ? !view.endOfTextblock("forward", state) : $head.parentOffset < $head.parent.content.size) return false;
     $cut = findCutAfter($head);
   }
-
   var node = $cut && $cut.nodeAfter;
   if (!node || !prosemirrorState.NodeSelection.isSelectable(node)) return false;
   if (dispatch) dispatch(state.tr.setSelection(prosemirrorState.NodeSelection.create(state.doc, $cut.pos)).scrollIntoView());
   return true;
 };
-
 function findCutAfter($pos) {
   if (!$pos.parent.type.spec.isolating) for (var i = $pos.depth - 1; i >= 0; i--) {
     var parent = $pos.node(i);
@@ -6767,12 +10074,10 @@ function findCutAfter($pos) {
   }
   return null;
 }
-
 var joinUp = function joinUp(state, dispatch) {
   var sel = state.selection,
-      nodeSel = sel instanceof prosemirrorState.NodeSelection,
-      point;
-
+    nodeSel = sel instanceof prosemirrorState.NodeSelection,
+    point;
   if (nodeSel) {
     if (sel.node.isTextblock || !prosemirrorTransform.canJoin(state.doc, sel.from)) return false;
     point = sel.from;
@@ -6780,20 +10085,16 @@ var joinUp = function joinUp(state, dispatch) {
     point = prosemirrorTransform.joinPoint(state.doc, sel.from, -1);
     if (point == null) return false;
   }
-
   if (dispatch) {
     var tr = state.tr.join(point);
     if (nodeSel) tr.setSelection(prosemirrorState.NodeSelection.create(tr.doc, point - state.doc.resolve(point).nodeBefore.nodeSize));
     dispatch(tr.scrollIntoView());
   }
-
   return true;
 };
-
 var joinDown = function joinDown(state, dispatch) {
   var sel = state.selection,
-      point;
-
+    point;
   if (sel instanceof prosemirrorState.NodeSelection) {
     if (sel.node.isTextblock || !prosemirrorTransform.canJoin(state.doc, sel.to)) return false;
     point = sel.to;
@@ -6801,153 +10102,137 @@ var joinDown = function joinDown(state, dispatch) {
     point = prosemirrorTransform.joinPoint(state.doc, sel.to, 1);
     if (point == null) return false;
   }
-
   if (dispatch) dispatch(state.tr.join(point).scrollIntoView());
   return true;
 };
-
 var lift = function lift(state, dispatch) {
   var _state$selection3 = state.selection,
-      $from = _state$selection3.$from,
-      $to = _state$selection3.$to;
+    $from = _state$selection3.$from,
+    $to = _state$selection3.$to;
   var range = $from.blockRange($to),
-      target = range && prosemirrorTransform.liftTarget(range);
+    target = range && prosemirrorTransform.liftTarget(range);
   if (target == null) return false;
   if (dispatch) dispatch(state.tr.lift(range, target).scrollIntoView());
   return true;
 };
-
 var newlineInCode = function newlineInCode(state, dispatch) {
   var _state$selection4 = state.selection,
-      $head = _state$selection4.$head,
-      $anchor = _state$selection4.$anchor;
+    $head = _state$selection4.$head,
+    $anchor = _state$selection4.$anchor;
   if (!$head.parent.type.spec.code || !$head.sameParent($anchor)) return false;
   if (dispatch) dispatch(state.tr.insertText("\n").scrollIntoView());
   return true;
 };
-
 function defaultBlockAt(match) {
   for (var i = 0; i < match.edgeCount; i++) {
     var _match$edge = match.edge(i),
-        type = _match$edge.type;
-
+      type = _match$edge.type;
     if (type.isTextblock && !type.hasRequiredAttrs()) return type;
   }
-
   return null;
 }
-
 var exitCode = function exitCode(state, dispatch) {
   var _state$selection5 = state.selection,
-      $head = _state$selection5.$head,
-      $anchor = _state$selection5.$anchor;
+    $head = _state$selection5.$head,
+    $anchor = _state$selection5.$anchor;
   if (!$head.parent.type.spec.code || !$head.sameParent($anchor)) return false;
   var above = $head.node(-1),
-      after = $head.indexAfter(-1),
-      type = defaultBlockAt(above.contentMatchAt(after));
+    after = $head.indexAfter(-1),
+    type = defaultBlockAt(above.contentMatchAt(after));
   if (!type || !above.canReplaceWith(after, after, type)) return false;
-
   if (dispatch) {
     var pos = $head.after(),
-        tr = state.tr.replaceWith(pos, pos, type.createAndFill());
+      tr = state.tr.replaceWith(pos, pos, type.createAndFill());
     tr.setSelection(prosemirrorState.Selection.near(tr.doc.resolve(pos), 1));
     dispatch(tr.scrollIntoView());
   }
-
   return true;
 };
-
 var createParagraphNear = function createParagraphNear(state, dispatch) {
   var sel = state.selection,
-      $from = sel.$from,
-      $to = sel.$to;
+    $from = sel.$from,
+    $to = sel.$to;
   if (sel instanceof prosemirrorState.AllSelection || $from.parent.inlineContent || $to.parent.inlineContent) return false;
   var type = defaultBlockAt($to.parent.contentMatchAt($to.indexAfter()));
   if (!type || !type.isTextblock) return false;
-
   if (dispatch) {
     var side = (!$from.parentOffset && $to.index() < $to.parent.childCount ? $from : $to).pos;
     var tr = state.tr.insert(side, type.createAndFill());
     tr.setSelection(prosemirrorState.TextSelection.create(tr.doc, side + 1));
     dispatch(tr.scrollIntoView());
   }
-
   return true;
 };
-
 var liftEmptyBlock = function liftEmptyBlock(state, dispatch) {
   var $cursor = state.selection.$cursor;
   if (!$cursor || $cursor.parent.content.size) return false;
-
   if ($cursor.depth > 1 && $cursor.after() != $cursor.end(-1)) {
     var before = $cursor.before();
-
     if (prosemirrorTransform.canSplit(state.doc, before)) {
       if (dispatch) dispatch(state.tr.split(before).scrollIntoView());
       return true;
     }
   }
-
   var range = $cursor.blockRange(),
-      target = range && prosemirrorTransform.liftTarget(range);
+    target = range && prosemirrorTransform.liftTarget(range);
   if (target == null) return false;
   if (dispatch) dispatch(state.tr.lift(range, target).scrollIntoView());
   return true;
 };
-
 function splitBlockAs(splitNode) {
   return function (state, dispatch) {
     var _state$selection6 = state.selection,
-        $from = _state$selection6.$from,
-        $to = _state$selection6.$to;
-
+      $from = _state$selection6.$from,
+      $to = _state$selection6.$to;
     if (state.selection instanceof prosemirrorState.NodeSelection && state.selection.node.isBlock) {
       if (!$from.parentOffset || !prosemirrorTransform.canSplit(state.doc, $from.pos)) return false;
       if (dispatch) dispatch(state.tr.split($from.pos).scrollIntoView());
       return true;
     }
-
-    if (!$from.parent.isBlock) return false;
-
-    if (dispatch) {
-      var atEnd = $to.parentOffset == $to.parent.content.size;
-      var tr = state.tr;
-      if (state.selection instanceof prosemirrorState.TextSelection || state.selection instanceof prosemirrorState.AllSelection) tr.deleteSelection();
-      var deflt = $from.depth == 0 ? null : defaultBlockAt($from.node(-1).contentMatchAt($from.indexAfter(-1)));
-      var splitType = splitNode && splitNode($to.parent, atEnd);
-      var types = splitType ? [splitType] : atEnd && deflt ? [{
-        type: deflt
-      }] : undefined;
-      var can = prosemirrorTransform.canSplit(tr.doc, tr.mapping.map($from.pos), 1, types);
-
-      if (!types && !can && prosemirrorTransform.canSplit(tr.doc, tr.mapping.map($from.pos), 1, deflt ? [{
-        type: deflt
-      }] : undefined)) {
-        if (deflt) types = [{
+    if (!$from.depth) return false;
+    var types = [];
+    var splitDepth,
+      deflt,
+      atEnd = false,
+      atStart = false;
+    for (var d = $from.depth;; d--) {
+      var node = $from.node(d);
+      if (node.isBlock) {
+        atEnd = $from.end(d) == $from.pos + ($from.depth - d);
+        atStart = $from.start(d) == $from.pos - ($from.depth - d);
+        deflt = defaultBlockAt($from.node(d - 1).contentMatchAt($from.indexAfter(d - 1)));
+        var splitType = splitNode && splitNode($to.parent, atEnd, $from);
+        types.unshift(splitType || (atEnd && deflt ? {
           type: deflt
-        }];
-        can = true;
+        } : null));
+        splitDepth = d;
+        break;
+      } else {
+        if (d == 1) return false;
+        types.unshift(null);
       }
-
-      if (can) {
-        tr.split(tr.mapping.map($from.pos), 1, types);
-
-        if (!atEnd && !$from.parentOffset && $from.parent.type != deflt) {
-          var first = tr.mapping.map($from.before()),
-              $first = tr.doc.resolve(first);
-          if (deflt && $from.node(-1).canReplaceWith($first.index(), $first.index() + 1, deflt)) tr.setNodeMarkup(tr.mapping.map($from.before()), deflt);
-        }
-      }
-
-      dispatch(tr.scrollIntoView());
     }
-
+    var tr = state.tr;
+    if (state.selection instanceof prosemirrorState.TextSelection || state.selection instanceof prosemirrorState.AllSelection) tr.deleteSelection();
+    var splitPos = tr.mapping.map($from.pos);
+    var can = prosemirrorTransform.canSplit(tr.doc, splitPos, types.length, types);
+    if (!can) {
+      types[0] = deflt ? {
+        type: deflt
+      } : null;
+      can = prosemirrorTransform.canSplit(tr.doc, splitPos, types.length, types);
+    }
+    tr.split(splitPos, types.length, types);
+    if (!atEnd && atStart && $from.node(splitDepth).type != deflt) {
+      var first = tr.mapping.map($from.before(splitDepth)),
+        $first = tr.doc.resolve(first);
+      if (deflt && $from.node(splitDepth - 1).canReplaceWith($first.index(), $first.index() + 1, deflt)) tr.setNodeMarkup(tr.mapping.map($from.before(splitDepth)), deflt);
+    }
+    if (dispatch) dispatch(tr.scrollIntoView());
     return true;
   };
 }
-
 var splitBlock = splitBlockAs();
-
 var splitBlockKeepMarks = function splitBlockKeepMarks(state, dispatch) {
   return splitBlock(state, dispatch && function (tr) {
     var marks = state.storedMarks || state.selection.$to.parentOffset && state.selection.$from.marks();
@@ -6955,321 +10240,284 @@ var splitBlockKeepMarks = function splitBlockKeepMarks(state, dispatch) {
     dispatch(tr);
   });
 };
-
 var selectParentNode = function selectParentNode(state, dispatch) {
   var _state$selection7 = state.selection,
-      $from = _state$selection7.$from,
-      to = _state$selection7.to,
-      pos;
+    $from = _state$selection7.$from,
+    to = _state$selection7.to,
+    pos;
   var same = $from.sharedDepth(to);
   if (same == 0) return false;
   pos = $from.before(same);
   if (dispatch) dispatch(state.tr.setSelection(prosemirrorState.NodeSelection.create(state.doc, pos)));
   return true;
 };
-
 var selectAll = function selectAll(state, dispatch) {
   if (dispatch) dispatch(state.tr.setSelection(new prosemirrorState.AllSelection(state.doc)));
   return true;
 };
-
 function joinMaybeClear(state, $pos, dispatch) {
   var before = $pos.nodeBefore,
-      after = $pos.nodeAfter,
-      index = $pos.index();
+    after = $pos.nodeAfter,
+    index = $pos.index();
   if (!before || !after || !before.type.compatibleContent(after.type)) return false;
-
   if (!before.content.size && $pos.parent.canReplace(index - 1, index)) {
     if (dispatch) dispatch(state.tr["delete"]($pos.pos - before.nodeSize, $pos.pos).scrollIntoView());
     return true;
   }
-
   if (!$pos.parent.canReplace(index, index + 1) || !(after.isTextblock || prosemirrorTransform.canJoin(state.doc, $pos.pos))) return false;
-  if (dispatch) dispatch(state.tr.clearIncompatible($pos.pos, before.type, before.contentMatchAt(before.childCount)).join($pos.pos).scrollIntoView());
+  if (dispatch) dispatch(state.tr.join($pos.pos).scrollIntoView());
   return true;
 }
-
-function deleteBarrier(state, $cut, dispatch) {
+function deleteBarrier(state, $cut, dispatch, dir) {
   var before = $cut.nodeBefore,
-      after = $cut.nodeAfter,
-      conn,
-      match;
-  if (before.type.spec.isolating || after.type.spec.isolating) return false;
-  if (joinMaybeClear(state, $cut, dispatch)) return true;
-  var canDelAfter = $cut.parent.canReplace($cut.index(), $cut.index() + 1);
-
+    after = $cut.nodeAfter,
+    conn,
+    match;
+  var isolated = before.type.spec.isolating || after.type.spec.isolating;
+  if (!isolated && joinMaybeClear(state, $cut, dispatch)) return true;
+  var canDelAfter = !isolated && $cut.parent.canReplace($cut.index(), $cut.index() + 1);
   if (canDelAfter && (conn = (match = before.contentMatchAt(before.childCount)).findWrapping(after.type)) && match.matchType(conn[0] || after.type).validEnd) {
     if (dispatch) {
       var end = $cut.pos + after.nodeSize,
-          wrap = prosemirrorModel.Fragment.empty;
-
-      for (var i = conn.length - 1; i >= 0; i--) {
-        wrap = prosemirrorModel.Fragment.from(conn[i].create(null, wrap));
-      }
-
+        wrap = prosemirrorModel.Fragment.empty;
+      for (var i = conn.length - 1; i >= 0; i--) wrap = prosemirrorModel.Fragment.from(conn[i].create(null, wrap));
       wrap = prosemirrorModel.Fragment.from(before.copy(wrap));
       var tr = state.tr.step(new prosemirrorTransform.ReplaceAroundStep($cut.pos - 1, end, $cut.pos, end, new prosemirrorModel.Slice(wrap, 1, 0), conn.length, true));
-      var joinAt = end + 2 * conn.length;
-      if (prosemirrorTransform.canJoin(tr.doc, joinAt)) tr.join(joinAt);
+      var $joinAt = tr.doc.resolve(end + 2 * conn.length);
+      if ($joinAt.nodeAfter && $joinAt.nodeAfter.type == before.type && prosemirrorTransform.canJoin(tr.doc, $joinAt.pos)) tr.join($joinAt.pos);
       dispatch(tr.scrollIntoView());
     }
-
     return true;
   }
-
-  var selAfter = prosemirrorState.Selection.findFrom($cut, 1);
+  var selAfter = after.type.spec.isolating || dir > 0 && isolated ? null : prosemirrorState.Selection.findFrom($cut, 1);
   var range = selAfter && selAfter.$from.blockRange(selAfter.$to),
-      target = range && prosemirrorTransform.liftTarget(range);
-
+    target = range && prosemirrorTransform.liftTarget(range);
   if (target != null && target >= $cut.depth) {
     if (dispatch) dispatch(state.tr.lift(range, target).scrollIntoView());
     return true;
   }
-
   if (canDelAfter && textblockAt(after, "start", true) && textblockAt(before, "end")) {
     var at = before,
-        _wrap = [];
-
+      _wrap = [];
     for (;;) {
       _wrap.push(at);
-
       if (at.isTextblock) break;
       at = at.lastChild;
     }
-
     var afterText = after,
-        afterDepth = 1;
-
-    for (; !afterText.isTextblock; afterText = afterText.firstChild) {
-      afterDepth++;
-    }
-
+      afterDepth = 1;
+    for (; !afterText.isTextblock; afterText = afterText.firstChild) afterDepth++;
     if (at.canReplace(at.childCount, at.childCount, afterText.content)) {
       if (dispatch) {
         var _end = prosemirrorModel.Fragment.empty;
-
-        for (var _i = _wrap.length - 1; _i >= 0; _i--) {
-          _end = prosemirrorModel.Fragment.from(_wrap[_i].copy(_end));
-        }
-
+        for (var _i = _wrap.length - 1; _i >= 0; _i--) _end = prosemirrorModel.Fragment.from(_wrap[_i].copy(_end));
         var _tr = state.tr.step(new prosemirrorTransform.ReplaceAroundStep($cut.pos - _wrap.length, $cut.pos + after.nodeSize, $cut.pos + afterDepth, $cut.pos + after.nodeSize - afterDepth, new prosemirrorModel.Slice(_end, _wrap.length, 0), 0, true));
-
         dispatch(_tr.scrollIntoView());
       }
-
       return true;
     }
   }
-
   return false;
 }
-
 function selectTextblockSide(side) {
   return function (state, dispatch) {
     var sel = state.selection,
-        $pos = side < 0 ? sel.$from : sel.$to;
+      $pos = side < 0 ? sel.$from : sel.$to;
     var depth = $pos.depth;
-
     while ($pos.node(depth).isInline) {
       if (!depth) return false;
       depth--;
     }
-
     if (!$pos.node(depth).isTextblock) return false;
     if (dispatch) dispatch(state.tr.setSelection(prosemirrorState.TextSelection.create(state.doc, side < 0 ? $pos.start(depth) : $pos.end(depth))));
     return true;
   };
 }
-
 var selectTextblockStart = selectTextblockSide(-1);
 var selectTextblockEnd = selectTextblockSide(1);
-
 function wrapIn(nodeType) {
   var attrs = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : null;
   return function (state, dispatch) {
     var _state$selection8 = state.selection,
-        $from = _state$selection8.$from,
-        $to = _state$selection8.$to;
+      $from = _state$selection8.$from,
+      $to = _state$selection8.$to;
     var range = $from.blockRange($to),
-        wrapping = range && prosemirrorTransform.findWrapping(range, nodeType, attrs);
+      wrapping = range && prosemirrorTransform.findWrapping(range, nodeType, attrs);
     if (!wrapping) return false;
     if (dispatch) dispatch(state.tr.wrap(range, wrapping).scrollIntoView());
     return true;
   };
 }
-
 function setBlockType(nodeType) {
   var attrs = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : null;
   return function (state, dispatch) {
     var applicable = false;
-
     for (var i = 0; i < state.selection.ranges.length && !applicable; i++) {
       var _state$selection$rang = state.selection.ranges[i],
-          from = _state$selection$rang.$from.pos,
-          to = _state$selection$rang.$to.pos;
+        from = _state$selection$rang.$from.pos,
+        to = _state$selection$rang.$to.pos;
       state.doc.nodesBetween(from, to, function (node, pos) {
         if (applicable) return false;
         if (!node.isTextblock || node.hasMarkup(nodeType, attrs)) return;
-
         if (node.type == nodeType) {
           applicable = true;
         } else {
           var $pos = state.doc.resolve(pos),
-              index = $pos.index();
+            index = $pos.index();
           applicable = $pos.parent.canReplaceWith(index, index + 1, nodeType);
         }
       });
     }
-
     if (!applicable) return false;
-
     if (dispatch) {
       var tr = state.tr;
-
       for (var _i2 = 0; _i2 < state.selection.ranges.length; _i2++) {
         var _state$selection$rang2 = state.selection.ranges[_i2],
-            _from = _state$selection$rang2.$from.pos,
-            _to = _state$selection$rang2.$to.pos;
+          _from = _state$selection$rang2.$from.pos,
+          _to = _state$selection$rang2.$to.pos;
         tr.setBlockType(_from, _to, nodeType, attrs);
       }
-
       dispatch(tr.scrollIntoView());
     }
-
     return true;
   };
 }
-
-function markApplies(doc, ranges, type) {
-  var _loop = function _loop(i) {
-    var _ranges$i = ranges[i],
+function markApplies(doc, ranges, type, enterAtoms) {
+  var _loop = function _loop() {
+      var _ranges$i = ranges[i],
         $from = _ranges$i.$from,
         $to = _ranges$i.$to;
-    var can = $from.depth == 0 ? doc.inlineContent && doc.type.allowsMarkType(type) : false;
-    doc.nodesBetween($from.pos, $to.pos, function (node) {
-      if (can) return false;
-      can = node.inlineContent && node.type.allowsMarkType(type);
-    });
-    if (can) return {
-      v: true
-    };
-  };
-
+      var can = $from.depth == 0 ? doc.inlineContent && doc.type.allowsMarkType(type) : false;
+      doc.nodesBetween($from.pos, $to.pos, function (node, pos) {
+        if (can || !enterAtoms && node.isAtom && node.isInline && pos >= $from.pos && pos + node.nodeSize <= $to.pos) return false;
+        can = node.inlineContent && node.type.allowsMarkType(type);
+      });
+      if (can) return {
+        v: true
+      };
+    },
+    _ret;
   for (var i = 0; i < ranges.length; i++) {
-    var _ret = _loop(i);
-
-    if (_typeof(_ret) === "object") return _ret.v;
+    _ret = _loop();
+    if (_ret) return _ret.v;
   }
-
   return false;
 }
-
+function removeInlineAtoms(ranges) {
+  var result = [];
+  var _loop2 = function _loop2() {
+    var _ranges$i2 = ranges[i],
+      $from = _ranges$i2.$from,
+      $to = _ranges$i2.$to;
+    $from.doc.nodesBetween($from.pos, $to.pos, function (node, pos) {
+      if (node.isAtom && node.content.size && node.isInline && pos >= $from.pos && pos + node.nodeSize <= $to.pos) {
+        if (pos + 1 > $from.pos) result.push(new prosemirrorState.SelectionRange($from, $from.doc.resolve(pos + 1)));
+        $from = $from.doc.resolve(pos + 1 + node.content.size);
+        return false;
+      }
+    });
+    if ($from.pos < $to.pos) result.push(new prosemirrorState.SelectionRange($from, $to));
+  };
+  for (var i = 0; i < ranges.length; i++) {
+    _loop2();
+  }
+  return result;
+}
 function toggleMark(markType) {
   var attrs = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : null;
+  var options = arguments.length > 2 ? arguments[2] : undefined;
+  var removeWhenPresent = (options && options.removeWhenPresent) !== false;
+  var enterAtoms = (options && options.enterInlineAtoms) !== false;
   return function (state, dispatch) {
     var _state$selection9 = state.selection,
-        empty = _state$selection9.empty,
-        $cursor = _state$selection9.$cursor,
-        ranges = _state$selection9.ranges;
-    if (empty && !$cursor || !markApplies(state.doc, ranges, markType)) return false;
-
+      empty = _state$selection9.empty,
+      $cursor = _state$selection9.$cursor,
+      ranges = _state$selection9.ranges;
+    if (empty && !$cursor || !markApplies(state.doc, ranges, markType, enterAtoms)) return false;
     if (dispatch) {
       if ($cursor) {
         if (markType.isInSet(state.storedMarks || $cursor.marks())) dispatch(state.tr.removeStoredMark(markType));else dispatch(state.tr.addStoredMark(markType.create(attrs)));
       } else {
-        var has = false,
-            tr = state.tr;
-
-        for (var i = 0; !has && i < ranges.length; i++) {
-          var _ranges$i2 = ranges[i],
-              $from = _ranges$i2.$from,
-              $to = _ranges$i2.$to;
-          has = state.doc.rangeHasMark($from.pos, $to.pos, markType);
+        var add,
+          tr = state.tr;
+        if (!enterAtoms) ranges = removeInlineAtoms(ranges);
+        if (removeWhenPresent) {
+          add = !ranges.some(function (r) {
+            return state.doc.rangeHasMark(r.$from.pos, r.$to.pos, markType);
+          });
+        } else {
+          add = !ranges.every(function (r) {
+            var missing = false;
+            tr.doc.nodesBetween(r.$from.pos, r.$to.pos, function (node, pos, parent) {
+              if (missing) return false;
+              missing = !markType.isInSet(node.marks) && !!parent && parent.type.allowsMarkType(markType) && !(node.isText && /^\s*$/.test(node.textBetween(Math.max(0, r.$from.pos - pos), Math.min(node.nodeSize, r.$to.pos - pos))));
+            });
+            return !missing;
+          });
         }
-
-        for (var _i3 = 0; _i3 < ranges.length; _i3++) {
-          var _ranges$_i = ranges[_i3],
-              _$from = _ranges$_i.$from,
-              _$to = _ranges$_i.$to;
-
-          if (has) {
-            tr.removeMark(_$from.pos, _$to.pos, markType);
+        for (var i = 0; i < ranges.length; i++) {
+          var _ranges$i3 = ranges[i],
+            $from = _ranges$i3.$from,
+            $to = _ranges$i3.$to;
+          if (!add) {
+            tr.removeMark($from.pos, $to.pos, markType);
           } else {
-            var from = _$from.pos,
-                to = _$to.pos,
-                start = _$from.nodeAfter,
-                end = _$to.nodeBefore;
+            var from = $from.pos,
+              to = $to.pos,
+              start = $from.nodeAfter,
+              end = $to.nodeBefore;
             var spaceStart = start && start.isText ? /^\s*/.exec(start.text)[0].length : 0;
             var spaceEnd = end && end.isText ? /\s*$/.exec(end.text)[0].length : 0;
-
             if (from + spaceStart < to) {
               from += spaceStart;
               to -= spaceEnd;
             }
-
             tr.addMark(from, to, markType.create(attrs));
           }
         }
-
         dispatch(tr.scrollIntoView());
       }
     }
-
     return true;
   };
 }
-
 function wrapDispatchForJoin(dispatch, isJoinable) {
   return function (tr) {
     if (!tr.isGeneric) return dispatch(tr);
     var ranges = [];
-
     for (var i = 0; i < tr.mapping.maps.length; i++) {
       var map = tr.mapping.maps[i];
-
-      for (var j = 0; j < ranges.length; j++) {
-        ranges[j] = map.map(ranges[j]);
-      }
-
+      for (var j = 0; j < ranges.length; j++) ranges[j] = map.map(ranges[j]);
       map.forEach(function (_s, _e, from, to) {
         return ranges.push(from, to);
       });
     }
-
     var joinable = [];
-
-    for (var _i4 = 0; _i4 < ranges.length; _i4 += 2) {
-      var from = ranges[_i4],
-          to = ranges[_i4 + 1];
+    for (var _i3 = 0; _i3 < ranges.length; _i3 += 2) {
+      var from = ranges[_i3],
+        to = ranges[_i3 + 1];
       var $from = tr.doc.resolve(from),
-          depth = $from.sharedDepth(to),
-          parent = $from.node(depth);
-
+        depth = $from.sharedDepth(to),
+        parent = $from.node(depth);
       for (var index = $from.indexAfter(depth), pos = $from.after(depth + 1); pos <= to; ++index) {
         var after = parent.maybeChild(index);
         if (!after) break;
-
         if (index && joinable.indexOf(pos) == -1) {
           var before = parent.child(index - 1);
           if (before.type == after.type && isJoinable(before, after)) joinable.push(pos);
         }
-
         pos += after.nodeSize;
       }
     }
-
     joinable.sort(function (a, b) {
       return a - b;
     });
-
-    for (var _i5 = joinable.length - 1; _i5 >= 0; _i5--) {
-      if (prosemirrorTransform.canJoin(tr.doc, joinable[_i5])) tr.join(joinable[_i5]);
+    for (var _i4 = joinable.length - 1; _i4 >= 0; _i4--) {
+      if (prosemirrorTransform.canJoin(tr.doc, joinable[_i4])) tr.join(joinable[_i4]);
     }
-
     dispatch(tr);
   };
 }
-
 function autoJoin(command, isJoinable) {
   var canJoin = Array.isArray(isJoinable) ? function (node) {
     return isJoinable.indexOf(node.type.name) > -1;
@@ -7278,21 +10526,15 @@ function autoJoin(command, isJoinable) {
     return command(state, dispatch && wrapDispatchForJoin(dispatch, canJoin), view);
   };
 }
-
 function chainCommands() {
   for (var _len = arguments.length, commands = new Array(_len), _key = 0; _key < _len; _key++) {
     commands[_key] = arguments[_key];
   }
-
   return function (state, dispatch, view) {
-    for (var i = 0; i < commands.length; i++) {
-      if (commands[i](state, dispatch, view)) return true;
-    }
-
+    for (var i = 0; i < commands.length; i++) if (commands[i](state, dispatch, view)) return true;
     return false;
   };
 }
-
 var backspace = chainCommands(deleteSelection, joinBackward, selectNodeBackward);
 var del = chainCommands(deleteSelection, joinForward, selectNodeForward);
 var pcBaseKeymap = {
@@ -7315,11 +10557,7 @@ var macBaseKeymap = {
   "Ctrl-a": selectTextblockStart,
   "Ctrl-e": selectTextblockEnd
 };
-
-for (var key in pcBaseKeymap) {
-  macBaseKeymap[key] = pcBaseKeymap[key];
-}
-
+for (var key in pcBaseKeymap) macBaseKeymap[key] = pcBaseKeymap[key];
 var mac = typeof navigator != "undefined" ? /Mac|iP(hone|[oa]d)/.test(navigator.platform) : typeof os != "undefined" && os.platform ? os.platform() == "darwin" : false;
 var baseKeymap = mac ? macBaseKeymap : pcBaseKeymap;
 exports.autoJoin = autoJoin;
@@ -7352,7 +10590,7 @@ exports.splitBlockKeepMarks = splitBlockKeepMarks;
 exports.toggleMark = toggleMark;
 exports.wrapIn = wrapIn;
 
-},{"prosemirror-model":41,"prosemirror-state":43,"prosemirror-transform":44}],37:[function(require,module,exports){
+},{"prosemirror-model":44,"prosemirror-state":46,"prosemirror-transform":47}],40:[function(require,module,exports){
 'use strict';
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
@@ -7562,7 +10800,7 @@ var DropCursorView = function () {
 
 exports.dropCursor = dropCursor;
 
-},{"prosemirror-state":43,"prosemirror-transform":44}],38:[function(require,module,exports){
+},{"prosemirror-state":46,"prosemirror-transform":47}],41:[function(require,module,exports){
 'use strict';
 
 function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
@@ -7859,101 +11097,70 @@ function drawGapCursor(state) {
 exports.GapCursor = GapCursor;
 exports.gapCursor = gapCursor;
 
-},{"prosemirror-keymap":40,"prosemirror-model":41,"prosemirror-state":43,"prosemirror-view":45}],39:[function(require,module,exports){
+},{"prosemirror-keymap":43,"prosemirror-model":44,"prosemirror-state":46,"prosemirror-view":48}],42:[function(require,module,exports){
 'use strict';
 
+function _typeof(o) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) { return typeof o; } : function (o) { return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o; }, _typeof(o); }
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } }
-
+function _defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, _toPropertyKey(descriptor.key), descriptor); } }
 function _createClass(Constructor, protoProps, staticProps) { if (protoProps) _defineProperties(Constructor.prototype, protoProps); if (staticProps) _defineProperties(Constructor, staticProps); Object.defineProperty(Constructor, "prototype", { writable: false }); return Constructor; }
-
-function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
-
-Object.defineProperty(exports, '__esModule', {
-  value: true
-});
-
+function _toPropertyKey(arg) { var key = _toPrimitive(arg, "string"); return _typeof(key) === "symbol" ? key : String(key); }
+function _toPrimitive(input, hint) { if (_typeof(input) !== "object" || input === null) return input; var prim = input[Symbol.toPrimitive]; if (prim !== undefined) { var res = prim.call(input, hint || "default"); if (_typeof(res) !== "object") return res; throw new TypeError("@@toPrimitive must return a primitive value."); } return (hint === "string" ? String : Number)(input); }
 var RopeSequence = require('rope-sequence');
-
 var prosemirrorTransform = require('prosemirror-transform');
-
 var prosemirrorState = require('prosemirror-state');
-
-function _interopDefaultLegacy(e) {
-  return e && _typeof(e) === 'object' && 'default' in e ? e : {
-    'default': e
-  };
-}
-
-var RopeSequence__default = _interopDefaultLegacy(RopeSequence);
-
 var max_empty_items = 500;
-
 var Branch = function () {
   function Branch(items, eventCount) {
     _classCallCheck(this, Branch);
-
     this.items = items;
     this.eventCount = eventCount;
   }
-
   _createClass(Branch, [{
     key: "popEvent",
     value: function popEvent(state, preserveItems) {
       var _this = this;
-
       if (this.eventCount == 0) return null;
       var end = this.items.length;
-
       for (;; end--) {
         var next = this.items.get(end - 1);
-
         if (next.selection) {
           --end;
           break;
         }
       }
-
       var remap, mapFrom;
-
       if (preserveItems) {
         remap = this.remapping(end, this.items.length);
         mapFrom = remap.maps.length;
       }
-
       var transform = state.tr;
       var selection, remaining;
       var addAfter = [],
-          addBefore = [];
+        addBefore = [];
       this.items.forEach(function (item, i) {
         if (!item.step) {
           if (!remap) {
             remap = _this.remapping(end, i + 1);
             mapFrom = remap.maps.length;
           }
-
           mapFrom--;
           addBefore.push(item);
           return;
         }
-
         if (remap) {
           addBefore.push(new Item(item.map));
           var step = item.step.map(remap.slice(mapFrom)),
-              map;
-
+            map;
           if (step && transform.maybeStep(step).doc) {
             map = transform.mapping.maps[transform.mapping.maps.length - 1];
             addAfter.push(new Item(map, undefined, undefined, addAfter.length + addBefore.length));
           }
-
           mapFrom--;
           if (map) remap.appendMap(map, mapFrom);
         } else {
           transform.maybeStep(item.step);
         }
-
         if (item.selection) {
           selection = remap ? item.selection.map(remap.slice(mapFrom)) : item.selection;
           remaining = new Branch(_this.items.slice(0, end).append(addBefore.reverse().concat(addAfter)), _this.eventCount - 1);
@@ -7970,37 +11177,29 @@ var Branch = function () {
     key: "addTransform",
     value: function addTransform(transform, selection, histOptions, preserveItems) {
       var newItems = [],
-          eventCount = this.eventCount;
+        eventCount = this.eventCount;
       var oldItems = this.items,
-          lastItem = !preserveItems && oldItems.length ? oldItems.get(oldItems.length - 1) : null;
-
+        lastItem = !preserveItems && oldItems.length ? oldItems.get(oldItems.length - 1) : null;
       for (var i = 0; i < transform.steps.length; i++) {
         var step = transform.steps[i].invert(transform.docs[i]);
         var item = new Item(transform.mapping.maps[i], step, selection),
-            merged = void 0;
-
+          merged = void 0;
         if (merged = lastItem && lastItem.merge(item)) {
           item = merged;
           if (i) newItems.pop();else oldItems = oldItems.slice(0, oldItems.length - 1);
         }
-
         newItems.push(item);
-
         if (selection) {
           eventCount++;
           selection = undefined;
         }
-
         if (!preserveItems) lastItem = item;
       }
-
       var overflow = eventCount - histOptions.depth;
-
       if (overflow > DEPTH_OVERFLOW) {
         oldItems = cutOffEvents(oldItems, overflow);
         eventCount -= overflow;
       }
-
       return new Branch(oldItems.append(newItems), eventCount);
     }
   }, {
@@ -8026,7 +11225,7 @@ var Branch = function () {
     value: function rebased(rebasedTransform, rebasedCount) {
       if (!this.eventCount) return this;
       var rebasedItems = [],
-          start = Math.max(0, this.items.length - rebasedCount);
+        start = Math.max(0, this.items.length - rebasedCount);
       var mapping = rebasedTransform.mapping;
       var newUntil = rebasedTransform.steps.length;
       var eventCount = this.eventCount;
@@ -8039,7 +11238,6 @@ var Branch = function () {
         if (pos == null) return;
         newUntil = Math.min(newUntil, pos);
         var map = mapping.maps[pos];
-
         if (item.step) {
           var step = rebasedTransform.steps[pos].invert(rebasedTransform.docs[pos]);
           var selection = item.selection && item.selection.map(mapping.slice(iRebased + 1, pos));
@@ -8050,11 +11248,7 @@ var Branch = function () {
         }
       }, start);
       var newMaps = [];
-
-      for (var i = rebasedCount; i < newUntil; i++) {
-        newMaps.push(new Item(mapping.maps[i]));
-      }
-
+      for (var i = rebasedCount; i < newUntil; i++) newMaps.push(new Item(mapping.maps[i]));
       var items = this.items.slice(0, start).append(newMaps).append(rebasedItems);
       var branch = new Branch(items, eventCount);
       if (branch.emptyItemCount() > max_empty_items) branch = branch.compress(this.items.length - rebasedItems.length);
@@ -8074,40 +11268,36 @@ var Branch = function () {
     value: function compress() {
       var upto = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : this.items.length;
       var remap = this.remapping(0, upto),
-          mapFrom = remap.maps.length;
+        mapFrom = remap.maps.length;
       var items = [],
-          events = 0;
+        events = 0;
       this.items.forEach(function (item, i) {
         if (i >= upto) {
           items.push(item);
           if (item.selection) events++;
         } else if (item.step) {
           var step = item.step.map(remap.slice(mapFrom)),
-              map = step && step.getMap();
+            map = step && step.getMap();
           mapFrom--;
           if (map) remap.appendMap(map, mapFrom);
-
           if (step) {
             var selection = item.selection && item.selection.map(remap.slice(mapFrom));
             if (selection) events++;
             var newItem = new Item(map.invert(), step, selection),
-                merged,
-                last = items.length - 1;
+              merged,
+              last = items.length - 1;
             if (merged = items.length && items[last].merge(newItem)) items[last] = merged;else items.push(newItem);
           }
         } else if (item.map) {
           mapFrom--;
         }
       }, this.items.length, 0);
-      return new Branch(RopeSequence__default["default"].from(items.reverse()), events);
+      return new Branch(RopeSequence.from(items.reverse()), events);
     }
   }]);
-
   return Branch;
 }();
-
-Branch.empty = new Branch(RopeSequence__default["default"].empty, 0);
-
+Branch.empty = new Branch(RopeSequence.empty, 0);
 function cutOffEvents(items, n) {
   var cutPoint;
   items.forEach(function (item, i) {
@@ -8118,17 +11308,14 @@ function cutOffEvents(items, n) {
   });
   return items.slice(cutPoint);
 }
-
 var Item = function () {
   function Item(map, step, selection, mirrorOffset) {
     _classCallCheck(this, Item);
-
     this.map = map;
     this.step = step;
     this.selection = selection;
     this.mirrorOffset = mirrorOffset;
   }
-
   _createClass(Item, [{
     key: "merge",
     value: function merge(other) {
@@ -8138,37 +11325,31 @@ var Item = function () {
       }
     }
   }]);
-
   return Item;
 }();
-
 var HistoryState = _createClass(function HistoryState(done, undone, prevRanges, prevTime, prevComposition) {
   _classCallCheck(this, HistoryState);
-
   this.done = done;
   this.undone = undone;
   this.prevRanges = prevRanges;
   this.prevTime = prevTime;
   this.prevComposition = prevComposition;
 });
-
 var DEPTH_OVERFLOW = 20;
-
 function applyTransaction(history, state, tr, options) {
   var historyTr = tr.getMeta(historyKey),
-      rebased;
+    rebased;
   if (historyTr) return historyTr.historyState;
   if (tr.getMeta(closeHistoryKey)) history = new HistoryState(history.done, history.undone, null, 0, -1);
   var appended = tr.getMeta("appendedTransaction");
-
   if (tr.steps.length == 0) {
     return history;
   } else if (appended && appended.getMeta(historyKey)) {
-    if (appended.getMeta(historyKey).redo) return new HistoryState(history.done.addTransform(tr, undefined, options, mustPreserveItems(state)), history.undone, rangesFor(tr.mapping.maps[tr.steps.length - 1]), history.prevTime, history.prevComposition);else return new HistoryState(history.done, history.undone.addTransform(tr, undefined, options, mustPreserveItems(state)), null, history.prevTime, history.prevComposition);
+    if (appended.getMeta(historyKey).redo) return new HistoryState(history.done.addTransform(tr, undefined, options, mustPreserveItems(state)), history.undone, rangesFor(tr.mapping.maps), history.prevTime, history.prevComposition);else return new HistoryState(history.done, history.undone.addTransform(tr, undefined, options, mustPreserveItems(state)), null, history.prevTime, history.prevComposition);
   } else if (tr.getMeta("addToHistory") !== false && !(appended && appended.getMeta("addToHistory") === false)) {
     var composition = tr.getMeta("composition");
     var newGroup = history.prevTime == 0 || !appended && history.prevComposition != composition && (history.prevTime < (tr.time || 0) - options.newGroupDelay || !isAdjacentTo(tr, history.prevRanges));
-    var prevRanges = appended ? mapRanges(history.prevRanges, tr.mapping) : rangesFor(tr.mapping.maps[tr.steps.length - 1]);
+    var prevRanges = appended ? mapRanges(history.prevRanges, tr.mapping) : rangesFor(tr.mapping.maps);
     return new HistoryState(history.done.addTransform(tr, newGroup ? state.selection.getBookmark() : undefined, options, mustPreserveItems(state)), Branch.empty, prevRanges, tr.time, composition == null ? history.prevComposition : composition);
   } else if (rebased = tr.getMeta("rebased")) {
     return new HistoryState(history.done.rebased(tr, rebased), history.undone.rebased(tr, rebased), mapRanges(history.prevRanges, tr.mapping), history.prevTime, history.prevComposition);
@@ -8176,82 +11357,64 @@ function applyTransaction(history, state, tr, options) {
     return new HistoryState(history.done.addMaps(tr.mapping.maps), history.undone.addMaps(tr.mapping.maps), mapRanges(history.prevRanges, tr.mapping), history.prevTime, history.prevComposition);
   }
 }
-
 function isAdjacentTo(transform, prevRanges) {
   if (!prevRanges) return false;
   if (!transform.docChanged) return true;
   var adjacent = false;
   transform.mapping.maps[0].forEach(function (start, end) {
-    for (var i = 0; i < prevRanges.length; i += 2) {
-      if (start <= prevRanges[i + 1] && end >= prevRanges[i]) adjacent = true;
-    }
+    for (var i = 0; i < prevRanges.length; i += 2) if (start <= prevRanges[i + 1] && end >= prevRanges[i]) adjacent = true;
   });
   return adjacent;
 }
-
-function rangesFor(map) {
+function rangesFor(maps) {
   var result = [];
-  map.forEach(function (_from, _to, from, to) {
+  for (var i = maps.length - 1; i >= 0 && result.length == 0; i--) maps[i].forEach(function (_from, _to, from, to) {
     return result.push(from, to);
   });
   return result;
 }
-
 function mapRanges(ranges, mapping) {
   if (!ranges) return null;
   var result = [];
-
   for (var i = 0; i < ranges.length; i += 2) {
     var from = mapping.map(ranges[i], 1),
-        to = mapping.map(ranges[i + 1], -1);
+      to = mapping.map(ranges[i + 1], -1);
     if (from <= to) result.push(from, to);
   }
-
   return result;
 }
-
-function histTransaction(history, state, dispatch, redo) {
+function histTransaction(history, state, redo) {
   var preserveItems = mustPreserveItems(state);
   var histOptions = historyKey.get(state).spec.config;
   var pop = (redo ? history.undone : history.done).popEvent(state, preserveItems);
-  if (!pop) return;
+  if (!pop) return null;
   var selection = pop.selection.resolve(pop.transform.doc);
   var added = (redo ? history.done : history.undone).addTransform(pop.transform, state.selection.getBookmark(), histOptions, preserveItems);
   var newHist = new HistoryState(redo ? added : pop.remaining, redo ? pop.remaining : added, null, 0, -1);
-  dispatch(pop.transform.setSelection(selection).setMeta(historyKey, {
+  return pop.transform.setSelection(selection).setMeta(historyKey, {
     redo: redo,
     historyState: newHist
-  }).scrollIntoView());
+  });
 }
-
 var cachedPreserveItems = false,
-    cachedPreserveItemsPlugins = null;
-
+  cachedPreserveItemsPlugins = null;
 function mustPreserveItems(state) {
   var plugins = state.plugins;
-
   if (cachedPreserveItemsPlugins != plugins) {
     cachedPreserveItems = false;
     cachedPreserveItemsPlugins = plugins;
-
-    for (var i = 0; i < plugins.length; i++) {
-      if (plugins[i].spec.historyPreserveItems) {
-        cachedPreserveItems = true;
-        break;
-      }
+    for (var i = 0; i < plugins.length; i++) if (plugins[i].spec.historyPreserveItems) {
+      cachedPreserveItems = true;
+      break;
     }
   }
-
   return cachedPreserveItems;
 }
-
 function closeHistory(tr) {
   return tr.setMeta(closeHistoryKey, true);
 }
-
 var historyKey = new prosemirrorState.PluginKey("history");
 var closeHistoryKey = new prosemirrorState.PluginKey("closeHistory");
-
 function history() {
   var config = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
   config = {
@@ -8282,39 +11445,39 @@ function history() {
     }
   });
 }
-
-var undo = function undo(state, dispatch) {
-  var hist = historyKey.getState(state);
-  if (!hist || hist.done.eventCount == 0) return false;
-  if (dispatch) histTransaction(hist, state, dispatch, false);
-  return true;
-};
-
-var redo = function redo(state, dispatch) {
-  var hist = historyKey.getState(state);
-  if (!hist || hist.undone.eventCount == 0) return false;
-  if (dispatch) histTransaction(hist, state, dispatch, true);
-  return true;
-};
-
+function buildCommand(redo, scroll) {
+  return function (state, dispatch) {
+    var hist = historyKey.getState(state);
+    if (!hist || (redo ? hist.undone : hist.done).eventCount == 0) return false;
+    if (dispatch) {
+      var tr = histTransaction(hist, state, redo);
+      if (tr) dispatch(scroll ? tr.scrollIntoView() : tr);
+    }
+    return true;
+  };
+}
+var undo = buildCommand(false, true);
+var redo = buildCommand(true, true);
+var undoNoScroll = buildCommand(false, false);
+var redoNoScroll = buildCommand(true, false);
 function undoDepth(state) {
   var hist = historyKey.getState(state);
   return hist ? hist.done.eventCount : 0;
 }
-
 function redoDepth(state) {
   var hist = historyKey.getState(state);
   return hist ? hist.undone.eventCount : 0;
 }
-
 exports.closeHistory = closeHistory;
 exports.history = history;
 exports.redo = redo;
 exports.redoDepth = redoDepth;
+exports.redoNoScroll = redoNoScroll;
 exports.undo = undo;
 exports.undoDepth = undoDepth;
+exports.undoNoScroll = undoNoScroll;
 
-},{"prosemirror-state":43,"prosemirror-transform":44,"rope-sequence":46}],40:[function(require,module,exports){
+},{"prosemirror-state":46,"prosemirror-transform":47,"rope-sequence":49}],43:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', {
@@ -8401,15 +11564,12 @@ function keydownHandler(bindings) {
 exports.keydownHandler = keydownHandler;
 exports.keymap = keymap;
 
-},{"prosemirror-state":43,"w3c-keyname":47}],41:[function(require,module,exports){
+},{"prosemirror-state":46,"w3c-keyname":50}],44:[function(require,module,exports){
 'use strict';
 
-function _slicedToArray(arr, i) { return _arrayWithHoles(arr) || _iterableToArrayLimit(arr, i) || _unsupportedIterableToArray(arr, i) || _nonIterableRest(); }
-function _nonIterableRest() { throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
+function _createForOfIteratorHelper(o, allowArrayLike) { var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"]; if (!it) { if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") { if (it) o = it; var i = 0; var F = function F() {}; return { s: F, n: function n() { if (i >= o.length) return { done: true }; return { done: false, value: o[i++] }; }, e: function e(_e) { throw _e; }, f: F }; } throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); } var normalCompletion = true, didErr = false, err; return { s: function s() { it = it.call(o); }, n: function n() { var step = it.next(); normalCompletion = step.done; return step; }, e: function e(_e2) { didErr = true; err = _e2; }, f: function f() { try { if (!normalCompletion && it["return"] != null) it["return"](); } finally { if (didErr) throw err; } } }; }
 function _unsupportedIterableToArray(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen); }
 function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i]; return arr2; }
-function _iterableToArrayLimit(r, l) { var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"]; if (null != t) { var e, n, i, u, a = [], f = !0, o = !1; try { if (i = (t = t.call(r)).next, 0 === l) { if (Object(t) !== t) return; f = !1; } else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = !0); } catch (r) { o = !0, n = r; } finally { try { if (!f && null != t["return"] && (u = t["return"](), Object(u) !== u)) return; } finally { if (o) throw n; } } return a; } }
-function _arrayWithHoles(arr) { if (Array.isArray(arr)) return arr; }
 function _get() { if (typeof Reflect !== "undefined" && Reflect.get) { _get = Reflect.get.bind(); } else { _get = function _get(target, property, receiver) { var base = _superPropBase(target, property); if (!base) return; var desc = Object.getOwnPropertyDescriptor(base, property); if (desc.get) { return desc.get.call(arguments.length < 3 ? target : receiver); } return desc.value; }; } return _get.apply(this, arguments); }
 function _superPropBase(object, property) { while (!Object.prototype.hasOwnProperty.call(object, property)) { object = _getPrototypeOf(object); if (object === null) break; } return object; }
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function"); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, writable: true, configurable: true } }); Object.defineProperty(subClass, "prototype", { writable: false }); if (superClass) _setPrototypeOf(subClass, superClass); }
@@ -8811,7 +11971,9 @@ var Mark = function () {
       if (!json) throw new RangeError("Invalid input for Mark.fromJSON");
       var type = schema.marks[json.type];
       if (!type) throw new RangeError("There is no mark type ".concat(json.type, " in this schema"));
-      return type.create(json.attrs);
+      var mark = type.create(json.attrs);
+      type.checkAttrs(mark.attrs);
+      return mark;
     }
   }, {
     key: "sameSet",
@@ -9219,20 +12381,29 @@ var ResolvedPos = function () {
   }, {
     key: "resolveCached",
     value: function resolveCached(doc, pos) {
-      for (var i = 0; i < resolveCache.length; i++) {
-        var cached = resolveCache[i];
-        if (cached.pos == pos && cached.doc == doc) return cached;
+      var cache = resolveCache.get(doc);
+      if (cache) {
+        for (var i = 0; i < cache.elts.length; i++) {
+          var elt = cache.elts[i];
+          if (elt.pos == pos) return elt;
+        }
+      } else {
+        resolveCache.set(doc, cache = new ResolveCache());
       }
-      var result = resolveCache[resolveCachePos] = ResolvedPos.resolve(doc, pos);
-      resolveCachePos = (resolveCachePos + 1) % resolveCacheSize;
+      var result = cache.elts[cache.i] = ResolvedPos.resolve(doc, pos);
+      cache.i = (cache.i + 1) % resolveCacheSize;
       return result;
     }
   }]);
   return ResolvedPos;
 }();
-var resolveCache = [],
-  resolveCachePos = 0,
-  resolveCacheSize = 12;
+var ResolveCache = _createClass(function ResolveCache() {
+  _classCallCheck(this, ResolveCache);
+  this.elts = [];
+  this.i = 0;
+});
+var resolveCacheSize = 12,
+  resolveCache = new WeakMap();
 var NodeRange = function () {
   function NodeRange($from, $to, depth) {
     _classCallCheck(this, NodeRange);
@@ -9279,6 +12450,11 @@ var Node = function () {
     this.content = content || Fragment.empty;
   }
   _createClass(Node, [{
+    key: "children",
+    get: function get() {
+      return this.content.content;
+    }
+  }, {
     key: "nodeSize",
     get: function get() {
       return this.isLeaf ? 1 : 2 + this.content.size;
@@ -9534,8 +12710,13 @@ var Node = function () {
     key: "check",
     value: function check() {
       this.type.checkContent(this.content);
+      this.type.checkAttrs(this.attrs);
       var copy = Mark.none;
-      for (var i = 0; i < this.marks.length; i++) copy = this.marks[i].addToSet(copy);
+      for (var i = 0; i < this.marks.length; i++) {
+        var mark = this.marks[i];
+        mark.type.checkAttrs(mark.attrs);
+        copy = mark.addToSet(copy);
+      }
       if (!Mark.sameSet(copy, this.marks)) throw new RangeError("Invalid collection of marks for node ".concat(this.type.name, ": ").concat(this.marks.map(function (m) {
         return m.type.name;
       })));
@@ -9563,7 +12744,7 @@ var Node = function () {
     key: "fromJSON",
     value: function fromJSON(schema, json) {
       if (!json) throw new RangeError("Invalid input for Node.fromJSON");
-      var marks = null;
+      var marks = undefined;
       if (json.marks) {
         if (!Array.isArray(json.marks)) throw new RangeError("Invalid mark data for Node.fromJSON");
         marks = json.marks.map(schema.markFromJSON);
@@ -9573,7 +12754,9 @@ var Node = function () {
         return schema.text(json.text, marks);
       }
       var content = Fragment.fromJSON(schema, json.content);
-      return schema.nodeType(json.type).create(json.attrs, content, marks);
+      var node = schema.nodeType(json.type).create(json.attrs, content, marks);
+      node.type.checkAttrs(node.attrs);
+      return node;
     }
   }]);
   return Node;
@@ -9890,7 +13073,7 @@ function resolveName(stream, name) {
   var result = [];
   for (var typeName in types) {
     var _type = types[typeName];
-    if (_type.groups.indexOf(name) > -1) result.push(_type);
+    if (_type.isInGroup(name)) result.push(_type);
   }
   if (result.length == 0) stream.err("No node type or group '" + name + "' found");
   return result;
@@ -10070,9 +13253,16 @@ function _computeAttrs(attrs, value) {
   }
   return built;
 }
-function initAttrs(attrs) {
+function _checkAttrs(attrs, values, type, name) {
+  for (var _name in values) if (!(_name in attrs)) throw new RangeError("Unsupported attribute ".concat(_name, " for ").concat(type, " of type ").concat(_name));
+  for (var _name2 in attrs) {
+    var attr = attrs[_name2];
+    if (attr.validate) attr.validate(values[_name2]);
+  }
+}
+function initAttrs(typeName, attrs) {
   var result = Object.create(null);
-  if (attrs) for (var name in attrs) result[name] = new Attribute(attrs[name]);
+  if (attrs) for (var name in attrs) result[name] = new Attribute(typeName, name, attrs[name]);
   return result;
 }
 var NodeType = function () {
@@ -10083,7 +13273,7 @@ var NodeType = function () {
     this.spec = spec;
     this.markSet = null;
     this.groups = spec.group ? spec.group.split(" ") : [];
-    this.attrs = initAttrs(spec.attrs);
+    this.attrs = initAttrs(name, spec.attrs);
     this.defaultAttrs = defaultAttrs(this.attrs);
     this.contentMatch = null;
     this.inlineContent = null;
@@ -10109,6 +13299,11 @@ var NodeType = function () {
     key: "isAtom",
     get: function get() {
       return this.isLeaf || !!this.spec.atom;
+    }
+  }, {
+    key: "isInGroup",
+    value: function isInGroup(group) {
+      return this.groups.indexOf(group) > -1;
     }
   }, {
     key: "whitespace",
@@ -10182,6 +13377,11 @@ var NodeType = function () {
       if (!this.validContent(content)) throw new RangeError("Invalid content for node ".concat(this.name, ": ").concat(content.toString().slice(0, 50)));
     }
   }, {
+    key: "checkAttrs",
+    value: function checkAttrs(attrs) {
+      _checkAttrs(this.attrs, attrs, "node", this.name);
+    }
+  }, {
     key: "allowsMarkType",
     value: function allowsMarkType(markType) {
       return this.markSet == null || this.markSet.indexOf(markType) > -1;
@@ -10223,11 +13423,19 @@ var NodeType = function () {
   }]);
   return NodeType;
 }();
+function validateType(typeName, attrName, type) {
+  var types = type.split("|");
+  return function (value) {
+    var name = value === null ? "null" : _typeof(value);
+    if (types.indexOf(name) < 0) throw new RangeError("Expected value of type ".concat(types, " for attribute ").concat(attrName, " on type ").concat(typeName, ", got ").concat(name));
+  };
+}
 var Attribute = function () {
-  function Attribute(options) {
+  function Attribute(typeName, attrName, options) {
     _classCallCheck(this, Attribute);
     this.hasDefault = Object.prototype.hasOwnProperty.call(options, "default");
     this["default"] = options["default"];
+    this.validate = typeof options.validate == "string" ? validateType(typeName, attrName, options.validate) : options.validate;
   }
   _createClass(Attribute, [{
     key: "isRequired",
@@ -10244,7 +13452,7 @@ var MarkType = function () {
     this.rank = rank;
     this.schema = schema;
     this.spec = spec;
-    this.attrs = initAttrs(spec.attrs);
+    this.attrs = initAttrs(name, spec.attrs);
     this.excluded = null;
     var defaults = defaultAttrs(this.attrs);
     this.instance = defaults ? new Mark(this, defaults) : null;
@@ -10271,6 +13479,11 @@ var MarkType = function () {
       for (var i = 0; i < set.length; i++) if (set[i].type == this) return set[i];
     }
   }, {
+    key: "checkAttrs",
+    value: function checkAttrs(attrs) {
+      _checkAttrs(this.attrs, attrs, "mark", this.name);
+    }
+  }, {
     key: "excludes",
     value: function excludes(other) {
       return this.excluded.indexOf(other) > -1;
@@ -10291,6 +13504,7 @@ var MarkType = function () {
 var Schema = function () {
   function Schema(spec) {
     _classCallCheck(this, Schema);
+    this.linebreakReplacement = null;
     this.cached = Object.create(null);
     var instanceSpec = this.spec = {};
     for (var prop in spec) instanceSpec[prop] = spec[prop];
@@ -10304,6 +13518,11 @@ var Schema = function () {
         markExpr = type.spec.marks;
       type.contentMatch = contentExprCache[contentExpr] || (contentExprCache[contentExpr] = ContentMatch.parse(contentExpr, this.nodes));
       type.inlineContent = type.contentMatch.inlineContent;
+      if (type.spec.linebreakReplacement) {
+        if (this.linebreakReplacement) throw new RangeError("Multiple linebreak nodes defined");
+        if (!type.isInline || !type.isLeaf) throw new RangeError("Linebreak replacement nodes must be inline leaf nodes");
+        this.linebreakReplacement = type;
+      }
       type.markSet = markExpr == "_" ? null : markExpr ? gatherMarks(this, markExpr.split(" ")) : markExpr == "" || !type.inlineContent ? [] : null;
     }
     for (var _prop2 in this.marks) {
@@ -10375,6 +13594,12 @@ function gatherMarks(schema, marks) {
   }
   return found;
 }
+function isTagRule(rule) {
+  return rule.tag != null;
+}
+function isStyleRule(rule) {
+  return rule.style != null;
+}
 var DOMParser = function () {
   function DOMParser(schema, rules) {
     var _this2 = this;
@@ -10383,8 +13608,15 @@ var DOMParser = function () {
     this.rules = rules;
     this.tags = [];
     this.styles = [];
+    var matchedStyles = this.matchedStyles = [];
     rules.forEach(function (rule) {
-      if (rule.tag) _this2.tags.push(rule);else if (rule.style) _this2.styles.push(rule);
+      if (isTagRule(rule)) {
+        _this2.tags.push(rule);
+      } else if (isStyleRule(rule)) {
+        var prop = /[^=]*/.exec(rule.style)[0];
+        if (matchedStyles.indexOf(prop) < 0) matchedStyles.push(prop);
+        _this2.styles.push(rule);
+      }
     });
     this.normalizeLists = !this.tags.some(function (r) {
       if (!/^(ul|ol)\b/.test(r.tag) || !r.node) return false;
@@ -10397,7 +13629,7 @@ var DOMParser = function () {
     value: function parse(dom) {
       var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
       var context = new ParseContext(this, options, false);
-      context.addAll(dom, options.from, options.to);
+      context.addAll(dom, Mark.none, options.from, options.to);
       return context.finish();
     }
   }, {
@@ -10405,7 +13637,7 @@ var DOMParser = function () {
     value: function parseSlice(dom) {
       var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
       var context = new ParseContext(this, options, true);
-      context.addAll(dom, options.from, options.to);
+      context.addAll(dom, Mark.none, options.from, options.to);
       return Slice.maxOpen(context.finish());
     }
   }, {
@@ -10462,15 +13694,15 @@ var DOMParser = function () {
       for (var name in schema.marks) {
         _loop2(name);
       }
-      var _loop3 = function _loop3(_name) {
-        var rules = schema.nodes[_name].spec.parseDOM;
+      var _loop3 = function _loop3(_name3) {
+        var rules = schema.nodes[_name3].spec.parseDOM;
         if (rules) rules.forEach(function (rule) {
           insert(rule = copy(rule));
-          if (!(rule.node || rule.ignore || rule.mark)) rule.node = _name;
+          if (!(rule.node || rule.ignore || rule.mark)) rule.node = _name3;
         });
       };
-      for (var _name in schema.nodes) {
-        _loop3(_name);
+      for (var _name3 in schema.nodes) {
+        _loop3(_name3);
       }
       return result;
     }
@@ -10536,17 +13768,15 @@ function wsOptionsFor(type, preserveWhitespace, base) {
   return type && type.whitespace == "pre" ? OPT_PRESERVE_WS | OPT_PRESERVE_WS_FULL : base & ~OPT_OPEN_LEFT;
 }
 var NodeContext = function () {
-  function NodeContext(type, attrs, marks, pendingMarks, solid, match, options) {
+  function NodeContext(type, attrs, marks, solid, match, options) {
     _classCallCheck(this, NodeContext);
     this.type = type;
     this.attrs = attrs;
     this.marks = marks;
-    this.pendingMarks = pendingMarks;
     this.solid = solid;
     this.options = options;
     this.content = [];
     this.activeMarks = Mark.none;
-    this.stashMarks = [];
     this.match = match || (options & OPT_OPEN_LEFT ? null : type.contentMatch);
   }
   _createClass(NodeContext, [{
@@ -10586,22 +13816,6 @@ var NodeContext = function () {
       return this.type ? this.type.create(this.attrs, content, this.marks) : content;
     }
   }, {
-    key: "popFromStashMark",
-    value: function popFromStashMark(mark) {
-      for (var i = this.stashMarks.length - 1; i >= 0; i--) if (mark.eq(this.stashMarks[i])) return this.stashMarks.splice(i, 1)[0];
-    }
-  }, {
-    key: "applyPending",
-    value: function applyPending(nextType) {
-      for (var i = 0, pending = this.pendingMarks; i < pending.length; i++) {
-        var mark = pending[i];
-        if ((this.type ? this.type.allowsMarkType(mark.type) : markMayApply(mark.type, nextType)) && !mark.isInSet(this.activeMarks)) {
-          this.activeMarks = mark.addToSet(this.activeMarks);
-          this.pendingMarks = mark.removeFromSet(this.pendingMarks);
-        }
-      }
-    }
-  }, {
     key: "inlineContext",
     value: function inlineContext(node) {
       if (this.type) return this.type.inlineContent;
@@ -10618,10 +13832,11 @@ var ParseContext = function () {
     this.options = options;
     this.isOpen = isOpen;
     this.open = 0;
+    this.localPreserveWS = false;
     var topNode = options.topNode,
       topContext;
     var topOptions = wsOptionsFor(null, options.preserveWhitespace, 0) | (isOpen ? OPT_OPEN_LEFT : 0);
-    if (topNode) topContext = new NodeContext(topNode.type, topNode.attrs, Mark.none, Mark.none, true, options.topMatch || topNode.type.contentMatch, topOptions);else if (isOpen) topContext = new NodeContext(null, null, Mark.none, Mark.none, true, null, topOptions);else topContext = new NodeContext(parser.schema.topNodeType, null, Mark.none, Mark.none, true, null, topOptions);
+    if (topNode) topContext = new NodeContext(topNode.type, topNode.attrs, Mark.none, true, options.topMatch || topNode.type.contentMatch, topOptions);else if (isOpen) topContext = new NodeContext(null, null, Mark.none, true, null, topOptions);else topContext = new NodeContext(parser.schema.topNodeType, null, Mark.none, true, null, topOptions);
     this.nodes = [topContext];
     this.find = options.findPositions;
     this.needsBlock = false;
@@ -10633,45 +13848,29 @@ var ParseContext = function () {
     }
   }, {
     key: "addDOM",
-    value: function addDOM(dom) {
-      if (dom.nodeType == 3) this.addTextNode(dom);else if (dom.nodeType == 1) this.addElement(dom);
-    }
-  }, {
-    key: "withStyleRules",
-    value: function withStyleRules(dom, f) {
-      var style = dom.getAttribute("style");
-      if (!style) return f();
-      var marks = this.readStyles(parseStyles(style));
-      if (!marks) return;
-      var _marks = _slicedToArray(marks, 2),
-        addMarks = _marks[0],
-        removeMarks = _marks[1],
-        top = this.top;
-      for (var i = 0; i < removeMarks.length; i++) this.removePendingMark(removeMarks[i], top);
-      for (var _i4 = 0; _i4 < addMarks.length; _i4++) this.addPendingMark(addMarks[_i4]);
-      f();
-      for (var _i5 = 0; _i5 < addMarks.length; _i5++) this.removePendingMark(addMarks[_i5], top);
-      for (var _i6 = 0; _i6 < removeMarks.length; _i6++) this.addPendingMark(removeMarks[_i6]);
+    value: function addDOM(dom, marks) {
+      if (dom.nodeType == 3) this.addTextNode(dom, marks);else if (dom.nodeType == 1) this.addElement(dom, marks);
     }
   }, {
     key: "addTextNode",
-    value: function addTextNode(dom) {
+    value: function addTextNode(dom, marks) {
       var value = dom.nodeValue;
-      var top = this.top;
-      if (top.options & OPT_PRESERVE_WS_FULL || top.inlineContext(dom) || /[^ \t\r\n\u000c]/.test(value)) {
-        if (!(top.options & OPT_PRESERVE_WS)) {
+      var top = this.top,
+        preserveWS = top.options & OPT_PRESERVE_WS_FULL ? "full" : this.localPreserveWS || (top.options & OPT_PRESERVE_WS) > 0;
+      if (preserveWS === "full" || top.inlineContext(dom) || /[^ \t\r\n\u000c]/.test(value)) {
+        if (!preserveWS) {
           value = value.replace(/[ \t\r\n\u000c]+/g, " ");
           if (/^[ \t\r\n\u000c]/.test(value) && this.open == this.nodes.length - 1) {
             var nodeBefore = top.content[top.content.length - 1];
             var domNodeBefore = dom.previousSibling;
             if (!nodeBefore || domNodeBefore && domNodeBefore.nodeName == 'BR' || nodeBefore.isText && /[ \t\r\n\u000c]$/.test(nodeBefore.text)) value = value.slice(1);
           }
-        } else if (!(top.options & OPT_PRESERVE_WS_FULL)) {
+        } else if (preserveWS !== "full") {
           value = value.replace(/\r?\n|\r/g, " ");
         } else {
           value = value.replace(/\r\n?/g, "\n");
         }
-        if (value) this.insertNode(this.parser.schema.text(value));
+        if (value) this.insertNode(this.parser.schema.text(value), marks);
         this.findInText(dom);
       } else {
         this.findInside(dom);
@@ -10679,19 +13878,20 @@ var ParseContext = function () {
     }
   }, {
     key: "addElement",
-    value: function addElement(dom, matchAfter) {
-      var _this3 = this;
+    value: function addElement(dom, marks, matchAfter) {
+      var outerWS = this.localPreserveWS,
+        top = this.top;
+      if (dom.tagName == "PRE" || /pre/.test(dom.style && dom.style.whiteSpace)) this.localPreserveWS = true;
       var name = dom.nodeName.toLowerCase(),
         ruleID;
       if (listTags.hasOwnProperty(name) && this.parser.normalizeLists) normalizeList(dom);
       var rule = this.options.ruleFromNode && this.options.ruleFromNode(dom) || (ruleID = this.parser.matchTag(dom, this, matchAfter));
-      if (rule ? rule.ignore : ignoreTags.hasOwnProperty(name)) {
+      out: if (rule ? rule.ignore : ignoreTags.hasOwnProperty(name)) {
         this.findInside(dom);
-        this.ignoreFallback(dom);
+        this.ignoreFallback(dom, marks);
       } else if (!rule || rule.skip || rule.closeParent) {
         if (rule && rule.closeParent) this.open = Math.max(0, this.open - 1);else if (rule && rule.skip.nodeType) dom = rule.skip;
         var sync,
-          top = this.top,
           oldNeedsBlock = this.needsBlock;
         if (blockTags.hasOwnProperty(name)) {
           if (top.content.length && top.content[0].isInline && this.open) {
@@ -10701,117 +13901,118 @@ var ParseContext = function () {
           sync = true;
           if (!top.type) this.needsBlock = true;
         } else if (!dom.firstChild) {
-          this.leafFallback(dom);
-          return;
+          this.leafFallback(dom, marks);
+          break out;
         }
-        if (rule && rule.skip) this.addAll(dom);else this.withStyleRules(dom, function () {
-          return _this3.addAll(dom);
-        });
+        var innerMarks = rule && rule.skip ? marks : this.readStyles(dom, marks);
+        if (innerMarks) this.addAll(dom, innerMarks);
         if (sync) this.sync(top);
         this.needsBlock = oldNeedsBlock;
       } else {
-        this.withStyleRules(dom, function () {
-          _this3.addElementByRule(dom, rule, rule.consuming === false ? ruleID : undefined);
-        });
+        var _innerMarks = this.readStyles(dom, marks);
+        if (_innerMarks) this.addElementByRule(dom, rule, _innerMarks, rule.consuming === false ? ruleID : undefined);
       }
+      this.localPreserveWS = outerWS;
     }
   }, {
     key: "leafFallback",
-    value: function leafFallback(dom) {
-      if (dom.nodeName == "BR" && this.top.type && this.top.type.inlineContent) this.addTextNode(dom.ownerDocument.createTextNode("\n"));
+    value: function leafFallback(dom, marks) {
+      if (dom.nodeName == "BR" && this.top.type && this.top.type.inlineContent) this.addTextNode(dom.ownerDocument.createTextNode("\n"), marks);
     }
   }, {
     key: "ignoreFallback",
-    value: function ignoreFallback(dom) {
-      if (dom.nodeName == "BR" && (!this.top.type || !this.top.type.inlineContent)) this.findPlace(this.parser.schema.text("-"));
+    value: function ignoreFallback(dom, marks) {
+      if (dom.nodeName == "BR" && (!this.top.type || !this.top.type.inlineContent)) this.findPlace(this.parser.schema.text("-"), marks);
     }
   }, {
     key: "readStyles",
-    value: function readStyles(styles) {
-      var _this4 = this;
-      var add = Mark.none,
-        remove = Mark.none;
-      for (var i = 0; i < styles.length; i += 2) {
-        var _loop4 = function _loop4(_after) {
-            var rule = _this4.parser.matchStyle(styles[i], styles[i + 1], _this4, _after);
-            if (!rule) {
+    value: function readStyles(dom, marks) {
+      var _this3 = this;
+      var styles = dom.style;
+      if (styles && styles.length) for (var i = 0; i < this.parser.matchedStyles.length; i++) {
+        var name = this.parser.matchedStyles[i],
+          value = styles.getPropertyValue(name);
+        if (value) {
+          var _loop4 = function _loop4(_after) {
+              var rule = _this3.parser.matchStyle(name, value, _this3, _after);
+              if (!rule) {
+                after = _after;
+                return 0;
+              }
+              if (rule.ignore) return {
+                v: null
+              };
+              if (rule.clearMark) marks = marks.filter(function (m) {
+                return !rule.clearMark(m);
+              });else marks = marks.concat(_this3.parser.schema.marks[rule.mark].create(rule.attrs));
+              if (rule.consuming === false) _after = rule;else {
+                after = _after;
+                return 0;
+              }
               after = _after;
-              return 0;
-            }
-            if (rule.ignore) return {
-              v: null
-            };
-            if (rule.clearMark) {
-              _this4.top.pendingMarks.concat(_this4.top.activeMarks).forEach(function (m) {
-                if (rule.clearMark(m)) remove = m.addToSet(remove);
-              });
-            } else {
-              add = _this4.parser.schema.marks[rule.mark].create(rule.attrs).addToSet(add);
-            }
-            if (rule.consuming === false) _after = rule;else {
-              after = _after;
-              return 0;
-            }
-            after = _after;
-          },
-          _ret;
-        for (var after = undefined;;) {
-          _ret = _loop4(after);
-          if (_ret === 0) break;
-          if (_ret) return _ret.v;
+            },
+            _ret;
+          for (var after = undefined;;) {
+            _ret = _loop4(after);
+            if (_ret === 0) break;
+            if (_ret) return _ret.v;
+          }
         }
       }
-      return [add, remove];
+      return marks;
     }
   }, {
     key: "addElementByRule",
-    value: function addElementByRule(dom, rule, continueAfter) {
-      var _this5 = this;
-      var sync, nodeType, mark;
+    value: function addElementByRule(dom, rule, marks, continueAfter) {
+      var _this4 = this;
+      var sync, nodeType;
       if (rule.node) {
         nodeType = this.parser.schema.nodes[rule.node];
         if (!nodeType.isLeaf) {
-          sync = this.enter(nodeType, rule.attrs || null, rule.preserveWhitespace);
-        } else if (!this.insertNode(nodeType.create(rule.attrs))) {
-          this.leafFallback(dom);
+          var inner = this.enter(nodeType, rule.attrs || null, marks, rule.preserveWhitespace);
+          if (inner) {
+            sync = true;
+            marks = inner;
+          }
+        } else if (!this.insertNode(nodeType.create(rule.attrs), marks)) {
+          this.leafFallback(dom, marks);
         }
       } else {
         var markType = this.parser.schema.marks[rule.mark];
-        mark = markType.create(rule.attrs);
-        this.addPendingMark(mark);
+        marks = marks.concat(markType.create(rule.attrs));
       }
       var startIn = this.top;
       if (nodeType && nodeType.isLeaf) {
         this.findInside(dom);
       } else if (continueAfter) {
-        this.addElement(dom, continueAfter);
+        this.addElement(dom, marks, continueAfter);
       } else if (rule.getContent) {
         this.findInside(dom);
         rule.getContent(dom, this.parser.schema).forEach(function (node) {
-          return _this5.insertNode(node);
+          return _this4.insertNode(node, marks);
         });
       } else {
         var contentDOM = dom;
         if (typeof rule.contentElement == "string") contentDOM = dom.querySelector(rule.contentElement);else if (typeof rule.contentElement == "function") contentDOM = rule.contentElement(dom);else if (rule.contentElement) contentDOM = rule.contentElement;
         this.findAround(dom, contentDOM, true);
-        this.addAll(contentDOM);
+        this.addAll(contentDOM, marks);
+        this.findAround(dom, contentDOM, false);
       }
       if (sync && this.sync(startIn)) this.open--;
-      if (mark) this.removePendingMark(mark, startIn);
     }
   }, {
     key: "addAll",
-    value: function addAll(parent, startIndex, endIndex) {
+    value: function addAll(parent, marks, startIndex, endIndex) {
       var index = startIndex || 0;
       for (var dom = startIndex ? parent.childNodes[startIndex] : parent.firstChild, end = endIndex == null ? null : parent.childNodes[endIndex]; dom != end; dom = dom.nextSibling, ++index) {
         this.findAtPoint(parent, index);
-        this.addDOM(dom);
+        this.addDOM(dom, marks);
       }
       this.findAtPoint(parent, index);
     }
   }, {
     key: "findPlace",
-    value: function findPlace(node) {
+    value: function findPlace(node, marks) {
       var route, sync;
       for (var depth = this.open; depth >= 0; depth--) {
         var cx = this.nodes[depth];
@@ -10823,51 +14024,69 @@ var ParseContext = function () {
         }
         if (cx.solid) break;
       }
-      if (!route) return false;
+      if (!route) return null;
       this.sync(sync);
-      for (var i = 0; i < route.length; i++) this.enterInner(route[i], null, false);
-      return true;
+      for (var i = 0; i < route.length; i++) marks = this.enterInner(route[i], null, marks, false);
+      return marks;
     }
   }, {
     key: "insertNode",
-    value: function insertNode(node) {
+    value: function insertNode(node, marks) {
       if (node.isInline && this.needsBlock && !this.top.type) {
         var block = this.textblockFromContext();
-        if (block) this.enterInner(block);
+        if (block) marks = this.enterInner(block, null, marks);
       }
-      if (this.findPlace(node)) {
+      var innerMarks = this.findPlace(node, marks);
+      if (innerMarks) {
         this.closeExtra();
         var top = this.top;
-        top.applyPending(node.type);
         if (top.match) top.match = top.match.matchType(node.type);
-        var marks = top.activeMarks;
-        for (var i = 0; i < node.marks.length; i++) if (!top.type || top.type.allowsMarkType(node.marks[i].type)) marks = node.marks[i].addToSet(marks);
-        top.content.push(node.mark(marks));
+        var nodeMarks = Mark.none;
+        var _iterator = _createForOfIteratorHelper(innerMarks.concat(node.marks)),
+          _step;
+        try {
+          for (_iterator.s(); !(_step = _iterator.n()).done;) {
+            var m = _step.value;
+            if (top.type ? top.type.allowsMarkType(m.type) : markMayApply(m.type, node.type)) nodeMarks = m.addToSet(nodeMarks);
+          }
+        } catch (err) {
+          _iterator.e(err);
+        } finally {
+          _iterator.f();
+        }
+        top.content.push(node.mark(nodeMarks));
         return true;
       }
       return false;
     }
   }, {
     key: "enter",
-    value: function enter(type, attrs, preserveWS) {
-      var ok = this.findPlace(type.create(attrs));
-      if (ok) this.enterInner(type, attrs, true, preserveWS);
-      return ok;
+    value: function enter(type, attrs, marks, preserveWS) {
+      var innerMarks = this.findPlace(type.create(attrs), marks);
+      if (innerMarks) innerMarks = this.enterInner(type, attrs, marks, true, preserveWS);
+      return innerMarks;
     }
   }, {
     key: "enterInner",
-    value: function enterInner(type) {
-      var attrs = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : null;
-      var solid = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : false;
-      var preserveWS = arguments.length > 3 ? arguments[3] : undefined;
+    value: function enterInner(type, attrs, marks) {
+      var solid = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : false;
+      var preserveWS = arguments.length > 4 ? arguments[4] : undefined;
       this.closeExtra();
       var top = this.top;
-      top.applyPending(type);
       top.match = top.match && top.match.matchType(type);
       var options = wsOptionsFor(type, preserveWS, top.options);
       if (top.options & OPT_OPEN_LEFT && top.content.length == 0) options |= OPT_OPEN_LEFT;
-      this.nodes.push(new NodeContext(type, attrs, top.activeMarks, top.pendingMarks, solid, null, options));
+      var applyMarks = Mark.none;
+      marks = marks.filter(function (m) {
+        if (top.type ? top.type.allowsMarkType(m.type) : markMayApply(m.type, type)) {
+          applyMarks = m.addToSet(applyMarks);
+          return false;
+        }
+        return true;
+      });
+      this.nodes.push(new NodeContext(type, attrs, applyMarks, solid, null, options));
       this.open++;
+      return marks;
     }
   }, {
     key: "closeExtra",
@@ -10884,14 +14103,18 @@ var ParseContext = function () {
     value: function finish() {
       this.open = 0;
       this.closeExtra(this.isOpen);
-      return this.nodes[0].finish(this.isOpen || this.options.topOpen);
+      return this.nodes[0].finish(!!(this.isOpen || this.options.topOpen));
     }
   }, {
     key: "sync",
     value: function sync(to) {
-      for (var i = this.open; i >= 0; i--) if (this.nodes[i] == to) {
-        this.open = i;
-        return true;
+      for (var i = this.open; i >= 0; i--) {
+        if (this.nodes[i] == to) {
+          this.open = i;
+          return true;
+        } else if (this.localPreserveWS) {
+          this.nodes[i].options |= OPT_PRESERVE_WS;
+        }
       }
       return false;
     }
@@ -10941,7 +14164,7 @@ var ParseContext = function () {
   }, {
     key: "matchesContext",
     value: function matchesContext(context) {
-      var _this6 = this;
+      var _this5 = this;
       if (context.indexOf("|") > -1) return context.split(/\s*\|\s*/).some(this.matchesContext, this);
       var parts = context.split("/");
       var option = this.options.context;
@@ -10955,8 +14178,8 @@ var ParseContext = function () {
             for (; depth >= minDepth; depth--) if (match(i - 1, depth)) return true;
             return false;
           } else {
-            var next = depth > 0 || depth == 0 && useRoot ? _this6.nodes[depth].type : option && depth >= minDepth ? option.node(depth - minDepth).type : null;
-            if (!next || next.name != part && next.groups.indexOf(part) == -1) return false;
+            var next = depth > 0 || depth == 0 && useRoot ? _this5.nodes[depth].type : option && depth >= minDepth ? option.node(depth - minDepth).type : null;
+            if (!next || next.name != part && !next.isInGroup(part)) return false;
             depth--;
           }
         }
@@ -10977,29 +14200,6 @@ var ParseContext = function () {
         if (type.isTextblock && type.defaultAttrs) return type;
       }
     }
-  }, {
-    key: "addPendingMark",
-    value: function addPendingMark(mark) {
-      var found = findSameMarkInSet(mark, this.top.pendingMarks);
-      if (found) this.top.stashMarks.push(found);
-      this.top.pendingMarks = mark.addToSet(this.top.pendingMarks);
-    }
-  }, {
-    key: "removePendingMark",
-    value: function removePendingMark(mark, upto) {
-      for (var depth = this.open; depth >= 0; depth--) {
-        var level = this.nodes[depth];
-        var _found3 = level.pendingMarks.lastIndexOf(mark);
-        if (_found3 > -1) {
-          level.pendingMarks = mark.removeFromSet(level.pendingMarks);
-        } else {
-          level.activeMarks = mark.removeFromSet(level.activeMarks);
-          var stashMark = level.popFromStashMark(mark);
-          if (stashMark && level.type && level.type.allowsMarkType(stashMark.type)) level.activeMarks = stashMark.addToSet(level.activeMarks);
-        }
-        if (level == upto) break;
-      }
-    }
   }]);
   return ParseContext;
 }();
@@ -11018,13 +14218,6 @@ function normalizeList(dom) {
 }
 function matches(dom, selector) {
   return (dom.matches || dom.msMatchesSelector || dom.webkitMatchesSelector || dom.mozMatchesSelector).call(dom, selector);
-}
-function parseStyles(style) {
-  var re = /\s*([\w-]+)\s*:\s*([^;]+)/g,
-    m,
-    result = [];
-  while (m = re.exec(style)) result.push(m[1], m[2].trim());
-  return result;
 }
 function copy(obj) {
   var copy = {};
@@ -11058,11 +14251,6 @@ function markMayApply(markType, nodeType) {
     if (_ret2) return _ret2.v;
   }
 }
-function findSameMarkInSet(mark, set) {
-  for (var i = 0; i < set.length; i++) {
-    if (mark.eq(set[i])) return set[i];
-  }
-}
 var DOMSerializer = function () {
   function DOMSerializer(nodes, marks) {
     _classCallCheck(this, DOMSerializer);
@@ -11072,7 +14260,7 @@ var DOMSerializer = function () {
   _createClass(DOMSerializer, [{
     key: "serializeFragment",
     value: function serializeFragment(fragment) {
-      var _this7 = this;
+      var _this6 = this;
       var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
       var target = arguments.length > 2 ? arguments[2] : undefined;
       if (!target) target = doc(options).createDocumentFragment();
@@ -11084,7 +14272,7 @@ var DOMSerializer = function () {
             rendered = 0;
           while (keep < active.length && rendered < node.marks.length) {
             var next = node.marks[rendered];
-            if (!_this7.marks[next.type.name]) {
+            if (!_this6.marks[next.type.name]) {
               rendered++;
               continue;
             }
@@ -11095,7 +14283,7 @@ var DOMSerializer = function () {
           while (keep < active.length) top = active.pop()[1];
           while (rendered < node.marks.length) {
             var add = node.marks[rendered++];
-            var markDOM = _this7.serializeMark(add, node.isInline, options);
+            var markDOM = _this6.serializeMark(add, node.isInline, options);
             if (markDOM) {
               active.push([add, top]);
               top.appendChild(markDOM.dom);
@@ -11103,16 +14291,16 @@ var DOMSerializer = function () {
             }
           }
         }
-        top.appendChild(_this7.serializeNodeInner(node, options));
+        top.appendChild(_this6.serializeNodeInner(node, options));
       });
       return target;
     }
   }, {
     key: "serializeNodeInner",
     value: function serializeNodeInner(node, options) {
-      var _DOMSerializer$render = DOMSerializer.renderSpec(doc(options), this.nodes[node.type.name](node)),
-        dom = _DOMSerializer$render.dom,
-        contentDOM = _DOMSerializer$render.contentDOM;
+      var _renderSpec2 = _renderSpec(doc(options), this.nodes[node.type.name](node), null, node.attrs),
+        dom = _renderSpec2.dom,
+        contentDOM = _renderSpec2.contentDOM;
       if (contentDOM) {
         if (node.isLeaf) throw new RangeError("Content hole not allowed in a leaf node spec");
         this.serializeFragment(node.content, options, contentDOM);
@@ -11138,59 +14326,14 @@ var DOMSerializer = function () {
     value: function serializeMark(mark, inline) {
       var options = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
       var toDOM = this.marks[mark.type.name];
-      return toDOM && DOMSerializer.renderSpec(doc(options), toDOM(mark, inline));
+      return toDOM && _renderSpec(doc(options), toDOM(mark, inline), null, mark.attrs);
     }
   }], [{
     key: "renderSpec",
     value: function renderSpec(doc, structure) {
       var xmlNS = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : null;
-      if (typeof structure == "string") return {
-        dom: doc.createTextNode(structure)
-      };
-      if (structure.nodeType != null) return {
-        dom: structure
-      };
-      if (structure.dom && structure.dom.nodeType != null) return structure;
-      var tagName = structure[0],
-        space = tagName.indexOf(" ");
-      if (space > 0) {
-        xmlNS = tagName.slice(0, space);
-        tagName = tagName.slice(space + 1);
-      }
-      var contentDOM;
-      var dom = xmlNS ? doc.createElementNS(xmlNS, tagName) : doc.createElement(tagName);
-      var attrs = structure[1],
-        start = 1;
-      if (attrs && _typeof(attrs) == "object" && attrs.nodeType == null && !Array.isArray(attrs)) {
-        start = 2;
-        for (var name in attrs) if (attrs[name] != null) {
-          var _space = name.indexOf(" ");
-          if (_space > 0) dom.setAttributeNS(name.slice(0, _space), name.slice(_space + 1), attrs[name]);else dom.setAttribute(name, attrs[name]);
-        }
-      }
-      for (var i = start; i < structure.length; i++) {
-        var child = structure[i];
-        if (child === 0) {
-          if (i < structure.length - 1 || i > start) throw new RangeError("Content hole must be the only child of its parent node");
-          return {
-            dom: dom,
-            contentDOM: dom
-          };
-        } else {
-          var _DOMSerializer$render2 = DOMSerializer.renderSpec(doc, child, xmlNS),
-            inner = _DOMSerializer$render2.dom,
-            innerContent = _DOMSerializer$render2.contentDOM;
-          dom.appendChild(inner);
-          if (innerContent) {
-            if (contentDOM) throw new RangeError("Multiple content holes");
-            contentDOM = innerContent;
-          }
-        }
-      }
-      return {
-        dom: dom,
-        contentDOM: contentDOM
-      };
+      var blockArraysIn = arguments.length > 3 ? arguments[3] : undefined;
+      return _renderSpec(doc, structure, xmlNS, blockArraysIn);
     }
   }, {
     key: "fromSchema",
@@ -11225,6 +14368,83 @@ function gatherToDOM(obj) {
 function doc(options) {
   return options.document || window.document;
 }
+var suspiciousAttributeCache = new WeakMap();
+function suspiciousAttributes(attrs) {
+  var value = suspiciousAttributeCache.get(attrs);
+  if (value === undefined) suspiciousAttributeCache.set(attrs, value = suspiciousAttributesInner(attrs));
+  return value;
+}
+function suspiciousAttributesInner(attrs) {
+  var result = null;
+  function scan(value) {
+    if (value && _typeof(value) == "object") {
+      if (Array.isArray(value)) {
+        if (typeof value[0] == "string") {
+          if (!result) result = [];
+          result.push(value);
+        } else {
+          for (var i = 0; i < value.length; i++) scan(value[i]);
+        }
+      } else {
+        for (var prop in value) scan(value[prop]);
+      }
+    }
+  }
+  scan(attrs);
+  return result;
+}
+function _renderSpec(doc, structure, xmlNS, blockArraysIn) {
+  if (typeof structure == "string") return {
+    dom: doc.createTextNode(structure)
+  };
+  if (structure.nodeType != null) return {
+    dom: structure
+  };
+  if (structure.dom && structure.dom.nodeType != null) return structure;
+  var tagName = structure[0],
+    suspicious;
+  if (typeof tagName != "string") throw new RangeError("Invalid array passed to renderSpec");
+  if (blockArraysIn && (suspicious = suspiciousAttributes(blockArraysIn)) && suspicious.indexOf(structure) > -1) throw new RangeError("Using an array from an attribute object as a DOM spec. This may be an attempted cross site scripting attack.");
+  var space = tagName.indexOf(" ");
+  if (space > 0) {
+    xmlNS = tagName.slice(0, space);
+    tagName = tagName.slice(space + 1);
+  }
+  var contentDOM;
+  var dom = xmlNS ? doc.createElementNS(xmlNS, tagName) : doc.createElement(tagName);
+  var attrs = structure[1],
+    start = 1;
+  if (attrs && _typeof(attrs) == "object" && attrs.nodeType == null && !Array.isArray(attrs)) {
+    start = 2;
+    for (var name in attrs) if (attrs[name] != null) {
+      var _space = name.indexOf(" ");
+      if (_space > 0) dom.setAttributeNS(name.slice(0, _space), name.slice(_space + 1), attrs[name]);else dom.setAttribute(name, attrs[name]);
+    }
+  }
+  for (var i = start; i < structure.length; i++) {
+    var child = structure[i];
+    if (child === 0) {
+      if (i < structure.length - 1 || i > start) throw new RangeError("Content hole must be the only child of its parent node");
+      return {
+        dom: dom,
+        contentDOM: dom
+      };
+    } else {
+      var _renderSpec3 = _renderSpec(doc, child, xmlNS, blockArraysIn),
+        inner = _renderSpec3.dom,
+        innerContent = _renderSpec3.contentDOM;
+      dom.appendChild(inner);
+      if (innerContent) {
+        if (contentDOM) throw new RangeError("Multiple content holes");
+        contentDOM = innerContent;
+      }
+    }
+  }
+  return {
+    dom: dom,
+    contentDOM: contentDOM
+  };
+}
 exports.ContentMatch = ContentMatch;
 exports.DOMParser = DOMParser;
 exports.DOMSerializer = DOMSerializer;
@@ -11239,26 +14459,20 @@ exports.ResolvedPos = ResolvedPos;
 exports.Schema = Schema;
 exports.Slice = Slice;
 
-},{"orderedmap":35}],42:[function(require,module,exports){
+},{"orderedmap":38}],45:[function(require,module,exports){
 'use strict';
 
-Object.defineProperty(exports, '__esModule', {
-  value: true
-});
-
 var prosemirrorTransform = require('prosemirror-transform');
-
 var prosemirrorModel = require('prosemirror-model');
-
 var prosemirrorState = require('prosemirror-state');
-
 var olDOM = ["ol", 0],
-    ulDOM = ["ul", 0],
-    liDOM = ["li", 0];
+  ulDOM = ["ul", 0],
+  liDOM = ["li", 0];
 var orderedList = {
   attrs: {
     order: {
-      "default": 1
+      "default": 1,
+      validate: "number"
     }
   },
   parseDOM: [{
@@ -11292,21 +14506,12 @@ var listItem = {
   },
   defining: true
 };
-
 function add(obj, props) {
   var copy = {};
-
-  for (var prop in obj) {
-    copy[prop] = obj[prop];
-  }
-
-  for (var _prop in props) {
-    copy[_prop] = props[_prop];
-  }
-
+  for (var prop in obj) copy[prop] = obj[prop];
+  for (var _prop in props) copy[_prop] = props[_prop];
   return copy;
 }
-
 function addListNodes(nodes, itemContent, listGroup) {
   return nodes.append({
     ordered_list: add(orderedList, {
@@ -11322,104 +14527,84 @@ function addListNodes(nodes, itemContent, listGroup) {
     })
   });
 }
-
 function wrapInList(listType) {
   var attrs = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : null;
   return function (state, dispatch) {
     var _state$selection = state.selection,
-        $from = _state$selection.$from,
-        $to = _state$selection.$to;
-    var range = $from.blockRange($to),
-        doJoin = false,
-        outerRange = range;
+      $from = _state$selection.$from,
+      $to = _state$selection.$to;
+    var range = $from.blockRange($to);
     if (!range) return false;
-
-    if (range.depth >= 2 && $from.node(range.depth - 1).type.compatibleContent(listType) && range.startIndex == 0) {
-      if ($from.index(range.depth - 1) == 0) return false;
-      var $insert = state.doc.resolve(range.start - 2);
-      outerRange = new prosemirrorModel.NodeRange($insert, $insert, range.depth);
-      if (range.endIndex < range.parent.childCount) range = new prosemirrorModel.NodeRange($from, state.doc.resolve($to.end(range.depth)), range.depth);
-      doJoin = true;
-    }
-
-    var wrap = prosemirrorTransform.findWrapping(outerRange, listType, attrs, range);
-    if (!wrap) return false;
-    if (dispatch) dispatch(doWrapInList(state.tr, range, wrap, doJoin, listType).scrollIntoView());
+    var tr = dispatch ? state.tr : null;
+    if (!wrapRangeInList(tr, range, listType, attrs)) return false;
+    if (dispatch) dispatch(tr.scrollIntoView());
     return true;
   };
 }
-
+function wrapRangeInList(tr, range, listType) {
+  var attrs = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : null;
+  var doJoin = false,
+    outerRange = range,
+    doc = range.$from.doc;
+  if (range.depth >= 2 && range.$from.node(range.depth - 1).type.compatibleContent(listType) && range.startIndex == 0) {
+    if (range.$from.index(range.depth - 1) == 0) return false;
+    var $insert = doc.resolve(range.start - 2);
+    outerRange = new prosemirrorModel.NodeRange($insert, $insert, range.depth);
+    if (range.endIndex < range.parent.childCount) range = new prosemirrorModel.NodeRange(range.$from, doc.resolve(range.$to.end(range.depth)), range.depth);
+    doJoin = true;
+  }
+  var wrap = prosemirrorTransform.findWrapping(outerRange, listType, attrs, range);
+  if (!wrap) return false;
+  if (tr) doWrapInList(tr, range, wrap, doJoin, listType);
+  return true;
+}
 function doWrapInList(tr, range, wrappers, joinBefore, listType) {
   var content = prosemirrorModel.Fragment.empty;
-
-  for (var i = wrappers.length - 1; i >= 0; i--) {
-    content = prosemirrorModel.Fragment.from(wrappers[i].type.create(wrappers[i].attrs, content));
-  }
-
+  for (var i = wrappers.length - 1; i >= 0; i--) content = prosemirrorModel.Fragment.from(wrappers[i].type.create(wrappers[i].attrs, content));
   tr.step(new prosemirrorTransform.ReplaceAroundStep(range.start - (joinBefore ? 2 : 0), range.end, range.start, range.end, new prosemirrorModel.Slice(content, 0, 0), wrappers.length, true));
   var found = 0;
-
-  for (var _i = 0; _i < wrappers.length; _i++) {
-    if (wrappers[_i].type == listType) found = _i + 1;
-  }
-
+  for (var _i = 0; _i < wrappers.length; _i++) if (wrappers[_i].type == listType) found = _i + 1;
   var splitDepth = wrappers.length - found;
   var splitPos = range.start + wrappers.length - (joinBefore ? 2 : 0),
-      parent = range.parent;
-
+    parent = range.parent;
   for (var _i2 = range.startIndex, e = range.endIndex, first = true; _i2 < e; _i2++, first = false) {
     if (!first && prosemirrorTransform.canSplit(tr.doc, splitPos, splitDepth)) {
       tr.split(splitPos, splitDepth);
       splitPos += 2 * splitDepth;
     }
-
     splitPos += parent.child(_i2).nodeSize;
   }
-
   return tr;
 }
-
 function splitListItem(itemType, itemAttrs) {
   return function (state, dispatch) {
     var _state$selection2 = state.selection,
-        $from = _state$selection2.$from,
-        $to = _state$selection2.$to,
-        node = _state$selection2.node;
+      $from = _state$selection2.$from,
+      $to = _state$selection2.$to,
+      node = _state$selection2.node;
     if (node && node.isBlock || $from.depth < 2 || !$from.sameParent($to)) return false;
     var grandParent = $from.node(-1);
     if (grandParent.type != itemType) return false;
-
     if ($from.parent.content.size == 0 && $from.node(-1).childCount == $from.indexAfter(-1)) {
       if ($from.depth == 3 || $from.node(-3).type != itemType || $from.index(-2) != $from.node(-2).childCount - 1) return false;
-
       if (dispatch) {
         var wrap = prosemirrorModel.Fragment.empty;
         var depthBefore = $from.index(-1) ? 1 : $from.index(-2) ? 2 : 3;
-
-        for (var d = $from.depth - depthBefore; d >= $from.depth - 3; d--) {
-          wrap = prosemirrorModel.Fragment.from($from.node(d).copy(wrap));
-        }
-
+        for (var d = $from.depth - depthBefore; d >= $from.depth - 3; d--) wrap = prosemirrorModel.Fragment.from($from.node(d).copy(wrap));
         var depthAfter = $from.indexAfter(-1) < $from.node(-2).childCount ? 1 : $from.indexAfter(-2) < $from.node(-3).childCount ? 2 : 3;
         wrap = wrap.append(prosemirrorModel.Fragment.from(itemType.createAndFill()));
         var start = $from.before($from.depth - (depthBefore - 1));
-
         var _tr = state.tr.replace(start, $from.after(-depthAfter), new prosemirrorModel.Slice(wrap, 4 - depthBefore, 0));
-
         var sel = -1;
-
         _tr.doc.nodesBetween(start, _tr.doc.content.size, function (node, pos) {
           if (sel > -1) return false;
           if (node.isTextblock && node.content.size == 0) sel = pos + 1;
         });
-
         if (sel > -1) _tr.setSelection(prosemirrorState.Selection.near(_tr.doc.resolve(sel)));
         dispatch(_tr.scrollIntoView());
       }
-
       return true;
     }
-
     var nextType = $to.pos == $from.end() ? grandParent.contentMatchAt(0).defaultType : null;
     var tr = state.tr["delete"]($from.pos, $to.pos);
     var types = nextType ? [itemAttrs ? {
@@ -11433,12 +14618,21 @@ function splitListItem(itemType, itemAttrs) {
     return true;
   };
 }
-
+function splitListItemKeepMarks(itemType, itemAttrs) {
+  var split = splitListItem(itemType, itemAttrs);
+  return function (state, dispatch) {
+    return split(state, dispatch && function (tr) {
+      var marks = state.storedMarks || state.selection.$to.parentOffset && state.selection.$from.marks();
+      if (marks) tr.ensureMarks(marks);
+      dispatch(tr);
+    });
+  };
+}
 function liftListItem(itemType) {
   return function (state, dispatch) {
     var _state$selection3 = state.selection,
-        $from = _state$selection3.$from,
-        $to = _state$selection3.$to;
+      $from = _state$selection3.$from,
+      $to = _state$selection3.$to;
     var range = $from.blockRange($to, function (node) {
       return node.childCount > 0 && node.firstChild.type == itemType;
     });
@@ -11447,17 +14641,14 @@ function liftListItem(itemType) {
     if ($from.node(range.depth - 1).type == itemType) return liftToOuterList(state, dispatch, itemType, range);else return liftOutOfList(state, dispatch, range);
   };
 }
-
 function liftToOuterList(state, dispatch, itemType, range) {
   var tr = state.tr,
-      end = range.end,
-      endOfList = range.$to.end(range.depth);
-
+    end = range.end,
+    endOfList = range.$to.end(range.depth);
   if (end < endOfList) {
     tr.step(new prosemirrorTransform.ReplaceAroundStep(end - 1, endOfList, end, endOfList, new prosemirrorModel.Slice(prosemirrorModel.Fragment.from(itemType.create(null, range.parent.copy())), 1, 0), 1, true));
     range = new prosemirrorModel.NodeRange(tr.doc.resolve(range.$from.pos), tr.doc.resolve(endOfList), range.depth);
   }
-
   var target = prosemirrorTransform.liftTarget(range);
   if (target == null) return false;
   tr.lift(range, target);
@@ -11466,36 +14657,32 @@ function liftToOuterList(state, dispatch, itemType, range) {
   dispatch(tr.scrollIntoView());
   return true;
 }
-
 function liftOutOfList(state, dispatch, range) {
   var tr = state.tr,
-      list = range.parent;
-
+    list = range.parent;
   for (var pos = range.end, i = range.endIndex - 1, e = range.startIndex; i > e; i--) {
     pos -= list.child(i).nodeSize;
     tr["delete"](pos - 1, pos + 1);
   }
-
   var $start = tr.doc.resolve(range.start),
-      item = $start.nodeAfter;
+    item = $start.nodeAfter;
   if (tr.mapping.map(range.end) != range.start + $start.nodeAfter.nodeSize) return false;
   var atStart = range.startIndex == 0,
-      atEnd = range.endIndex == list.childCount;
+    atEnd = range.endIndex == list.childCount;
   var parent = $start.node(-1),
-      indexBefore = $start.index(-1);
+    indexBefore = $start.index(-1);
   if (!parent.canReplace(indexBefore + (atStart ? 0 : 1), indexBefore + 1, item.content.append(atEnd ? prosemirrorModel.Fragment.empty : prosemirrorModel.Fragment.from(list)))) return false;
   var start = $start.pos,
-      end = start + item.nodeSize;
+    end = start + item.nodeSize;
   tr.step(new prosemirrorTransform.ReplaceAroundStep(start - (atStart ? 1 : 0), end + (atEnd ? 1 : 0), start + 1, end - 1, new prosemirrorModel.Slice((atStart ? prosemirrorModel.Fragment.empty : prosemirrorModel.Fragment.from(list.copy(prosemirrorModel.Fragment.empty))).append(atEnd ? prosemirrorModel.Fragment.empty : prosemirrorModel.Fragment.from(list.copy(prosemirrorModel.Fragment.empty))), atStart ? 0 : 1, atEnd ? 0 : 1), atStart ? 0 : 1));
   dispatch(tr.scrollIntoView());
   return true;
 }
-
 function sinkListItem(itemType) {
   return function (state, dispatch) {
     var _state$selection4 = state.selection,
-        $from = _state$selection4.$from,
-        $to = _state$selection4.$to;
+      $from = _state$selection4.$from,
+      $to = _state$selection4.$to;
     var range = $from.blockRange($to, function (node) {
       return node.childCount > 0 && node.firstChild.type == itemType;
     });
@@ -11503,22 +14690,19 @@ function sinkListItem(itemType) {
     var startIndex = range.startIndex;
     if (startIndex == 0) return false;
     var parent = range.parent,
-        nodeBefore = parent.child(startIndex - 1);
+      nodeBefore = parent.child(startIndex - 1);
     if (nodeBefore.type != itemType) return false;
-
     if (dispatch) {
       var nestedBefore = nodeBefore.lastChild && nodeBefore.lastChild.type == parent.type;
       var inner = prosemirrorModel.Fragment.from(nestedBefore ? itemType.create() : null);
       var slice = new prosemirrorModel.Slice(prosemirrorModel.Fragment.from(itemType.create(null, prosemirrorModel.Fragment.from(parent.type.create(null, inner)))), nestedBefore ? 3 : 1, 0);
       var before = range.start,
-          after = range.end;
+        after = range.end;
       dispatch(state.tr.step(new prosemirrorTransform.ReplaceAroundStep(before - (nestedBefore ? 3 : 1), after, before, after, slice, 1, true)).scrollIntoView());
     }
-
     return true;
   };
 }
-
 exports.addListNodes = addListNodes;
 exports.bulletList = bulletList;
 exports.liftListItem = liftListItem;
@@ -11526,9 +14710,11 @@ exports.listItem = listItem;
 exports.orderedList = orderedList;
 exports.sinkListItem = sinkListItem;
 exports.splitListItem = splitListItem;
+exports.splitListItemKeepMarks = splitListItemKeepMarks;
 exports.wrapInList = wrapInList;
+exports.wrapRangeInList = wrapRangeInList;
 
-},{"prosemirror-model":41,"prosemirror-state":43,"prosemirror-transform":44}],43:[function(require,module,exports){
+},{"prosemirror-model":44,"prosemirror-state":46,"prosemirror-transform":47}],46:[function(require,module,exports){
 'use strict';
 
 function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
@@ -12564,68 +15750,48 @@ exports.SelectionRange = SelectionRange;
 exports.TextSelection = TextSelection;
 exports.Transaction = Transaction;
 
-},{"prosemirror-model":41,"prosemirror-transform":44}],44:[function(require,module,exports){
+},{"prosemirror-model":44,"prosemirror-transform":47}],47:[function(require,module,exports){
 'use strict';
 
-function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
-
 function _wrapNativeSuper(Class) { var _cache = typeof Map === "function" ? new Map() : undefined; _wrapNativeSuper = function _wrapNativeSuper(Class) { if (Class === null || !_isNativeFunction(Class)) return Class; if (typeof Class !== "function") { throw new TypeError("Super expression must either be null or a function"); } if (typeof _cache !== "undefined") { if (_cache.has(Class)) return _cache.get(Class); _cache.set(Class, Wrapper); } function Wrapper() { return _construct(Class, arguments, _getPrototypeOf(this).constructor); } Wrapper.prototype = Object.create(Class.prototype, { constructor: { value: Wrapper, enumerable: false, writable: true, configurable: true } }); return _setPrototypeOf(Wrapper, Class); }; return _wrapNativeSuper(Class); }
-
-function _construct(Parent, args, Class) { if (_isNativeReflectConstruct()) { _construct = Reflect.construct; } else { _construct = function _construct(Parent, args, Class) { var a = [null]; a.push.apply(a, args); var Constructor = Function.bind.apply(Parent, a); var instance = new Constructor(); if (Class) _setPrototypeOf(instance, Class.prototype); return instance; }; } return _construct.apply(null, arguments); }
-
-function _isNativeFunction(fn) { return Function.toString.call(fn).indexOf("[native code]") !== -1; }
-
+function _construct(Parent, args, Class) { if (_isNativeReflectConstruct()) { _construct = Reflect.construct.bind(); } else { _construct = function _construct(Parent, args, Class) { var a = [null]; a.push.apply(a, args); var Constructor = Function.bind.apply(Parent, a); var instance = new Constructor(); if (Class) _setPrototypeOf(instance, Class.prototype); return instance; }; } return _construct.apply(null, arguments); }
+function _isNativeFunction(fn) { try { return Function.toString.call(fn).indexOf("[native code]") !== -1; } catch (e) { return typeof fn === "function"; } }
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function"); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, writable: true, configurable: true } }); Object.defineProperty(subClass, "prototype", { writable: false }); if (superClass) _setPrototypeOf(subClass, superClass); }
-
-function _setPrototypeOf(o, p) { _setPrototypeOf = Object.setPrototypeOf || function _setPrototypeOf(o, p) { o.__proto__ = p; return o; }; return _setPrototypeOf(o, p); }
-
+function _setPrototypeOf(o, p) { _setPrototypeOf = Object.setPrototypeOf ? Object.setPrototypeOf.bind() : function _setPrototypeOf(o, p) { o.__proto__ = p; return o; }; return _setPrototypeOf(o, p); }
 function _createSuper(Derived) { var hasNativeReflectConstruct = _isNativeReflectConstruct(); return function _createSuperInternal() { var Super = _getPrototypeOf(Derived), result; if (hasNativeReflectConstruct) { var NewTarget = _getPrototypeOf(this).constructor; result = Reflect.construct(Super, arguments, NewTarget); } else { result = Super.apply(this, arguments); } return _possibleConstructorReturn(this, result); }; }
-
 function _possibleConstructorReturn(self, call) { if (call && (_typeof(call) === "object" || typeof call === "function")) { return call; } else if (call !== void 0) { throw new TypeError("Derived constructors may only return object or undefined"); } return _assertThisInitialized(self); }
-
 function _assertThisInitialized(self) { if (self === void 0) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return self; }
-
 function _isNativeReflectConstruct() { if (typeof Reflect === "undefined" || !Reflect.construct) return false; if (Reflect.construct.sham) return false; if (typeof Proxy === "function") return true; try { Boolean.prototype.valueOf.call(Reflect.construct(Boolean, [], function () {})); return true; } catch (e) { return false; } }
-
-function _getPrototypeOf(o) { _getPrototypeOf = Object.setPrototypeOf ? Object.getPrototypeOf : function _getPrototypeOf(o) { return o.__proto__ || Object.getPrototypeOf(o); }; return _getPrototypeOf(o); }
-
+function _getPrototypeOf(o) { _getPrototypeOf = Object.setPrototypeOf ? Object.getPrototypeOf.bind() : function _getPrototypeOf(o) { return o.__proto__ || Object.getPrototypeOf(o); }; return _getPrototypeOf(o); }
+function _typeof(o) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) { return typeof o; } : function (o) { return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o; }, _typeof(o); }
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } }
-
+function _defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, _toPropertyKey(descriptor.key), descriptor); } }
 function _createClass(Constructor, protoProps, staticProps) { if (protoProps) _defineProperties(Constructor.prototype, protoProps); if (staticProps) _defineProperties(Constructor, staticProps); Object.defineProperty(Constructor, "prototype", { writable: false }); return Constructor; }
-
+function _toPropertyKey(arg) { var key = _toPrimitive(arg, "string"); return _typeof(key) === "symbol" ? key : String(key); }
+function _toPrimitive(input, hint) { if (_typeof(input) !== "object" || input === null) return input; var prim = input[Symbol.toPrimitive]; if (prim !== undefined) { var res = prim.call(input, hint || "default"); if (_typeof(res) !== "object") return res; throw new TypeError("@@toPrimitive must return a primitive value."); } return (hint === "string" ? String : Number)(input); }
 var prosemirrorModel = require('prosemirror-model');
-
 var lower16 = 0xffff;
 var factor16 = Math.pow(2, 16);
-
 function makeRecover(index, offset) {
   return index + offset * factor16;
 }
-
 function recoverIndex(value) {
   return value & lower16;
 }
-
 function recoverOffset(value) {
   return (value - (value & lower16)) / factor16;
 }
-
 var DEL_BEFORE = 1,
-    DEL_AFTER = 2,
-    DEL_ACROSS = 4,
-    DEL_SIDE = 8;
-
+  DEL_AFTER = 2,
+  DEL_ACROSS = 4,
+  DEL_SIDE = 8;
 var MapResult = function () {
   function MapResult(pos, delInfo, recover) {
     _classCallCheck(this, MapResult);
-
     this.pos = pos;
     this.delInfo = delInfo;
     this.recover = recover;
   }
-
   _createClass(MapResult, [{
     key: "deleted",
     get: function get() {
@@ -12647,29 +15813,22 @@ var MapResult = function () {
       return (this.delInfo & DEL_ACROSS) > 0;
     }
   }]);
-
   return MapResult;
 }();
-
 var StepMap = function () {
   function StepMap(ranges) {
     var inverted = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
-
     _classCallCheck(this, StepMap);
-
     this.ranges = ranges;
     this.inverted = inverted;
     if (!ranges.length && StepMap.empty) return StepMap.empty;
   }
-
   _createClass(StepMap, [{
     key: "recover",
     value: function recover(value) {
       var diff = 0,
-          index = recoverIndex(value);
-      if (!this.inverted) for (var i = 0; i < index; i++) {
-        diff += this.ranges[i * 3 + 2] - this.ranges[i * 3 + 1];
-      }
+        index = recoverIndex(value);
+      if (!this.inverted) for (var i = 0; i < index; i++) diff += this.ranges[i * 3 + 2] - this.ranges[i * 3 + 1];
       return this.ranges[index * 3] + diff + recoverOffset(value);
     }
   }, {
@@ -12688,16 +15847,14 @@ var StepMap = function () {
     key: "_map",
     value: function _map(pos, assoc, simple) {
       var diff = 0,
-          oldIndex = this.inverted ? 2 : 1,
-          newIndex = this.inverted ? 1 : 2;
-
+        oldIndex = this.inverted ? 2 : 1,
+        newIndex = this.inverted ? 1 : 2;
       for (var i = 0; i < this.ranges.length; i += 3) {
         var start = this.ranges[i] - (this.inverted ? diff : 0);
         if (start > pos) break;
         var oldSize = this.ranges[i + oldIndex],
-            newSize = this.ranges[i + newIndex],
-            end = start + oldSize;
-
+          newSize = this.ranges[i + newIndex],
+          end = start + oldSize;
         if (pos <= end) {
           var side = !oldSize ? assoc : pos == start ? -1 : pos == end ? 1 : assoc;
           var result = start + diff + (side < 0 ? 0 : newSize);
@@ -12707,43 +15864,38 @@ var StepMap = function () {
           if (assoc < 0 ? pos != start : pos != end) del |= DEL_SIDE;
           return new MapResult(result, del, recover);
         }
-
         diff += newSize - oldSize;
       }
-
       return simple ? pos + diff : new MapResult(pos + diff, 0, null);
     }
   }, {
     key: "touches",
     value: function touches(pos, recover) {
       var diff = 0,
-          index = recoverIndex(recover);
+        index = recoverIndex(recover);
       var oldIndex = this.inverted ? 2 : 1,
-          newIndex = this.inverted ? 1 : 2;
-
+        newIndex = this.inverted ? 1 : 2;
       for (var i = 0; i < this.ranges.length; i += 3) {
         var start = this.ranges[i] - (this.inverted ? diff : 0);
         if (start > pos) break;
         var oldSize = this.ranges[i + oldIndex],
-            end = start + oldSize;
+          end = start + oldSize;
         if (pos <= end && i == index * 3) return true;
         diff += this.ranges[i + newIndex] - oldSize;
       }
-
       return false;
     }
   }, {
     key: "forEach",
     value: function forEach(f) {
       var oldIndex = this.inverted ? 2 : 1,
-          newIndex = this.inverted ? 1 : 2;
-
+        newIndex = this.inverted ? 1 : 2;
       for (var i = 0, diff = 0; i < this.ranges.length; i += 3) {
         var start = this.ranges[i],
-            oldStart = start - (this.inverted ? diff : 0),
-            newStart = start + (this.inverted ? 0 : diff);
+          oldStart = start - (this.inverted ? diff : 0),
+          newStart = start + (this.inverted ? 0 : diff);
         var oldSize = this.ranges[i + oldIndex],
-            newSize = this.ranges[i + newIndex];
+          newSize = this.ranges[i + newIndex];
         f(oldStart, oldStart + oldSize, newStart, newStart + newSize);
         diff += newSize - oldSize;
       }
@@ -12764,27 +15916,21 @@ var StepMap = function () {
       return n == 0 ? StepMap.empty : new StepMap(n < 0 ? [0, -n, 0] : [0, 0, n]);
     }
   }]);
-
   return StepMap;
 }();
-
 StepMap.empty = new StepMap([]);
-
 var Mapping = function () {
   function Mapping() {
     var maps = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
     var mirror = arguments.length > 1 ? arguments[1] : undefined;
     var from = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : 0;
     var to = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : maps.length;
-
     _classCallCheck(this, Mapping);
-
     this.maps = maps;
     this.mirror = mirror;
     this.from = from;
     this.to = to;
   }
-
   _createClass(Mapping, [{
     key: "slice",
     value: function slice() {
@@ -12814,9 +15960,7 @@ var Mapping = function () {
   }, {
     key: "getMirror",
     value: function getMirror(n) {
-      if (this.mirror) for (var i = 0; i < this.mirror.length; i++) {
-        if (this.mirror[i] == n) return this.mirror[i + (i % 2 ? -1 : 1)];
-      }
+      if (this.mirror) for (var i = 0; i < this.mirror.length; i++) if (this.mirror[i] == n) return this.mirror[i + (i % 2 ? -1 : 1)];
     }
   }, {
     key: "setMirror",
@@ -12844,11 +15988,7 @@ var Mapping = function () {
     value: function map(pos) {
       var assoc = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 1;
       if (this.mirror) return this._map(pos, assoc, true);
-
-      for (var i = this.from; i < this.to; i++) {
-        pos = this.maps[i].map(pos, assoc);
-      }
-
+      for (var i = this.from; i < this.to; i++) pos = this.maps[i].map(pos, assoc);
       return pos;
     }
   }, {
@@ -12861,39 +16001,30 @@ var Mapping = function () {
     key: "_map",
     value: function _map(pos, assoc, simple) {
       var delInfo = 0;
-
       for (var i = this.from; i < this.to; i++) {
         var map = this.maps[i],
-            result = map.mapResult(pos, assoc);
-
+          result = map.mapResult(pos, assoc);
         if (result.recover != null) {
           var corr = this.getMirror(i);
-
           if (corr != null && corr > i && corr < this.to) {
             i = corr;
             pos = this.maps[corr].recover(result.recover);
             continue;
           }
         }
-
         delInfo |= result.delInfo;
         pos = result.pos;
       }
-
       return simple ? pos : new MapResult(pos, delInfo, null);
     }
   }]);
-
   return Mapping;
 }();
-
 var stepsByID = Object.create(null);
-
 var Step = function () {
   function Step() {
     _classCallCheck(this, Step);
   }
-
   _createClass(Step, [{
     key: "getMap",
     value: function getMap() {
@@ -12921,18 +16052,14 @@ var Step = function () {
       return stepClass;
     }
   }]);
-
   return Step;
 }();
-
 var StepResult = function () {
   function StepResult(doc, failed) {
     _classCallCheck(this, StepResult);
-
     this.doc = doc;
     this.failed = failed;
   }
-
   _createClass(StepResult, null, [{
     key: "ok",
     value: function ok(doc) {
@@ -12954,47 +16081,36 @@ var StepResult = function () {
       }
     }
   }]);
-
   return StepResult;
 }();
-
 function mapFragment(fragment, f, parent) {
   var mapped = [];
-
   for (var i = 0; i < fragment.childCount; i++) {
     var child = fragment.child(i);
     if (child.content.size) child = child.copy(mapFragment(child.content, f, child));
     if (child.isInline) child = f(child, parent, i);
     mapped.push(child);
   }
-
   return prosemirrorModel.Fragment.fromArray(mapped);
 }
-
 var AddMarkStep = function (_Step) {
   _inherits(AddMarkStep, _Step);
-
   var _super = _createSuper(AddMarkStep);
-
   function AddMarkStep(from, to, mark) {
     var _this;
-
     _classCallCheck(this, AddMarkStep);
-
     _this = _super.call(this);
     _this.from = from;
     _this.to = to;
     _this.mark = mark;
     return _this;
   }
-
   _createClass(AddMarkStep, [{
     key: "apply",
     value: function apply(doc) {
       var _this2 = this;
-
       var oldSlice = doc.slice(this.from, this.to),
-          $from = doc.resolve(this.from);
+        $from = doc.resolve(this.from);
       var parent = $from.node($from.sharedDepth(this.to));
       var slice = new prosemirrorModel.Slice(mapFragment(oldSlice.content, function (node, parent) {
         if (!node.isAtom || !parent.type.allowsMarkType(_this2.mark.type)) return node;
@@ -13011,7 +16127,7 @@ var AddMarkStep = function (_Step) {
     key: "map",
     value: function map(mapping) {
       var from = mapping.mapResult(this.from, 1),
-          to = mapping.mapResult(this.to, -1);
+        to = mapping.mapResult(this.to, -1);
       if (from.deleted && to.deleted || from.pos >= to.pos) return null;
       return new AddMarkStep(from.pos, to.pos, this.mark);
     }
@@ -13038,34 +16154,25 @@ var AddMarkStep = function (_Step) {
       return new AddMarkStep(json.from, json.to, schema.markFromJSON(json.mark));
     }
   }]);
-
   return AddMarkStep;
 }(Step);
-
 Step.jsonID("addMark", AddMarkStep);
-
 var RemoveMarkStep = function (_Step2) {
   _inherits(RemoveMarkStep, _Step2);
-
   var _super2 = _createSuper(RemoveMarkStep);
-
   function RemoveMarkStep(from, to, mark) {
     var _this3;
-
     _classCallCheck(this, RemoveMarkStep);
-
     _this3 = _super2.call(this);
     _this3.from = from;
     _this3.to = to;
     _this3.mark = mark;
     return _this3;
   }
-
   _createClass(RemoveMarkStep, [{
     key: "apply",
     value: function apply(doc) {
       var _this4 = this;
-
       var oldSlice = doc.slice(this.from, this.to);
       var slice = new prosemirrorModel.Slice(mapFragment(oldSlice.content, function (node) {
         return node.mark(_this4.mark.removeFromSet(node.marks));
@@ -13081,7 +16188,7 @@ var RemoveMarkStep = function (_Step2) {
     key: "map",
     value: function map(mapping) {
       var from = mapping.mapResult(this.from, 1),
-          to = mapping.mapResult(this.to, -1);
+        to = mapping.mapResult(this.to, -1);
       if (from.deleted && to.deleted || from.pos >= to.pos) return null;
       return new RemoveMarkStep(from.pos, to.pos, this.mark);
     }
@@ -13108,28 +16215,20 @@ var RemoveMarkStep = function (_Step2) {
       return new RemoveMarkStep(json.from, json.to, schema.markFromJSON(json.mark));
     }
   }]);
-
   return RemoveMarkStep;
 }(Step);
-
 Step.jsonID("removeMark", RemoveMarkStep);
-
 var AddNodeMarkStep = function (_Step3) {
   _inherits(AddNodeMarkStep, _Step3);
-
   var _super3 = _createSuper(AddNodeMarkStep);
-
   function AddNodeMarkStep(pos, mark) {
     var _this5;
-
     _classCallCheck(this, AddNodeMarkStep);
-
     _this5 = _super3.call(this);
     _this5.pos = pos;
     _this5.mark = mark;
     return _this5;
   }
-
   _createClass(AddNodeMarkStep, [{
     key: "apply",
     value: function apply(doc) {
@@ -13142,19 +16241,13 @@ var AddNodeMarkStep = function (_Step3) {
     key: "invert",
     value: function invert(doc) {
       var node = doc.nodeAt(this.pos);
-
       if (node) {
         var newSet = this.mark.addToSet(node.marks);
-
         if (newSet.length == node.marks.length) {
-          for (var i = 0; i < node.marks.length; i++) {
-            if (!node.marks[i].isInSet(newSet)) return new AddNodeMarkStep(this.pos, node.marks[i]);
-          }
-
+          for (var i = 0; i < node.marks.length; i++) if (!node.marks[i].isInSet(newSet)) return new AddNodeMarkStep(this.pos, node.marks[i]);
           return new AddNodeMarkStep(this.pos, this.mark);
         }
       }
-
       return new RemoveNodeMarkStep(this.pos, this.mark);
     }
   }, {
@@ -13179,28 +16272,20 @@ var AddNodeMarkStep = function (_Step3) {
       return new AddNodeMarkStep(json.pos, schema.markFromJSON(json.mark));
     }
   }]);
-
   return AddNodeMarkStep;
 }(Step);
-
 Step.jsonID("addNodeMark", AddNodeMarkStep);
-
 var RemoveNodeMarkStep = function (_Step4) {
   _inherits(RemoveNodeMarkStep, _Step4);
-
   var _super4 = _createSuper(RemoveNodeMarkStep);
-
   function RemoveNodeMarkStep(pos, mark) {
     var _this6;
-
     _classCallCheck(this, RemoveNodeMarkStep);
-
     _this6 = _super4.call(this);
     _this6.pos = pos;
     _this6.mark = mark;
     return _this6;
   }
-
   _createClass(RemoveNodeMarkStep, [{
     key: "apply",
     value: function apply(doc) {
@@ -13238,24 +16323,16 @@ var RemoveNodeMarkStep = function (_Step4) {
       return new RemoveNodeMarkStep(json.pos, schema.markFromJSON(json.mark));
     }
   }]);
-
   return RemoveNodeMarkStep;
 }(Step);
-
 Step.jsonID("removeNodeMark", RemoveNodeMarkStep);
-
 var ReplaceStep = function (_Step5) {
   _inherits(ReplaceStep, _Step5);
-
   var _super5 = _createSuper(ReplaceStep);
-
   function ReplaceStep(from, to, slice) {
     var _this7;
-
     var structure = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : false;
-
     _classCallCheck(this, ReplaceStep);
-
     _this7 = _super5.call(this);
     _this7.from = from;
     _this7.to = to;
@@ -13263,7 +16340,6 @@ var ReplaceStep = function (_Step5) {
     _this7.structure = structure;
     return _this7;
   }
-
   _createClass(ReplaceStep, [{
     key: "apply",
     value: function apply(doc) {
@@ -13284,7 +16360,7 @@ var ReplaceStep = function (_Step5) {
     key: "map",
     value: function map(mapping) {
       var from = mapping.mapResult(this.from, 1),
-          to = mapping.mapResult(this.to, -1);
+        to = mapping.mapResult(this.to, -1);
       if (from.deletedAcross && to.deletedAcross) return null;
       return new ReplaceStep(from.pos, Math.max(from.pos, to.pos), this.slice);
     }
@@ -13292,13 +16368,11 @@ var ReplaceStep = function (_Step5) {
     key: "merge",
     value: function merge(other) {
       if (!(other instanceof ReplaceStep) || other.structure || this.structure) return null;
-
       if (this.from + this.slice.size == other.from && !this.slice.openEnd && !other.slice.openStart) {
         var slice = this.slice.size + other.slice.size == 0 ? prosemirrorModel.Slice.empty : new prosemirrorModel.Slice(this.slice.content.append(other.slice.content), this.slice.openStart, other.slice.openEnd);
         return new ReplaceStep(this.from, this.to + (other.to - other.from), slice, this.structure);
       } else if (other.to == this.from && !this.slice.openStart && !other.slice.openEnd) {
         var _slice = this.slice.size + other.slice.size == 0 ? prosemirrorModel.Slice.empty : new prosemirrorModel.Slice(other.slice.content.append(this.slice.content), other.slice.openStart, this.slice.openEnd);
-
         return new ReplaceStep(other.from, this.to, _slice, this.structure);
       } else {
         return null;
@@ -13323,24 +16397,16 @@ var ReplaceStep = function (_Step5) {
       return new ReplaceStep(json.from, json.to, prosemirrorModel.Slice.fromJSON(schema, json.slice), !!json.structure);
     }
   }]);
-
   return ReplaceStep;
 }(Step);
-
 Step.jsonID("replace", ReplaceStep);
-
 var ReplaceAroundStep = function (_Step6) {
   _inherits(ReplaceAroundStep, _Step6);
-
   var _super6 = _createSuper(ReplaceAroundStep);
-
   function ReplaceAroundStep(from, to, gapFrom, gapTo, slice, insert) {
     var _this8;
-
     var structure = arguments.length > 6 && arguments[6] !== undefined ? arguments[6] : false;
-
     _classCallCheck(this, ReplaceAroundStep);
-
     _this8 = _super6.call(this);
     _this8.from = from;
     _this8.to = to;
@@ -13351,7 +16417,6 @@ var ReplaceAroundStep = function (_Step6) {
     _this8.structure = structure;
     return _this8;
   }
-
   _createClass(ReplaceAroundStep, [{
     key: "apply",
     value: function apply(doc) {
@@ -13377,9 +16442,9 @@ var ReplaceAroundStep = function (_Step6) {
     key: "map",
     value: function map(mapping) {
       var from = mapping.mapResult(this.from, 1),
-          to = mapping.mapResult(this.to, -1);
-      var gapFrom = mapping.map(this.gapFrom, -1),
-          gapTo = mapping.map(this.gapTo, 1);
+        to = mapping.mapResult(this.to, -1);
+      var gapFrom = this.from == this.gapFrom ? from.pos : mapping.map(this.gapFrom, -1);
+      var gapTo = this.to == this.gapTo ? to.pos : mapping.map(this.gapTo, 1);
       if (from.deletedAcross && to.deletedAcross || gapFrom < from.pos || gapTo > to.pos) return null;
       return new ReplaceAroundStep(from.pos, to.pos, gapFrom, gapTo, this.slice, this.insert, this.structure);
     }
@@ -13405,54 +16470,43 @@ var ReplaceAroundStep = function (_Step6) {
       return new ReplaceAroundStep(json.from, json.to, json.gapFrom, json.gapTo, prosemirrorModel.Slice.fromJSON(schema, json.slice), json.insert, !!json.structure);
     }
   }]);
-
   return ReplaceAroundStep;
 }(Step);
-
 Step.jsonID("replaceAround", ReplaceAroundStep);
-
 function contentBetween(doc, from, to) {
   var $from = doc.resolve(from),
-      dist = to - from,
-      depth = $from.depth;
-
+    dist = to - from,
+    depth = $from.depth;
   while (dist > 0 && depth > 0 && $from.indexAfter(depth) == $from.node(depth).childCount) {
     depth--;
     dist--;
   }
-
   if (dist > 0) {
     var next = $from.node(depth).maybeChild($from.indexAfter(depth));
-
     while (dist > 0) {
       if (!next || next.isLeaf) return true;
       next = next.firstChild;
       dist--;
     }
   }
-
   return false;
 }
-
 function _addMark(tr, from, to, mark) {
   var removed = [],
-      added = [];
+    added = [];
   var removing, adding;
   tr.doc.nodesBetween(from, to, function (node, pos, parent) {
     if (!node.isInline) return;
     var marks = node.marks;
-
     if (!mark.isInSet(marks) && parent.type.allowsMarkType(mark.type)) {
       var start = Math.max(pos, from),
-          end = Math.min(pos + node.nodeSize, to);
+        end = Math.min(pos + node.nodeSize, to);
       var newSet = mark.addToSet(marks);
-
       for (var i = 0; i < marks.length; i++) {
         if (!marks[i].isInSet(newSet)) {
           if (removing && removing.to == start && removing.mark.eq(marks[i])) removing.to = end;else removed.push(removing = new RemoveMarkStep(start, end, marks[i]));
         }
       }
-
       if (adding && adding.to == start) adding.to = end;else added.push(adding = new AddMarkStep(start, end, mark));
     }
   });
@@ -13463,19 +16517,16 @@ function _addMark(tr, from, to, mark) {
     return tr.step(s);
   });
 }
-
 function _removeMark(tr, from, to, mark) {
   var matched = [],
-      step = 0;
+    step = 0;
   tr.doc.nodesBetween(from, to, function (node, pos) {
     if (!node.isInline) return;
     step++;
     var toRemove = null;
-
     if (mark instanceof prosemirrorModel.MarkType) {
       var set = node.marks,
-          found;
-
+        found;
       while (found = mark.isInSet(set)) {
         (toRemove || (toRemove = [])).push(found);
         set = found.removeFromSet(set);
@@ -13485,19 +16536,15 @@ function _removeMark(tr, from, to, mark) {
     } else {
       toRemove = node.marks;
     }
-
     if (toRemove && toRemove.length) {
       var end = Math.min(pos + node.nodeSize, to);
-
       for (var i = 0; i < toRemove.length; i++) {
         var style = toRemove[i],
-            _found = void 0;
-
+          _found = void 0;
         for (var j = 0; j < matched.length; j++) {
           var m = matched[j];
           if (m.step == step - 1 && style.eq(matched[j].style)) _found = m;
         }
-
         if (_found) {
           _found.to = end;
           _found.step = step;
@@ -13516,108 +16563,82 @@ function _removeMark(tr, from, to, mark) {
     return tr.step(new RemoveMarkStep(m.from, m.to, m.style));
   });
 }
-
 function _clearIncompatible(tr, pos, parentType) {
   var match = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : parentType.contentMatch;
+  var clearNewlines = arguments.length > 4 && arguments[4] !== undefined ? arguments[4] : true;
   var node = tr.doc.nodeAt(pos);
   var replSteps = [],
-      cur = pos + 1;
-
+    cur = pos + 1;
   for (var i = 0; i < node.childCount; i++) {
     var child = node.child(i),
-        end = cur + child.nodeSize;
+      end = cur + child.nodeSize;
     var allowed = match.matchType(child.type);
-
     if (!allowed) {
       replSteps.push(new ReplaceStep(cur, end, prosemirrorModel.Slice.empty));
     } else {
       match = allowed;
-
-      for (var j = 0; j < child.marks.length; j++) {
-        if (!parentType.allowsMarkType(child.marks[j].type)) tr.step(new RemoveMarkStep(cur, end, child.marks[j]));
-      }
-
-      if (child.isText && !parentType.spec.code) {
+      for (var j = 0; j < child.marks.length; j++) if (!parentType.allowsMarkType(child.marks[j].type)) tr.step(new RemoveMarkStep(cur, end, child.marks[j]));
+      if (clearNewlines && child.isText && parentType.whitespace != "pre") {
         var m = void 0,
-            newline = /\r?\n|\r/g,
-            slice = void 0;
-
+          newline = /\r?\n|\r/g,
+          slice = void 0;
         while (m = newline.exec(child.text)) {
           if (!slice) slice = new prosemirrorModel.Slice(prosemirrorModel.Fragment.from(parentType.schema.text(" ", parentType.allowedMarks(child.marks))), 0, 0);
           replSteps.push(new ReplaceStep(cur + m.index, cur + m.index + m[0].length, slice));
         }
       }
     }
-
     cur = end;
   }
-
   if (!match.validEnd) {
     var fill = match.fillBefore(prosemirrorModel.Fragment.empty, true);
     tr.replace(cur, cur, new prosemirrorModel.Slice(fill, 0, 0));
   }
-
-  for (var _i = replSteps.length - 1; _i >= 0; _i--) {
-    tr.step(replSteps[_i]);
-  }
+  for (var _i = replSteps.length - 1; _i >= 0; _i--) tr.step(replSteps[_i]);
 }
-
 function canCut(node, start, end) {
   return (start == 0 || node.canReplace(start, node.childCount)) && (end == node.childCount || node.canReplace(0, end));
 }
-
 function liftTarget(range) {
   var parent = range.parent;
   var content = parent.content.cutByIndex(range.startIndex, range.endIndex);
-
   for (var depth = range.depth;; --depth) {
     var node = range.$from.node(depth);
     var index = range.$from.index(depth),
-        endIndex = range.$to.indexAfter(depth);
+      endIndex = range.$to.indexAfter(depth);
     if (depth < range.depth && node.canReplace(index, endIndex, content)) return depth;
     if (depth == 0 || node.type.spec.isolating || !canCut(node, index, endIndex)) break;
   }
-
   return null;
 }
-
 function _lift(tr, range, target) {
   var $from = range.$from,
-      $to = range.$to,
-      depth = range.depth;
+    $to = range.$to,
+    depth = range.depth;
   var gapStart = $from.before(depth + 1),
-      gapEnd = $to.after(depth + 1);
+    gapEnd = $to.after(depth + 1);
   var start = gapStart,
-      end = gapEnd;
+    end = gapEnd;
   var before = prosemirrorModel.Fragment.empty,
-      openStart = 0;
-
-  for (var d = depth, splitting = false; d > target; d--) {
-    if (splitting || $from.index(d) > 0) {
-      splitting = true;
-      before = prosemirrorModel.Fragment.from($from.node(d).copy(before));
-      openStart++;
-    } else {
-      start--;
-    }
+    openStart = 0;
+  for (var d = depth, splitting = false; d > target; d--) if (splitting || $from.index(d) > 0) {
+    splitting = true;
+    before = prosemirrorModel.Fragment.from($from.node(d).copy(before));
+    openStart++;
+  } else {
+    start--;
   }
-
   var after = prosemirrorModel.Fragment.empty,
-      openEnd = 0;
-
-  for (var _d = depth, _splitting = false; _d > target; _d--) {
-    if (_splitting || $to.after(_d + 1) < $to.end(_d)) {
-      _splitting = true;
-      after = prosemirrorModel.Fragment.from($to.node(_d).copy(after));
-      openEnd++;
-    } else {
-      end++;
-    }
+    openEnd = 0;
+  for (var _d = depth, _splitting = false; _d > target; _d--) if (_splitting || $to.after(_d + 1) < $to.end(_d)) {
+    _splitting = true;
+    after = prosemirrorModel.Fragment.from($to.node(_d).copy(after));
+    openEnd++;
+  } else {
+    end++;
   }
-
   tr.step(new ReplaceAroundStep(start, end, gapStart, gapEnd, new prosemirrorModel.Slice(before.append(after), openStart, openEnd), before.size - openStart, true));
 }
-
 function findWrapping(range, nodeType) {
   var attrs = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : null;
   var innerRange = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : range;
@@ -13629,80 +16650,95 @@ function findWrapping(range, nodeType) {
     attrs: attrs
   }).concat(inner.map(withAttrs));
 }
-
 function withAttrs(type) {
   return {
     type: type,
     attrs: null
   };
 }
-
 function findWrappingOutside(range, type) {
   var parent = range.parent,
-      startIndex = range.startIndex,
-      endIndex = range.endIndex;
+    startIndex = range.startIndex,
+    endIndex = range.endIndex;
   var around = parent.contentMatchAt(startIndex).findWrapping(type);
   if (!around) return null;
   var outer = around.length ? around[0] : type;
   return parent.canReplaceWith(startIndex, endIndex, outer) ? around : null;
 }
-
 function findWrappingInside(range, type) {
   var parent = range.parent,
-      startIndex = range.startIndex,
-      endIndex = range.endIndex;
+    startIndex = range.startIndex,
+    endIndex = range.endIndex;
   var inner = parent.child(startIndex);
   var inside = type.contentMatch.findWrapping(inner.type);
   if (!inside) return null;
   var lastType = inside.length ? inside[inside.length - 1] : type;
   var innerMatch = lastType.contentMatch;
-
-  for (var i = startIndex; innerMatch && i < endIndex; i++) {
-    innerMatch = innerMatch.matchType(parent.child(i).type);
-  }
-
+  for (var i = startIndex; innerMatch && i < endIndex; i++) innerMatch = innerMatch.matchType(parent.child(i).type);
   if (!innerMatch || !innerMatch.validEnd) return null;
   return inside;
 }
-
 function _wrap2(tr, range, wrappers) {
   var content = prosemirrorModel.Fragment.empty;
-
   for (var i = wrappers.length - 1; i >= 0; i--) {
     if (content.size) {
       var match = wrappers[i].type.contentMatch.matchFragment(content);
       if (!match || !match.validEnd) throw new RangeError("Wrapper type given to Transform.wrap does not form valid content of its parent wrapper");
     }
-
     content = prosemirrorModel.Fragment.from(wrappers[i].type.create(wrappers[i].attrs, content));
   }
-
   var start = range.start,
-      end = range.end;
+    end = range.end;
   tr.step(new ReplaceAroundStep(start, end, start, end, new prosemirrorModel.Slice(content, 0, 0), wrappers.length, true));
 }
-
 function _setBlockType(tr, from, to, type, attrs) {
   if (!type.isTextblock) throw new RangeError("Type given to setBlockType should be a textblock");
   var mapFrom = tr.steps.length;
   tr.doc.nodesBetween(from, to, function (node, pos) {
-    if (node.isTextblock && !node.hasMarkup(type, attrs) && canChangeType(tr.doc, tr.mapping.slice(mapFrom).map(pos), type)) {
-      tr.clearIncompatible(tr.mapping.slice(mapFrom).map(pos, 1), type);
+    var attrsHere = typeof attrs == "function" ? attrs(node) : attrs;
+    if (node.isTextblock && !node.hasMarkup(type, attrsHere) && canChangeType(tr.doc, tr.mapping.slice(mapFrom).map(pos), type)) {
+      var convertNewlines = null;
+      if (type.schema.linebreakReplacement) {
+        var pre = type.whitespace == "pre",
+          supportLinebreak = !!type.contentMatch.matchType(type.schema.linebreakReplacement);
+        if (pre && !supportLinebreak) convertNewlines = false;else if (!pre && supportLinebreak) convertNewlines = true;
+      }
+      if (convertNewlines === false) replaceLinebreaks(tr, node, pos, mapFrom);
+      _clearIncompatible(tr, tr.mapping.slice(mapFrom).map(pos, 1), type, undefined, convertNewlines === null);
       var mapping = tr.mapping.slice(mapFrom);
       var startM = mapping.map(pos, 1),
-          endM = mapping.map(pos + node.nodeSize, 1);
-      tr.step(new ReplaceAroundStep(startM, endM, startM + 1, endM - 1, new prosemirrorModel.Slice(prosemirrorModel.Fragment.from(type.create(attrs, null, node.marks)), 0, 0), 1, true));
+        endM = mapping.map(pos + node.nodeSize, 1);
+      tr.step(new ReplaceAroundStep(startM, endM, startM + 1, endM - 1, new prosemirrorModel.Slice(prosemirrorModel.Fragment.from(type.create(attrsHere, null, node.marks)), 0, 0), 1, true));
+      if (convertNewlines === true) replaceNewlines(tr, node, pos, mapFrom);
       return false;
     }
   });
 }
-
+function replaceNewlines(tr, node, pos, mapFrom) {
+  node.forEach(function (child, offset) {
+    if (child.isText) {
+      var m,
+        newline = /\r?\n|\r/g;
+      while (m = newline.exec(child.text)) {
+        var start = tr.mapping.slice(mapFrom).map(pos + 1 + offset + m.index);
+        tr.replaceWith(start, start + 1, node.type.schema.linebreakReplacement.create());
+      }
+    }
+  });
+}
+function replaceLinebreaks(tr, node, pos, mapFrom) {
+  node.forEach(function (child, offset) {
+    if (child.type == child.type.schema.linebreakReplacement) {
+      var start = tr.mapping.slice(mapFrom).map(pos + 1 + offset);
+      tr.replaceWith(start, start + 1, node.type.schema.text("\n"));
+    }
+  });
+}
 function canChangeType(doc, pos, type) {
   var $pos = doc.resolve(pos),
-      index = $pos.index();
+    index = $pos.index();
   return $pos.parent.canReplaceWith(index, index + 1, type);
 }
-
 function _setNodeMarkup(tr, pos, type, attrs, marks) {
   var node = tr.doc.nodeAt(pos);
   if (!node) throw new RangeError("No node at given position");
@@ -13712,19 +16748,16 @@ function _setNodeMarkup(tr, pos, type, attrs, marks) {
   if (!type.validContent(node.content)) throw new RangeError("Invalid content for node type " + type.name);
   tr.step(new ReplaceAroundStep(pos, pos + node.nodeSize, pos + 1, pos + node.nodeSize - 1, new prosemirrorModel.Slice(prosemirrorModel.Fragment.from(newNode), 0, 0), 1, true));
 }
-
 function canSplit(doc, pos) {
   var depth = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : 1;
   var typesAfter = arguments.length > 3 ? arguments[3] : undefined;
   var $pos = doc.resolve(pos),
-      base = $pos.depth - depth;
+    base = $pos.depth - depth;
   var innerType = typesAfter && typesAfter[typesAfter.length - 1] || $pos.parent;
   if (base < 0 || $pos.parent.type.spec.isolating || !$pos.parent.canReplace($pos.index(), $pos.parent.childCount) || !innerType.type.validContent($pos.parent.content.cutByIndex($pos.index(), $pos.parent.childCount))) return false;
-
   for (var d = $pos.depth - 1, i = depth - 2; d > base; d--, i--) {
     var node = $pos.node(d),
-        _index = $pos.index(d);
-
+      _index = $pos.index(d);
     if (node.type.spec.isolating) return false;
     var rest = node.content.cutByIndex(_index, node.childCount);
     var overrideChild = typesAfter && typesAfter[i + 1];
@@ -13732,47 +16765,51 @@ function canSplit(doc, pos) {
     var after = typesAfter && typesAfter[i] || node;
     if (!node.canReplace(_index + 1, node.childCount) || !after.type.validContent(rest)) return false;
   }
-
   var index = $pos.indexAfter(base);
   var baseType = typesAfter && typesAfter[0];
   return $pos.node(base).canReplaceWith(index, index, baseType ? baseType.type : $pos.node(base + 1).type);
 }
-
 function _split(tr, pos) {
   var depth = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : 1;
   var typesAfter = arguments.length > 3 ? arguments[3] : undefined;
   var $pos = tr.doc.resolve(pos),
-      before = prosemirrorModel.Fragment.empty,
-      after = prosemirrorModel.Fragment.empty;
-
+    before = prosemirrorModel.Fragment.empty,
+    after = prosemirrorModel.Fragment.empty;
   for (var d = $pos.depth, e = $pos.depth - depth, i = depth - 1; d > e; d--, i--) {
     before = prosemirrorModel.Fragment.from($pos.node(d).copy(before));
     var typeAfter = typesAfter && typesAfter[i];
     after = prosemirrorModel.Fragment.from(typeAfter ? typeAfter.type.create(typeAfter.attrs, after) : $pos.node(d).copy(after));
   }
-
   tr.step(new ReplaceStep(pos, pos, new prosemirrorModel.Slice(before.append(after), depth, depth), true));
 }
-
 function canJoin(doc, pos) {
   var $pos = doc.resolve(pos),
-      index = $pos.index();
+    index = $pos.index();
   return joinable($pos.nodeBefore, $pos.nodeAfter) && $pos.parent.canReplace(index, index + 1);
 }
-
-function joinable(a, b) {
-  return !!(a && b && !a.isLeaf && a.canAppend(b));
+function canAppendWithSubstitutedLinebreaks(a, b) {
+  if (!b.content.size) a.type.compatibleContent(b.type);
+  var match = a.contentMatchAt(a.childCount);
+  var linebreakReplacement = a.type.schema.linebreakReplacement;
+  for (var i = 0; i < b.childCount; i++) {
+    var child = b.child(i);
+    var type = child.type == linebreakReplacement ? a.type.schema.nodes.text : child.type;
+    match = match.matchType(type);
+    if (!match) return false;
+    if (!a.type.allowsMarks(child.marks)) return false;
+  }
+  return match.validEnd;
 }
-
+function joinable(a, b) {
+  return !!(a && b && !a.isLeaf && canAppendWithSubstitutedLinebreaks(a, b));
+}
 function joinPoint(doc, pos) {
   var dir = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : -1;
   var $pos = doc.resolve(pos);
-
   for (var d = $pos.depth;; d--) {
     var before = void 0,
-        after = void 0,
-        index = $pos.index(d);
-
+      after = void 0,
+      index = $pos.index(d);
     if (d == $pos.depth) {
       before = $pos.nodeBefore;
       after = $pos.nodeAfter;
@@ -13784,18 +16821,36 @@ function joinPoint(doc, pos) {
       before = $pos.node(d).maybeChild(index - 1);
       after = $pos.node(d + 1);
     }
-
     if (before && !before.isTextblock && joinable(before, after) && $pos.node(d).canReplace(index, index + 1)) return pos;
     if (d == 0) break;
     pos = dir < 0 ? $pos.before(d) : $pos.after(d);
   }
 }
-
 function _join(tr, pos, depth) {
-  var step = new ReplaceStep(pos - depth, pos + depth, prosemirrorModel.Slice.empty, true);
-  tr.step(step);
+  var convertNewlines = null;
+  var linebreakReplacement = tr.doc.type.schema.linebreakReplacement;
+  var $before = tr.doc.resolve(pos - depth),
+    beforeType = $before.node().type;
+  if (linebreakReplacement && beforeType.inlineContent) {
+    var pre = beforeType.whitespace == "pre";
+    var supportLinebreak = !!beforeType.contentMatch.matchType(linebreakReplacement);
+    if (pre && !supportLinebreak) convertNewlines = false;else if (!pre && supportLinebreak) convertNewlines = true;
+  }
+  var mapFrom = tr.steps.length;
+  if (convertNewlines === false) {
+    var $after = tr.doc.resolve(pos + depth);
+    replaceLinebreaks(tr, $after.node(), $after.before(), mapFrom);
+  }
+  if (beforeType.inlineContent) _clearIncompatible(tr, pos + depth - 1, beforeType, $before.node().contentMatchAt($before.index()), convertNewlines == null);
+  var mapping = tr.mapping.slice(mapFrom),
+    start = mapping.map(pos - depth);
+  tr.step(new ReplaceStep(start, mapping.map(pos + depth, -1), prosemirrorModel.Slice.empty, true));
+  if (convertNewlines === true) {
+    var $full = tr.doc.resolve(start);
+    replaceNewlines(tr, $full.node(), $full.before(), tr.steps.length);
+  }
+  return tr;
 }
-
 function insertPoint(doc, pos, nodeType) {
   var $pos = doc.resolve(pos);
   if ($pos.parent.canReplaceWith($pos.index(), $pos.index(), nodeType)) return pos;
@@ -13806,67 +16861,53 @@ function insertPoint(doc, pos, nodeType) {
   }
   if ($pos.parentOffset == $pos.parent.content.size) for (var _d2 = $pos.depth - 1; _d2 >= 0; _d2--) {
     var _index2 = $pos.indexAfter(_d2);
-
     if ($pos.node(_d2).canReplaceWith(_index2, _index2, nodeType)) return $pos.after(_d2 + 1);
     if (_index2 < $pos.node(_d2).childCount) return null;
   }
   return null;
 }
-
 function dropPoint(doc, pos, slice) {
   var $pos = doc.resolve(pos);
   if (!slice.content.size) return pos;
   var content = slice.content;
-
-  for (var i = 0; i < slice.openStart; i++) {
-    content = content.firstChild.content;
-  }
-
+  for (var i = 0; i < slice.openStart; i++) content = content.firstChild.content;
   for (var pass = 1; pass <= (slice.openStart == 0 && slice.size ? 2 : 1); pass++) {
     for (var d = $pos.depth; d >= 0; d--) {
       var bias = d == $pos.depth ? 0 : $pos.pos <= ($pos.start(d + 1) + $pos.end(d + 1)) / 2 ? -1 : 1;
       var insertPos = $pos.index(d) + (bias > 0 ? 1 : 0);
       var parent = $pos.node(d),
-          fits = false;
-
+        fits = false;
       if (pass == 1) {
         fits = parent.canReplace(insertPos, insertPos, content);
       } else {
         var wrapping = parent.contentMatchAt(insertPos).findWrapping(content.firstChild.type);
         fits = wrapping && parent.canReplaceWith(insertPos, insertPos, wrapping[0]);
       }
-
       if (fits) return bias == 0 ? $pos.pos : bias < 0 ? $pos.before(d + 1) : $pos.after(d + 1);
     }
   }
-
   return null;
 }
-
 function replaceStep(doc, from) {
   var to = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : from;
   var slice = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : prosemirrorModel.Slice.empty;
   if (from == to && !slice.size) return null;
   var $from = doc.resolve(from),
-      $to = doc.resolve(to);
+    $to = doc.resolve(to);
   if (fitsTrivially($from, $to, slice)) return new ReplaceStep(from, to, slice);
   return new Fitter($from, $to, slice).fit();
 }
-
 function fitsTrivially($from, $to, slice) {
   return !slice.openStart && !slice.openEnd && $from.start() == $to.start() && $from.parent.canReplace($from.index(), $to.index(), slice.content);
 }
-
 var Fitter = function () {
   function Fitter($from, $to, unplaced) {
     _classCallCheck(this, Fitter);
-
     this.$from = $from;
     this.$to = $to;
     this.unplaced = unplaced;
     this.frontier = [];
     this.placed = prosemirrorModel.Fragment.empty;
-
     for (var i = 0; i <= $from.depth; i++) {
       var node = $from.node(i);
       this.frontier.push({
@@ -13874,12 +16915,8 @@ var Fitter = function () {
         match: node.contentMatchAt($from.indexAfter(i))
       });
     }
-
-    for (var _i2 = $from.depth; _i2 > 0; _i2--) {
-      this.placed = prosemirrorModel.Fragment.from($from.node(_i2).copy(this.placed));
-    }
+    for (var _i2 = $from.depth; _i2 > 0; _i2--) this.placed = prosemirrorModel.Fragment.from($from.node(_i2).copy(this.placed));
   }
-
   _createClass(Fitter, [{
     key: "depth",
     get: function get() {
@@ -13892,22 +16929,19 @@ var Fitter = function () {
         var fit = this.findFittable();
         if (fit) this.placeNodes(fit);else this.openMore() || this.dropNode();
       }
-
       var moveInline = this.mustMoveInline(),
-          placedSize = this.placed.size - this.depth - this.$from.depth;
+        placedSize = this.placed.size - this.depth - this.$from.depth;
       var $from = this.$from,
-          $to = this.close(moveInline < 0 ? this.$to : $from.doc.resolve(moveInline));
+        $to = this.close(moveInline < 0 ? this.$to : $from.doc.resolve(moveInline));
       if (!$to) return null;
       var content = this.placed,
-          openStart = $from.depth,
-          openEnd = $to.depth;
-
+        openStart = $from.depth,
+        openEnd = $to.depth;
       while (openStart && openEnd && content.childCount == 1) {
         content = content.firstChild.content;
         openStart--;
         openEnd--;
       }
-
       var slice = new prosemirrorModel.Slice(content, openStart, openEnd);
       if (moveInline > -1) return new ReplaceAroundStep($from.pos, moveInline, this.$to.pos, this.$to.end(), slice, placedSize);
       if (slice.size || $from.pos != this.$to.pos) return new ReplaceStep($from.pos, $to.pos, slice);
@@ -13917,40 +16951,32 @@ var Fitter = function () {
     key: "findFittable",
     value: function findFittable() {
       var startDepth = this.unplaced.openStart;
-
       for (var cur = this.unplaced.content, d = 0, openEnd = this.unplaced.openEnd; d < startDepth; d++) {
         var node = cur.firstChild;
         if (cur.childCount > 1) openEnd = 0;
-
         if (node.type.spec.isolating && openEnd <= d) {
           startDepth = d;
           break;
         }
-
         cur = node.content;
       }
-
       for (var pass = 1; pass <= 2; pass++) {
         for (var sliceDepth = pass == 1 ? startDepth : this.unplaced.openStart; sliceDepth >= 0; sliceDepth--) {
           var fragment = void 0,
-              parent = null;
-
+            parent = null;
           if (sliceDepth) {
             parent = contentAt(this.unplaced.content, sliceDepth - 1).firstChild;
             fragment = parent.content;
           } else {
             fragment = this.unplaced.content;
           }
-
           var first = fragment.firstChild;
-
           for (var frontierDepth = this.depth; frontierDepth >= 0; frontierDepth--) {
             var _this$frontier$fronti = this.frontier[frontierDepth],
-                type = _this$frontier$fronti.type,
-                match = _this$frontier$fronti.match,
-                _wrap = void 0,
-                inject = null;
-
+              type = _this$frontier$fronti.type,
+              match = _this$frontier$fronti.match,
+              _wrap = void 0,
+              inject = null;
             if (pass == 1 && (first ? match.matchType(first.type) || (inject = match.fillBefore(prosemirrorModel.Fragment.from(first), false)) : parent && type.compatibleContent(parent.type))) return {
               sliceDepth: sliceDepth,
               frontierDepth: frontierDepth,
@@ -13971,9 +16997,9 @@ var Fitter = function () {
     key: "openMore",
     value: function openMore() {
       var _this$unplaced = this.unplaced,
-          content = _this$unplaced.content,
-          openStart = _this$unplaced.openStart,
-          openEnd = _this$unplaced.openEnd;
+        content = _this$unplaced.content,
+        openStart = _this$unplaced.openStart,
+        openEnd = _this$unplaced.openEnd;
       var inner = contentAt(content, openStart);
       if (!inner.childCount || inner.firstChild.isLeaf) return false;
       this.unplaced = new prosemirrorModel.Slice(content, openStart + 1, Math.max(openEnd, inner.size + openStart >= content.size - openEnd ? openStart + 1 : 0));
@@ -13983,11 +17009,10 @@ var Fitter = function () {
     key: "dropNode",
     value: function dropNode() {
       var _this$unplaced2 = this.unplaced,
-          content = _this$unplaced2.content,
-          openStart = _this$unplaced2.openStart,
-          openEnd = _this$unplaced2.openEnd;
+        content = _this$unplaced2.content,
+        openStart = _this$unplaced2.openStart,
+        openEnd = _this$unplaced2.openEnd;
       var inner = contentAt(content, openStart);
-
       if (inner.childCount <= 1 && openStart > 0) {
         var openAtEnd = content.size - openStart <= openStart + inner.size;
         this.unplaced = new prosemirrorModel.Slice(dropFromFragment(content, openStart - 1, 1), openStart - 1, openAtEnd ? openStart - 1 : openEnd);
@@ -13999,56 +17024,41 @@ var Fitter = function () {
     key: "placeNodes",
     value: function placeNodes(_ref) {
       var sliceDepth = _ref.sliceDepth,
-          frontierDepth = _ref.frontierDepth,
-          parent = _ref.parent,
-          inject = _ref.inject,
-          wrap = _ref.wrap;
-
-      while (this.depth > frontierDepth) {
-        this.closeFrontierNode();
-      }
-
-      if (wrap) for (var i = 0; i < wrap.length; i++) {
-        this.openFrontierNode(wrap[i]);
-      }
+        frontierDepth = _ref.frontierDepth,
+        parent = _ref.parent,
+        inject = _ref.inject,
+        wrap = _ref.wrap;
+      while (this.depth > frontierDepth) this.closeFrontierNode();
+      if (wrap) for (var i = 0; i < wrap.length; i++) this.openFrontierNode(wrap[i]);
       var slice = this.unplaced,
-          fragment = parent ? parent.content : slice.content;
+        fragment = parent ? parent.content : slice.content;
       var openStart = slice.openStart - sliceDepth;
       var taken = 0,
-          add = [];
+        add = [];
       var _this$frontier$fronti2 = this.frontier[frontierDepth],
-          match = _this$frontier$fronti2.match,
-          type = _this$frontier$fronti2.type;
-
+        match = _this$frontier$fronti2.match,
+        type = _this$frontier$fronti2.type;
       if (inject) {
-        for (var i = 0; i < inject.childCount; i++) {
-          add.push(inject.child(i));
-        }
-
+        for (var _i3 = 0; _i3 < inject.childCount; _i3++) add.push(inject.child(_i3));
         match = match.matchFragment(inject);
       }
-
       var openEndCount = fragment.size + sliceDepth - (slice.content.size - slice.openEnd);
-
       while (taken < fragment.childCount) {
         var next = fragment.child(taken),
-            matches = match.matchType(next.type);
+          matches = match.matchType(next.type);
         if (!matches) break;
         taken++;
-
         if (taken > 1 || openStart == 0 || next.content.size) {
           match = matches;
           add.push(closeNodeStart(next.mark(type.allowedMarks(next.marks)), taken == 1 ? openStart : 0, taken == fragment.childCount ? openEndCount : -1));
         }
       }
-
       var toEnd = taken == fragment.childCount;
       if (!toEnd) openEndCount = -1;
       this.placed = addToFragment(this.placed, frontierDepth, prosemirrorModel.Fragment.from(add));
       this.frontier[frontierDepth].match = match;
       if (toEnd && openEndCount < 0 && parent && parent.type == this.frontier[this.depth].type && this.frontier.length > 1) this.closeFrontierNode();
-
-      for (var _i3 = 0, cur = fragment; _i3 < openEndCount; _i3++) {
+      for (var _i4 = 0, cur = fragment; _i4 < openEndCount; _i4++) {
         var node = cur.lastChild;
         this.frontier.push({
           type: node.type,
@@ -14056,7 +17066,6 @@ var Fitter = function () {
         });
         cur = node.content;
       }
-
       this.unplaced = !toEnd ? new prosemirrorModel.Slice(dropFromFragment(slice.content, sliceDepth, taken), slice.openStart, slice.openEnd) : sliceDepth == 0 ? prosemirrorModel.Slice.empty : new prosemirrorModel.Slice(dropFromFragment(slice.content, sliceDepth - 1, 1), sliceDepth - 1, openEndCount < 0 ? slice.openEnd : sliceDepth - 1);
     }
   }, {
@@ -14064,15 +17073,11 @@ var Fitter = function () {
     value: function mustMoveInline() {
       if (!this.$to.parent.isTextblock) return -1;
       var top = this.frontier[this.depth],
-          level;
+        level;
       if (!top.type.isTextblock || !contentAfterFits(this.$to, this.$to.depth, top.type, top.match, false) || this.$to.depth == this.depth && (level = this.findCloseLevel(this.$to)) && level.depth == this.depth) return -1;
       var depth = this.$to.depth,
-          after = this.$to.after(depth);
-
-      while (depth > 1 && after == this.$to.end(--depth)) {
-        ++after;
-      }
-
+        after = this.$to.after(depth);
+      while (depth > 1 && after == this.$to.end(--depth)) ++after;
       return after;
     }
   }, {
@@ -14080,20 +17085,18 @@ var Fitter = function () {
     value: function findCloseLevel($to) {
       scan: for (var i = Math.min(this.depth, $to.depth); i >= 0; i--) {
         var _this$frontier$i = this.frontier[i],
-            match = _this$frontier$i.match,
-            type = _this$frontier$i.type;
+          match = _this$frontier$i.match,
+          type = _this$frontier$i.type;
         var dropInner = i < $to.depth && $to.end(i + 1) == $to.pos + ($to.depth - (i + 1));
         var fit = contentAfterFits($to, i, type, match, dropInner);
         if (!fit) continue;
-
         for (var d = i - 1; d >= 0; d--) {
           var _this$frontier$d = this.frontier[d],
-              _match = _this$frontier$d.match,
-              _type = _this$frontier$d.type;
+            _match = _this$frontier$d.match,
+            _type = _this$frontier$d.type;
           var matches = contentAfterFits($to, d, _type, _match, true);
           if (!matches || matches.childCount) continue scan;
         }
-
         return {
           depth: i,
           fit: fit,
@@ -14106,20 +17109,14 @@ var Fitter = function () {
     value: function close($to) {
       var close = this.findCloseLevel($to);
       if (!close) return null;
-
-      while (this.depth > close.depth) {
-        this.closeFrontierNode();
-      }
-
+      while (this.depth > close.depth) this.closeFrontierNode();
       if (close.fit.childCount) this.placed = addToFragment(this.placed, close.depth, close.fit);
       $to = close.move;
-
       for (var d = close.depth + 1; d <= $to.depth; d++) {
         var node = $to.node(d),
-            add = node.type.contentMatch.fillBefore(node.content, true, $to.index(d));
+          add = node.type.contentMatch.fillBefore(node.content, true, $to.index(d));
         this.openFrontierNode(node.type, node.attrs, add);
       }
-
       return $to;
     }
   }, {
@@ -14143,210 +17140,161 @@ var Fitter = function () {
       if (add.childCount) this.placed = addToFragment(this.placed, this.frontier.length, add);
     }
   }]);
-
   return Fitter;
 }();
-
 function dropFromFragment(fragment, depth, count) {
   if (depth == 0) return fragment.cutByIndex(count, fragment.childCount);
   return fragment.replaceChild(0, fragment.firstChild.copy(dropFromFragment(fragment.firstChild.content, depth - 1, count)));
 }
-
 function addToFragment(fragment, depth, content) {
   if (depth == 0) return fragment.append(content);
   return fragment.replaceChild(fragment.childCount - 1, fragment.lastChild.copy(addToFragment(fragment.lastChild.content, depth - 1, content)));
 }
-
 function contentAt(fragment, depth) {
-  for (var i = 0; i < depth; i++) {
-    fragment = fragment.firstChild.content;
-  }
-
+  for (var i = 0; i < depth; i++) fragment = fragment.firstChild.content;
   return fragment;
 }
-
 function closeNodeStart(node, openStart, openEnd) {
   if (openStart <= 0) return node;
   var frag = node.content;
   if (openStart > 1) frag = frag.replaceChild(0, closeNodeStart(frag.firstChild, openStart - 1, frag.childCount == 1 ? openEnd - 1 : 0));
-
   if (openStart > 0) {
     frag = node.type.contentMatch.fillBefore(frag).append(frag);
     if (openEnd <= 0) frag = frag.append(node.type.contentMatch.matchFragment(frag).fillBefore(prosemirrorModel.Fragment.empty, true));
   }
-
   return node.copy(frag);
 }
-
 function contentAfterFits($to, depth, type, match, open) {
   var node = $to.node(depth),
-      index = open ? $to.indexAfter(depth) : $to.index(depth);
+    index = open ? $to.indexAfter(depth) : $to.index(depth);
   if (index == node.childCount && !type.compatibleContent(node.type)) return null;
   var fit = match.fillBefore(node.content, true, index);
   return fit && !invalidMarks(type, node.content, index) ? fit : null;
 }
-
 function invalidMarks(type, fragment, start) {
-  for (var i = start; i < fragment.childCount; i++) {
-    if (!type.allowsMarks(fragment.child(i).marks)) return true;
-  }
-
+  for (var i = start; i < fragment.childCount; i++) if (!type.allowsMarks(fragment.child(i).marks)) return true;
   return false;
 }
-
 function definesContent(type) {
   return type.spec.defining || type.spec.definingForContent;
 }
-
 function _replaceRange(tr, from, to, slice) {
   if (!slice.size) return tr.deleteRange(from, to);
   var $from = tr.doc.resolve(from),
-      $to = tr.doc.resolve(to);
+    $to = tr.doc.resolve(to);
   if (fitsTrivially($from, $to, slice)) return tr.step(new ReplaceStep(from, to, slice));
   var targetDepths = coveredDepths($from, tr.doc.resolve(to));
   if (targetDepths[targetDepths.length - 1] == 0) targetDepths.pop();
   var preferredTarget = -($from.depth + 1);
   targetDepths.unshift(preferredTarget);
-
   for (var d = $from.depth, pos = $from.pos - 1; d > 0; d--, pos--) {
     var spec = $from.node(d).type.spec;
     if (spec.defining || spec.definingAsContext || spec.isolating) break;
     if (targetDepths.indexOf(d) > -1) preferredTarget = d;else if ($from.before(d) == pos) targetDepths.splice(1, 0, -d);
   }
-
   var preferredTargetIndex = targetDepths.indexOf(preferredTarget);
   var leftNodes = [],
-      preferredDepth = slice.openStart;
-
+    preferredDepth = slice.openStart;
   for (var content = slice.content, i = 0;; i++) {
     var node = content.firstChild;
     leftNodes.push(node);
     if (i == slice.openStart) break;
     content = node.content;
   }
-
   for (var _d3 = preferredDepth - 1; _d3 >= 0; _d3--) {
     var leftNode = leftNodes[_d3],
-        def = definesContent(leftNode.type);
+      def = definesContent(leftNode.type);
     if (def && !leftNode.sameMarkup($from.node(Math.abs(preferredTarget) - 1))) preferredDepth = _d3;else if (def || !leftNode.type.isTextblock) break;
   }
-
   for (var j = slice.openStart; j >= 0; j--) {
     var openDepth = (j + preferredDepth + 1) % (slice.openStart + 1);
     var insert = leftNodes[openDepth];
     if (!insert) continue;
-
-    for (var _i4 = 0; _i4 < targetDepths.length; _i4++) {
-      var targetDepth = targetDepths[(_i4 + preferredTargetIndex) % targetDepths.length],
-          expand = true;
-
+    for (var _i5 = 0; _i5 < targetDepths.length; _i5++) {
+      var targetDepth = targetDepths[(_i5 + preferredTargetIndex) % targetDepths.length],
+        expand = true;
       if (targetDepth < 0) {
         expand = false;
         targetDepth = -targetDepth;
       }
-
       var parent = $from.node(targetDepth - 1),
-          index = $from.index(targetDepth - 1);
+        index = $from.index(targetDepth - 1);
       if (parent.canReplaceWith(index, index, insert.type, insert.marks)) return tr.replace($from.before(targetDepth), expand ? $to.after(targetDepth) : to, new prosemirrorModel.Slice(closeFragment(slice.content, 0, slice.openStart, openDepth), openDepth, slice.openEnd));
     }
   }
-
   var startSteps = tr.steps.length;
-
-  for (var _i5 = targetDepths.length - 1; _i5 >= 0; _i5--) {
+  for (var _i6 = targetDepths.length - 1; _i6 >= 0; _i6--) {
     tr.replace(from, to, slice);
     if (tr.steps.length > startSteps) break;
-    var depth = targetDepths[_i5];
+    var depth = targetDepths[_i6];
     if (depth < 0) continue;
     from = $from.before(depth);
     to = $to.after(depth);
   }
 }
-
 function closeFragment(fragment, depth, oldOpen, newOpen, parent) {
   if (depth < oldOpen) {
     var first = fragment.firstChild;
     fragment = fragment.replaceChild(0, first.copy(closeFragment(first.content, depth + 1, oldOpen, newOpen, first)));
   }
-
   if (depth > newOpen) {
     var match = parent.contentMatchAt(0);
     var start = match.fillBefore(fragment).append(fragment);
     fragment = start.append(match.matchFragment(start).fillBefore(prosemirrorModel.Fragment.empty, true));
   }
-
   return fragment;
 }
-
 function _replaceRangeWith(tr, from, to, node) {
   if (!node.isInline && from == to && tr.doc.resolve(from).parent.content.size) {
     var point = insertPoint(tr.doc, from, node.type);
     if (point != null) from = to = point;
   }
-
   tr.replaceRange(from, to, new prosemirrorModel.Slice(prosemirrorModel.Fragment.from(node), 0, 0));
 }
-
 function _deleteRange(tr, from, to) {
   var $from = tr.doc.resolve(from),
-      $to = tr.doc.resolve(to);
+    $to = tr.doc.resolve(to);
   var covered = coveredDepths($from, $to);
-
   for (var i = 0; i < covered.length; i++) {
     var depth = covered[i],
-        last = i == covered.length - 1;
+      last = i == covered.length - 1;
     if (last && depth == 0 || $from.node(depth).type.contentMatch.validEnd) return tr["delete"]($from.start(depth), $to.end(depth));
     if (depth > 0 && (last || $from.node(depth - 1).canReplace($from.index(depth - 1), $to.indexAfter(depth - 1)))) return tr["delete"]($from.before(depth), $to.after(depth));
   }
-
   for (var d = 1; d <= $from.depth && d <= $to.depth; d++) {
-    if (from - $from.start(d) == $from.depth - d && to > $from.end(d) && $to.end(d) - to != $to.depth - d) return tr["delete"]($from.before(d), to);
+    if (from - $from.start(d) == $from.depth - d && to > $from.end(d) && $to.end(d) - to != $to.depth - d && $from.start(d - 1) == $to.start(d - 1) && $from.node(d - 1).canReplace($from.index(d - 1), $to.index(d - 1))) return tr["delete"]($from.before(d), to);
   }
-
   tr["delete"](from, to);
 }
-
 function coveredDepths($from, $to) {
   var result = [],
-      minDepth = Math.min($from.depth, $to.depth);
-
+    minDepth = Math.min($from.depth, $to.depth);
   for (var d = minDepth; d >= 0; d--) {
     var start = $from.start(d);
     if (start < $from.pos - ($from.depth - d) || $to.end(d) > $to.pos + ($to.depth - d) || $from.node(d).type.spec.isolating || $to.node(d).type.spec.isolating) break;
     if (start == $to.start(d) || d == $from.depth && d == $to.depth && $from.parent.inlineContent && $to.parent.inlineContent && d && $to.start(d - 1) == start - 1) result.push(d);
   }
-
   return result;
 }
-
 var AttrStep = function (_Step7) {
   _inherits(AttrStep, _Step7);
-
   var _super7 = _createSuper(AttrStep);
-
   function AttrStep(pos, attr, value) {
     var _this9;
-
     _classCallCheck(this, AttrStep);
-
     _this9 = _super7.call(this);
     _this9.pos = pos;
     _this9.attr = attr;
     _this9.value = value;
     return _this9;
   }
-
   _createClass(AttrStep, [{
     key: "apply",
     value: function apply(doc) {
       var node = doc.nodeAt(this.pos);
       if (!node) return StepResult.fail("No node at attribute step's position");
       var attrs = Object.create(null);
-
-      for (var name in node.attrs) {
-        attrs[name] = node.attrs[name];
-      }
-
+      for (var name in node.attrs) attrs[name] = node.attrs[name];
       attrs[this.attr] = this.value;
       var updated = node.type.create(attrs, null, node.marks);
       return StepResult.fromReplace(doc, this.pos, this.pos + 1, new prosemirrorModel.Slice(prosemirrorModel.Fragment.from(updated), 0, node.isLeaf ? 0 : 1));
@@ -14384,37 +17332,25 @@ var AttrStep = function (_Step7) {
       return new AttrStep(json.pos, json.attr, json.value);
     }
   }]);
-
   return AttrStep;
 }(Step);
-
 Step.jsonID("attr", AttrStep);
-
 var DocAttrStep = function (_Step8) {
   _inherits(DocAttrStep, _Step8);
-
   var _super8 = _createSuper(DocAttrStep);
-
   function DocAttrStep(attr, value) {
     var _this10;
-
     _classCallCheck(this, DocAttrStep);
-
     _this10 = _super8.call(this);
     _this10.attr = attr;
     _this10.value = value;
     return _this10;
   }
-
   _createClass(DocAttrStep, [{
     key: "apply",
     value: function apply(doc) {
       var attrs = Object.create(null);
-
-      for (var name in doc.attrs) {
-        attrs[name] = doc.attrs[name];
-      }
-
+      for (var name in doc.attrs) attrs[name] = doc.attrs[name];
       attrs[this.attr] = this.value;
       var updated = doc.type.create(attrs, doc.content, doc.marks);
       return StepResult.ok(updated);
@@ -14450,46 +17386,34 @@ var DocAttrStep = function (_Step8) {
       return new DocAttrStep(json.attr, json.value);
     }
   }]);
-
   return DocAttrStep;
 }(Step);
-
 Step.jsonID("docAttr", DocAttrStep);
-
 exports.TransformError = function (_Error) {
   _inherits(TransformError, _Error);
-
   var _super9 = _createSuper(TransformError);
-
   function TransformError() {
     _classCallCheck(this, TransformError);
-
     return _super9.apply(this, arguments);
   }
-
   return _createClass(TransformError);
 }(_wrapNativeSuper(Error));
-
 exports.TransformError = function TransformError(message) {
   var err = Error.call(this, message);
   err.__proto__ = TransformError.prototype;
   return err;
 };
-
 exports.TransformError.prototype = Object.create(Error.prototype);
 exports.TransformError.prototype.constructor = exports.TransformError;
 exports.TransformError.prototype.name = "TransformError";
-
 var Transform = function () {
   function Transform(doc) {
     _classCallCheck(this, Transform);
-
     this.doc = doc;
     this.steps = [];
     this.docs = [];
     this.mapping = new Mapping();
   }
-
   _createClass(Transform, [{
     key: "before",
     get: function get() {
@@ -14550,44 +17474,37 @@ var Transform = function () {
     key: "replaceRange",
     value: function replaceRange(from, to, slice) {
       _replaceRange(this, from, to, slice);
-
       return this;
     }
   }, {
     key: "replaceRangeWith",
     value: function replaceRangeWith(from, to, node) {
       _replaceRangeWith(this, from, to, node);
-
       return this;
     }
   }, {
     key: "deleteRange",
     value: function deleteRange(from, to) {
       _deleteRange(this, from, to);
-
       return this;
     }
   }, {
     key: "lift",
     value: function lift(range, target) {
       _lift(this, range, target);
-
       return this;
     }
   }, {
     key: "join",
     value: function join(pos) {
       var depth = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 1;
-
       _join(this, pos, depth);
-
       return this;
     }
   }, {
     key: "wrap",
     value: function wrap(range, wrappers) {
       _wrap2(this, range, wrappers);
-
       return this;
     }
   }, {
@@ -14596,9 +17513,7 @@ var Transform = function () {
       var to = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : from;
       var type = arguments.length > 2 ? arguments[2] : undefined;
       var attrs = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : null;
-
       _setBlockType(this, from, to, type, attrs);
-
       return this;
     }
   }, {
@@ -14606,9 +17521,7 @@ var Transform = function () {
     value: function setNodeMarkup(pos, type) {
       var attrs = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : null;
       var marks = arguments.length > 3 ? arguments[3] : undefined;
-
       _setNodeMarkup(this, pos, type, attrs, marks);
-
       return this;
     }
   }, {
@@ -14638,7 +17551,6 @@ var Transform = function () {
         mark = mark.isInSet(node.marks);
         if (!mark) return this;
       }
-
       this.step(new RemoveNodeMarkStep(pos, mark));
       return this;
     }
@@ -14647,37 +17559,30 @@ var Transform = function () {
     value: function split(pos) {
       var depth = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 1;
       var typesAfter = arguments.length > 2 ? arguments[2] : undefined;
-
       _split(this, pos, depth, typesAfter);
-
       return this;
     }
   }, {
     key: "addMark",
     value: function addMark(from, to, mark) {
       _addMark(this, from, to, mark);
-
       return this;
     }
   }, {
     key: "removeMark",
     value: function removeMark(from, to, mark) {
       _removeMark(this, from, to, mark);
-
       return this;
     }
   }, {
     key: "clearIncompatible",
     value: function clearIncompatible(pos, parentType, match) {
       _clearIncompatible(this, pos, parentType, match);
-
       return this;
     }
   }]);
-
   return Transform;
 }();
-
 exports.AddMarkStep = AddMarkStep;
 exports.AddNodeMarkStep = AddNodeMarkStep;
 exports.AttrStep = AttrStep;
@@ -14701,9 +17606,13 @@ exports.joinPoint = joinPoint;
 exports.liftTarget = liftTarget;
 exports.replaceStep = replaceStep;
 
-},{"prosemirror-model":41}],45:[function(require,module,exports){
+},{"prosemirror-model":44}],48:[function(require,module,exports){
 'use strict';
 
+function _slicedToArray(arr, i) { return _arrayWithHoles(arr) || _iterableToArrayLimit(arr, i) || _unsupportedIterableToArray(arr, i) || _nonIterableRest(); }
+function _nonIterableRest() { throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
+function _iterableToArrayLimit(r, l) { var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"]; if (null != t) { var e, n, i, u, a = [], f = !0, o = !1; try { if (i = (t = t.call(r)).next, 0 === l) { if (Object(t) !== t) return; f = !1; } else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = !0); } catch (r) { o = !0, n = r; } finally { try { if (!f && null != t["return"] && (u = t["return"](), Object(u) !== u)) return; } finally { if (o) throw n; } } return a; } }
+function _arrayWithHoles(arr) { if (Array.isArray(arr)) return arr; }
 function _createForOfIteratorHelper(o, allowArrayLike) { var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"]; if (!it) { if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") { if (it) o = it; var i = 0; var F = function F() {}; return { s: F, n: function n() { if (i >= o.length) return { done: true }; return { done: false, value: o[i++] }; }, e: function e(_e) { throw _e; }, f: F }; } throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); } var normalCompletion = true, didErr = false, err; return { s: function s() { it = it.call(o); }, n: function n() { var step = it.next(); normalCompletion = step.done; return step; }, e: function e(_e2) { didErr = true; err = _e2; }, f: function f() { try { if (!normalCompletion && it["return"] != null) it["return"](); } finally { if (didErr) throw err; } } }; }
 function _unsupportedIterableToArray(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen); }
 function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i]; return arr2; }
@@ -14742,6 +17651,9 @@ var textRange = function textRange(node, from, to) {
   range.setStart(node, from || 0);
   return range;
 };
+var clearReusedRange = function clearReusedRange() {
+  reusedRange = null;
+};
 var isEquivalentPosition = function isEquivalentPosition(node, off, targetNode, targetOff) {
   return targetNode && (scanFor(node, off, targetNode, targetOff, -1) || scanFor(node, off, targetNode, targetOff, 1));
 };
@@ -14765,6 +17677,36 @@ function scanFor(node, off, targetNode, targetOff, dir) {
 }
 function nodeSize(node) {
   return node.nodeType == 3 ? node.nodeValue.length : node.childNodes.length;
+}
+function textNodeBefore$1(node, offset) {
+  for (;;) {
+    if (node.nodeType == 3 && offset) return node;
+    if (node.nodeType == 1 && offset > 0) {
+      if (node.contentEditable == "false") return null;
+      node = node.childNodes[offset - 1];
+      offset = nodeSize(node);
+    } else if (node.parentNode && !hasBlockDesc(node)) {
+      offset = domIndex(node);
+      node = node.parentNode;
+    } else {
+      return null;
+    }
+  }
+}
+function textNodeAfter$1(node, offset) {
+  for (;;) {
+    if (node.nodeType == 3 && offset < node.nodeValue.length) return node;
+    if (node.nodeType == 1 && offset < node.childNodes.length) {
+      if (node.contentEditable == "false") return null;
+      node = node.childNodes[offset];
+      offset = 0;
+    } else if (node.parentNode && !hasBlockDesc(node)) {
+      offset = domIndex(node) + 1;
+      node = node.parentNode;
+    } else {
+      return null;
+    }
+  }
 }
 function isOnEdge(node, offset, parent) {
   for (var atStart = offset == 0, atEnd = offset == nodeSize(node); atStart || atEnd;) {
@@ -14802,7 +17744,7 @@ function caretFromPoint(doc, x, y) {
       var pos = doc.caretPositionFromPoint(x, y);
       if (pos) return {
         node: pos.offsetNode,
-        offset: pos.offset
+        offset: Math.min(nodeSize(pos.offsetNode), pos.offset)
       };
     } catch (_) {}
   }
@@ -14810,7 +17752,7 @@ function caretFromPoint(doc, x, y) {
     var range = doc.caretRangeFromPoint(x, y);
     if (range) return {
       node: range.startContainer,
-      offset: range.startOffset
+      offset: Math.min(nodeSize(range.startContainer), range.startOffset)
     };
   }
 }
@@ -14835,6 +17777,13 @@ var android = /Android \d/.test(agent);
 var webkit = !!doc && "webkitFontSmoothing" in doc.documentElement.style;
 var webkit_version = webkit ? +(/\bAppleWebKit\/(\d+)/.exec(navigator.userAgent) || [0, 0])[1] : 0;
 function windowRect(doc) {
+  var vp = doc.defaultView && doc.defaultView.visualViewport;
+  if (vp) return {
+    left: 0,
+    right: vp.width,
+    top: 0,
+    bottom: vp.height
+  };
   return {
     left: 0,
     right: doc.documentElement.clientWidth,
@@ -15049,13 +17998,13 @@ function posFromCaret(view, node, offset, coords) {
   var outsideBlock = -1;
   for (var cur = node, sawBlock = false;;) {
     if (cur == view.dom) break;
-    var desc = view.docView.nearestDesc(cur, true);
+    var desc = view.docView.nearestDesc(cur, true),
+      rect = void 0;
     if (!desc) return null;
-    if (desc.dom.nodeType == 1 && (desc.node.isBlock && desc.parent && !sawBlock || !desc.contentDOM)) {
-      var rect = desc.dom.getBoundingClientRect();
-      if (desc.node.isBlock && desc.parent && !sawBlock) {
+    if (desc.dom.nodeType == 1 && (desc.node.isBlock && desc.parent || !desc.contentDOM) && ((rect = desc.dom.getBoundingClientRect()).width || rect.height)) {
+      if (desc.node.isBlock && desc.parent) {
+        if (!sawBlock && rect.left > coords.left || rect.top > coords.top) outsideBlock = desc.posBefore;else if (!sawBlock && rect.right < coords.left || rect.bottom < coords.top) outsideBlock = desc.posAfter;
         sawBlock = true;
-        if (rect.left > coords.left || rect.top > coords.top) outsideBlock = desc.posBefore;else if (rect.right < coords.left || rect.bottom < coords.top) outsideBlock = desc.posAfter;
       }
       if (!desc.contentDOM && outsideBlock < 0 && !desc.node.isText) {
         var before = desc.node.isBlock ? coords.top < (rect.top + rect.bottom) / 2 : coords.left < (rect.left + rect.right) / 2;
@@ -15263,6 +18212,7 @@ function endOfTextblockHorizontal(view, state, dir) {
     atStart = !offset,
     atEnd = offset == $head.parent.content.size;
   var sel = view.domSelection();
+  if (!sel) return $head.pos == $head.start() || $head.pos == $head.end();
   if (!maybeRTL.test($head.parent.textContent) || !sel.modify) return dir == "left" || dir == "backward" ? atStart : atEnd;
   return withFlushedState(view, state, function () {
     var _view$domSelectionRan = view.domSelectionRange(),
@@ -15594,19 +18544,20 @@ var ViewDesc = function () {
     }
   }, {
     key: "setSelection",
-    value: function setSelection(anchor, head, root) {
+    value: function setSelection(anchor, head, view) {
       var force = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : false;
       var from = Math.min(anchor, head),
         to = Math.max(anchor, head);
       for (var i = 0, offset = 0; i < this.children.length; i++) {
         var child = this.children[i],
           end = offset + child.size;
-        if (from > offset && to < end) return child.setSelection(anchor - offset - child.border, head - offset - child.border, root, force);
+        if (from > offset && to < end) return child.setSelection(anchor - offset - child.border, head - offset - child.border, view, force);
         offset = end;
       }
       var anchorDOM = this.domFromPos(anchor, anchor ? -1 : 1);
       var headDOM = head == anchor ? anchorDOM : this.domFromPos(head, head ? -1 : 1);
-      var domSel = root.getSelection();
+      var domSel = view.root.getSelection();
+      var selRange = view.domSelectionRange();
       var brKludge = false;
       if ((gecko || safari) && anchor == head) {
         var _anchorDOM = anchorDOM,
@@ -15632,11 +18583,11 @@ var ViewDesc = function () {
           brKludge = prev && (prev.nodeName == "BR" || prev.contentEditable == "false");
         }
       }
-      if (gecko && domSel.focusNode && domSel.focusNode != headDOM.node && domSel.focusNode.nodeType == 1) {
-        var _after2 = domSel.focusNode.childNodes[domSel.focusOffset];
+      if (gecko && selRange.focusNode && selRange.focusNode != headDOM.node && selRange.focusNode.nodeType == 1) {
+        var _after2 = selRange.focusNode.childNodes[selRange.focusOffset];
         if (_after2 && _after2.contentEditable == "false") force = true;
       }
-      if (!(force || brKludge && safari) && isEquivalentPosition(anchorDOM.node, anchorDOM.offset, domSel.anchorNode, domSel.anchorOffset) && isEquivalentPosition(headDOM.node, headDOM.offset, domSel.focusNode, domSel.focusOffset)) return;
+      if (!(force || brKludge && safari) && isEquivalentPosition(anchorDOM.node, anchorDOM.offset, selRange.anchorNode, selRange.anchorOffset) && isEquivalentPosition(headDOM.node, headDOM.offset, selRange.focusNode, selRange.focusOffset)) return;
       var domSelExtended = false;
       if ((domSel.extend || anchor == head) && !brKludge) {
         domSel.collapse(anchorDOM.node, anchorDOM.offset);
@@ -15706,6 +18657,11 @@ var ViewDesc = function () {
   }, {
     key: "ignoreForCoords",
     get: function get() {
+      return false;
+    }
+  }, {
+    key: "isText",
+    value: function isText(text) {
       return false;
     }
   }]);
@@ -15821,11 +18777,12 @@ var CompositionViewDesc = function (_ViewDesc2) {
 var MarkViewDesc = function (_ViewDesc3) {
   _inherits(MarkViewDesc, _ViewDesc3);
   var _super3 = _createSuper(MarkViewDesc);
-  function MarkViewDesc(parent, mark, dom, contentDOM) {
+  function MarkViewDesc(parent, mark, dom, contentDOM, spec) {
     var _this3;
     _classCallCheck(this, MarkViewDesc);
     _this3 = _super3.call(this, parent, [], dom, contentDOM);
     _this3.mark = mark;
+    _this3.spec = spec;
     return _this3;
   }
   _createClass(MarkViewDesc, [{
@@ -15866,13 +18823,24 @@ var MarkViewDesc = function (_ViewDesc3) {
       copy.children = nodes;
       return copy;
     }
+  }, {
+    key: "ignoreMutation",
+    value: function ignoreMutation(mutation) {
+      return this.spec.ignoreMutation ? this.spec.ignoreMutation(mutation) : _get(_getPrototypeOf(MarkViewDesc.prototype), "ignoreMutation", this).call(this, mutation);
+    }
+  }, {
+    key: "destroy",
+    value: function destroy() {
+      if (this.spec.destroy) this.spec.destroy();
+      _get(_getPrototypeOf(MarkViewDesc.prototype), "destroy", this).call(this);
+    }
   }], [{
     key: "create",
     value: function create(parent, mark, inline, view) {
       var custom = view.nodeViews[mark.type.name];
       var spec = custom && custom(mark, view, inline);
-      if (!spec || !spec.dom) spec = prosemirrorModel.DOMSerializer.renderSpec(document, mark.type.spec.toDOM(mark, inline));
-      return new MarkViewDesc(parent, mark, spec.dom, spec.contentDOM || spec.dom);
+      if (!spec || !spec.dom) spec = prosemirrorModel.DOMSerializer.renderSpec(document, mark.type.spec.toDOM(mark, inline), null, mark.attrs);
+      return new MarkViewDesc(parent, mark, spec.dom, spec.contentDOM || spec.dom, spec);
     }
   }]);
   return MarkViewDesc;
@@ -15972,8 +18940,7 @@ var NodeViewDesc = function (_ViewDesc4) {
         from = _view$state$selection.from,
         to = _view$state$selection.to;
       if (!(view.state.selection instanceof prosemirrorState.TextSelection) || from < pos || to > pos + this.node.content.size) return null;
-      var sel = view.domSelectionRange();
-      var textNode = nearbyTextNode(sel.focusNode, sel.focusOffset);
+      var textNode = view.input.compositionNode;
       if (!textNode || !this.dom.contains(textNode.parentNode)) return null;
       if (this.node.inlineContent) {
         var text = textNode.nodeValue;
@@ -16047,8 +19014,10 @@ var NodeViewDesc = function (_ViewDesc4) {
   }, {
     key: "deselectNode",
     value: function deselectNode() {
-      if (this.nodeDOM.nodeType == 1) this.nodeDOM.classList.remove("ProseMirror-selectednode");
-      if (this.contentDOM || !this.node.type.spec.draggable) this.dom.removeAttribute("draggable");
+      if (this.nodeDOM.nodeType == 1) {
+        this.nodeDOM.classList.remove("ProseMirror-selectednode");
+        if (this.contentDOM || !this.node.type.spec.draggable) this.dom.removeAttribute("draggable");
+      }
     }
   }, {
     key: "domAtom",
@@ -16069,9 +19038,9 @@ var NodeViewDesc = function (_ViewDesc4) {
       if (node.isText) {
         if (!dom) dom = document.createTextNode(node.text);else if (dom.nodeType != 3) throw new RangeError("Text must be rendered as a DOM text node");
       } else if (!dom) {
-        var _prosemirrorModel$DOM = prosemirrorModel.DOMSerializer.renderSpec(document, node.type.spec.toDOM(node));
-        dom = _prosemirrorModel$DOM.dom;
-        contentDOM = _prosemirrorModel$DOM.contentDOM;
+        var _spec = prosemirrorModel.DOMSerializer.renderSpec(document, node.type.spec.toDOM(node), null, node.attrs);
+        dom = _spec.dom;
+        contentDOM = _spec.contentDOM;
       }
       if (!contentDOM && !node.isText && dom.nodeName != "BR") {
         if (!dom.hasAttribute("contenteditable")) dom.contentEditable = "false";
@@ -16163,6 +19132,11 @@ var TextViewDesc = function (_NodeViewDesc) {
     get: function get() {
       return false;
     }
+  }, {
+    key: "isText",
+    value: function isText(text) {
+      return this.node.text == text;
+    }
   }]);
   return TextViewDesc;
 }(NodeViewDesc);
@@ -16212,7 +19186,7 @@ var CustomNodeViewDesc = function (_NodeViewDesc2) {
     key: "update",
     value: function update(node, outerDeco, innerDeco, view) {
       if (this.dirty == NODE_DIRTY) return false;
-      if (this.spec.update) {
+      if (this.spec.update && (this.node.type == node.type || this.spec.multiType)) {
         var result = this.spec.update(node, outerDeco, innerDeco);
         if (result) this.updateInner(node, outerDeco, innerDeco, view);
         return result;
@@ -16234,8 +19208,8 @@ var CustomNodeViewDesc = function (_NodeViewDesc2) {
     }
   }, {
     key: "setSelection",
-    value: function setSelection(anchor, head, root, force) {
-      this.spec.setSelection ? this.spec.setSelection(anchor, head, root) : _get(_getPrototypeOf(CustomNodeViewDesc.prototype), "setSelection", this).call(this, anchor, head, root, force);
+    value: function setSelection(anchor, head, view, force) {
+      this.spec.setSelection ? this.spec.setSelection(anchor, head, view.root) : _get(_getPrototypeOf(CustomNodeViewDesc.prototype), "setSelection", this).call(this, anchor, head, view, force);
     }
   }, {
     key: "destroy",
@@ -16488,6 +19462,7 @@ var ViewTreeUpdater = function () {
             this.index++;
             return true;
           } else if (!locked && (updated = this.recreateWrapper(next, node, outerDeco, innerDeco, view, pos))) {
+            this.destroyBetween(this.index, i);
             this.top.children[this.index] = updated;
             if (updated.contentDOM) {
               updated.dirty = CONTENT_DIRTY;
@@ -16506,7 +19481,7 @@ var ViewTreeUpdater = function () {
   }, {
     key: "recreateWrapper",
     value: function recreateWrapper(next, node, outerDeco, innerDeco, view, pos) {
-      if (next.dirty || node.isAtom || !next.children.length || !next.node.content.eq(node.content)) return null;
+      if (next.dirty || node.isAtom || !next.children.length || !next.node.content.eq(node.content) || !sameOuterDeco(outerDeco, next.outerDeco) || !innerDeco.eq(next.innerDeco)) return null;
       var wrapper = NodeViewDesc.create(this.top, node, outerDeco, innerDeco, view, pos);
       if (wrapper.contentDOM) {
         wrapper.children = next.children;
@@ -16702,21 +19677,6 @@ function iosHacks(dom) {
     dom.style.cssText = oldCSS;
   }
 }
-function nearbyTextNode(node, offset) {
-  for (;;) {
-    if (node.nodeType == 3) return node;
-    if (node.nodeType == 1 && offset > 0) {
-      if (node.childNodes.length > offset && node.childNodes[offset].nodeType == 3) return node.childNodes[offset];
-      node = node.childNodes[offset - 1];
-      offset = nodeSize(node);
-    } else if (node.nodeType == 1 && offset < node.childNodes.length) {
-      node = node.childNodes[offset];
-      offset = 0;
-    } else {
-      return null;
-    }
-  }
-}
 function findTextInFragment(frag, text, from, to) {
   for (var i = 0, pos = 0; i < frag.childCount && pos <= to;) {
     var child = frag.child(i++),
@@ -16768,10 +19728,10 @@ function selectionFromDOM(view) {
   var head = view.docView.posFromDOM(domSel.focusNode, domSel.focusOffset, 1);
   if (head < 0) return null;
   var $head = doc.resolve(head),
-    $anchor,
+    anchor,
     selection;
   if (selectionCollapsed(domSel)) {
-    $anchor = $head;
+    anchor = head;
     while (nearestDesc && !nearestDesc.node) nearestDesc = nearestDesc.parent;
     var nearestDescNode = nearestDesc.node;
     if (nearestDesc && nearestDescNode.isAtom && prosemirrorState.NodeSelection.isSelectable(nearestDescNode) && nearestDesc.parent && !(nearestDescNode.isInline && isOnEdge(domSel.focusNode, domSel.focusOffset, nearestDesc.dom))) {
@@ -16779,10 +19739,26 @@ function selectionFromDOM(view) {
       selection = new prosemirrorState.NodeSelection(head == pos ? $head : doc.resolve(pos));
     }
   } else {
-    var anchor = view.docView.posFromDOM(domSel.anchorNode, domSel.anchorOffset, 1);
+    if (domSel instanceof view.dom.ownerDocument.defaultView.Selection && domSel.rangeCount > 1) {
+      var min = head,
+        max = head;
+      for (var i = 0; i < domSel.rangeCount; i++) {
+        var range = domSel.getRangeAt(i);
+        min = Math.min(min, view.docView.posFromDOM(range.startContainer, range.startOffset, 1));
+        max = Math.max(max, view.docView.posFromDOM(range.endContainer, range.endOffset, -1));
+      }
+      if (min < 0) return null;
+      var _ref3 = max == view.state.selection.anchor ? [max, min] : [min, max];
+      var _ref4 = _slicedToArray(_ref3, 2);
+      anchor = _ref4[0];
+      head = _ref4[1];
+      $head = doc.resolve(head);
+    } else {
+      anchor = view.docView.posFromDOM(domSel.anchorNode, domSel.anchorOffset, 1);
+    }
     if (anchor < 0) return null;
-    $anchor = doc.resolve(anchor);
   }
+  var $anchor = doc.resolve(anchor);
   if (!selection) {
     var bias = origin == "pointer" || view.state.selection.head < $head.pos && !inWidget ? 1 : -1;
     selection = selectionBetween(view, $anchor, $head, bias);
@@ -16818,7 +19794,7 @@ function selectionToDOM(view) {
       if (!sel.$from.parent.inlineContent) resetEditableFrom = temporarilyEditableNear(view, sel.from);
       if (!sel.empty && !sel.$from.parent.inlineContent) resetEditableTo = temporarilyEditableNear(view, sel.to);
     }
-    view.docView.setSelection(anchor, head, view.root, force);
+    view.docView.setSelection(anchor, head, view, force);
     if (brokenSelectBetweenUneditable) {
       if (resetEditableFrom) resetEditable(resetEditableFrom);
       if (resetEditableTo) resetEditable(resetEditableTo);
@@ -16878,10 +19854,11 @@ function removeClassOnSelectionChange(view) {
 function selectCursorWrapper(view) {
   var domSel = view.domSelection(),
     range = document.createRange();
+  if (!domSel) return;
   var node = view.cursorWrapper.dom,
     img = node.nodeName == "IMG";
-  if (img) range.setEnd(node.parentNode, domIndex(node) + 1);else range.setEnd(node, 0);
-  range.collapse(false);
+  if (img) range.setStart(node.parentNode, domIndex(node) + 1);else range.setStart(node, 0);
+  range.collapse(true);
   domSel.removeAllRanges();
   domSel.addRange(range);
   if (!img && !view.state.selection.visible && ie && ie_version <= 11) {
@@ -17113,6 +20090,7 @@ function setSelFocus(view, node, offset) {
     }
   }
   var sel = view.domSelection();
+  if (!sel) return;
   if (selectionCollapsed(sel)) {
     var range = document.createRange();
     range.setEnd(node, offset);
@@ -17272,7 +20250,8 @@ function serializeForClipboard(view, slice) {
   }) || slice.content.textBetween(0, slice.content.size, "\n\n");
   return {
     dom: wrap,
-    text: text
+    text: text,
+    slice: slice
   };
 }
 function parseFromClipboard(view, text, html, plainText, $context) {
@@ -17426,6 +20405,17 @@ var _detachedDoc = null;
 function detachedDoc() {
   return _detachedDoc || (_detachedDoc = document.implementation.createHTMLDocument("title"));
 }
+var _policy = null;
+function maybeWrapTrusted(html) {
+  var trustedTypes = window.trustedTypes;
+  if (!trustedTypes) return html;
+  if (!_policy) _policy = trustedTypes.createPolicy("ProseMirrorClipboard", {
+    createHTML: function createHTML(s) {
+      return s;
+    }
+  });
+  return _policy.createHTML(html);
+}
 function readHTML(html) {
   var metas = /^(\s*<meta [^>]*>)*/.exec(html);
   if (metas) html = html.slice(metas[0].length);
@@ -17437,7 +20427,7 @@ function readHTML(html) {
   }).join("") + html + wrap.map(function (n) {
     return "</" + n + ">";
   }).reverse().join("");
-  elt.innerHTML = html;
+  elt.innerHTML = maybeWrapTrusted(html);
   if (wrap) for (var i = 0; i < wrap.length; i++) elt = elt.querySelector(wrap[i]) || elt;
   return elt;
 }
@@ -17493,8 +20483,9 @@ var InputState = _createClass(function InputState() {
   this.lastIOSEnterFallbackTimeout = -1;
   this.lastFocus = 0;
   this.lastTouch = 0;
-  this.lastAndroidDelete = 0;
+  this.lastChromeDelete = 0;
   this.composing = false;
+  this.compositionNode = null;
   this.composingTimeout = -1;
   this.compositionNodes = [];
   this.compositionEndedAt = -2e8;
@@ -17631,6 +20622,7 @@ function runHandlerOnContext(view, propName, pos, inside, event) {
 }
 function updateSelection(view, selection, origin) {
   if (!view.focused) view.focus();
+  if (view.state.selection.eq(selection)) return;
   var tr = view.state.tr.setSelection(selection);
   if (origin == "pointer") tr.setMeta("pointer", true);
   view.dispatch(tr);
@@ -17753,7 +20745,7 @@ var MouseDown = function () {
     }
     var target = flushed ? null : event.target;
     var targetDesc = target ? view.docView.nearestDesc(target, true) : null;
-    this.target = targetDesc ? targetDesc.dom : null;
+    this.target = targetDesc && targetDesc.dom.nodeType == 1 ? targetDesc.dom : null;
     var selection = view.state.selection;
     if (event.button == 0 && targetNode.type.spec.draggable && targetNode.type.spec.selectable !== false || selection instanceof prosemirrorState.NodeSelection && selection.from <= targetPos && selection.to > targetPos) this.mightDrag = {
       node: targetNode,
@@ -17849,22 +20841,23 @@ editHandlers.compositionstart = editHandlers.compositionupdate = function (view)
   if (!view.composing) {
     view.domObserver.flush();
     var state = view.state,
-      $pos = state.selection.$from;
-    if (state.selection.empty && (state.storedMarks || !$pos.textOffset && $pos.parentOffset && $pos.nodeBefore.marks.some(function (m) {
+      $pos = state.selection.$to;
+    if (state.selection instanceof prosemirrorState.TextSelection && (state.storedMarks || !$pos.textOffset && $pos.parentOffset && $pos.nodeBefore.marks.some(function (m) {
       return m.type.spec.inclusive === false;
     }))) {
       view.markCursor = view.state.storedMarks || $pos.marks();
       endComposition(view, true);
       view.markCursor = null;
     } else {
-      endComposition(view);
+      endComposition(view, !state.selection.empty);
       if (gecko && state.selection.empty && $pos.parentOffset && !$pos.textOffset && $pos.nodeBefore.marks.length) {
         var sel = view.domSelectionRange();
         for (var node = sel.focusNode, offset = sel.focusOffset; node && node.nodeType == 1 && offset != 0;) {
           var before = offset < 0 ? node.lastChild : node.childNodes[offset - 1];
           if (!before) break;
           if (before.nodeType == 3) {
-            view.domSelection().collapse(before, before.nodeValue.length);
+            var _sel = view.domSelection();
+            if (_sel) _sel.collapse(before, before.nodeValue.length);
             break;
           } else {
             node = before;
@@ -17882,6 +20875,7 @@ editHandlers.compositionend = function (view, event) {
     view.input.composing = false;
     view.input.compositionEndedAt = event.timeStamp;
     view.input.compositionPendingChanges = view.domObserver.pendingRecords().length ? view.input.compositionID : 0;
+    view.input.compositionNode = null;
     if (view.input.compositionPendingChanges) Promise.resolve().then(function () {
       return view.domObserver.flush();
     });
@@ -17902,19 +20896,37 @@ function clearComposition(view) {
   }
   while (view.input.compositionNodes.length > 0) view.input.compositionNodes.pop().markParentsDirty();
 }
+function findCompositionNode(view) {
+  var sel = view.domSelectionRange();
+  if (!sel.focusNode) return null;
+  var textBefore = textNodeBefore$1(sel.focusNode, sel.focusOffset);
+  var textAfter = textNodeAfter$1(sel.focusNode, sel.focusOffset);
+  if (textBefore && textAfter && textBefore != textAfter) {
+    var descAfter = textAfter.pmViewDesc,
+      lastChanged = view.domObserver.lastChangedTextNode;
+    if (textBefore == lastChanged || textAfter == lastChanged) return lastChanged;
+    if (!descAfter || !descAfter.isText(textAfter.nodeValue)) {
+      return textAfter;
+    } else if (view.input.compositionNode == textAfter) {
+      var descBefore = textBefore.pmViewDesc;
+      if (!(!descBefore || !descBefore.isText(textBefore.nodeValue))) return textAfter;
+    }
+  }
+  return textBefore || textAfter;
+}
 function timestampFromCustomEvent() {
   var event = document.createEvent("Event");
   event.initEvent("event", true, true);
   return event.timeStamp;
 }
 function endComposition(view) {
-  var forceUpdate = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
+  var restarting = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
   if (android && view.domObserver.flushingSoon >= 0) return;
   view.domObserver.forceFlush();
   clearComposition(view);
-  if (forceUpdate || view.docView && view.docView.dirty) {
+  if (restarting || view.docView && view.docView.dirty) {
     var sel = selectionFromDOM(view);
-    if (sel && !sel.eq(view.state.selection)) view.dispatch(view.state.tr.setSelection(sel));else view.updateState(view.state);
+    if (sel && !sel.eq(view.state.selection)) view.dispatch(view.state.tr.setSelection(sel));else if ((view.markCursor || restarting) && !view.state.selection.empty) view.dispatch(view.state.tr.deleteSelection());else view.updateState(view.state);
     return true;
   }
   return false;
@@ -18018,11 +21030,12 @@ handlers.dragstart = function (view, _event) {
     var desc = view.docView.nearestDesc(event.target, true);
     if (desc && desc.node.type.spec.draggable && desc != view.docView) node = prosemirrorState.NodeSelection.create(view.state.doc, desc.posBefore);
   }
-  var slice = (node || view.state.selection).content(),
-    _serializeForClipboar2 = serializeForClipboard(view, slice),
+  var draggedSlice = (node || view.state.selection).content();
+  var _serializeForClipboar2 = serializeForClipboard(view, draggedSlice),
     dom = _serializeForClipboar2.dom,
-    text = _serializeForClipboar2.text;
-  event.dataTransfer.clearData();
+    text = _serializeForClipboar2.text,
+    slice = _serializeForClipboar2.slice;
+  if (!event.dataTransfer.files.length || !chrome || chrome_version > 120) event.dataTransfer.clearData();
   event.dataTransfer.setData(brokenClipboardAPI ? "Text" : "text/html", dom.innerHTML);
   event.dataTransfer.effectAllowed = "copyMove";
   if (!brokenClipboardAPI) event.dataTransfer.setData("text/plain", text);
@@ -18453,6 +21466,11 @@ var DecorationSet = function () {
       }
       return result;
     }
+  }, {
+    key: "forEachSet",
+    value: function forEachSet(f) {
+      f(this);
+    }
   }], [{
     key: "create",
     value: function create(doc, decorations) {
@@ -18515,6 +21533,11 @@ var DecorationGroup = function () {
         }
       }
       return result ? removeOverlap(sorted ? result : result.sort(byPos)) : none;
+    }
+  }, {
+    key: "forEachSet",
+    value: function forEachSet(f) {
+      for (var i = 0; i < this.members.length; i++) this.members[i].forEachSet(f);
     }
   }], [{
     key: "from",
@@ -18755,6 +21778,7 @@ var DOMObserver = function () {
     this.currentSelection = new SelectionState();
     this.onCharData = null;
     this.suppressingSelectionUpdates = false;
+    this.lastChangedTextNode = null;
     this.observer = window.MutationObserver && new window.MutationObserver(function (mutations) {
       for (var i = 0; i < mutations.length; i++) _this11.queue.push(mutations[i]);
       if (ie && ie_version <= 11 && mutations.some(function (m) {
@@ -18915,14 +21939,30 @@ var DOMObserver = function () {
           }
         }
       }
-      if (gecko && added.length > 1) {
+      if (gecko && added.length) {
         var brs = added.filter(function (n) {
           return n.nodeName == "BR";
         });
         if (brs.length == 2) {
-          var a = brs[0],
-            b = brs[1];
+          var _brs = _slicedToArray(brs, 2),
+            a = _brs[0],
+            b = _brs[1];
           if (a.parentNode && a.parentNode.parentNode == b.parentNode) b.remove();else a.remove();
+        } else {
+          var focusNode = this.currentSelection.focusNode;
+          var _iterator3 = _createForOfIteratorHelper(brs),
+            _step3;
+          try {
+            for (_iterator3.s(); !(_step3 = _iterator3.n()).done;) {
+              var br = _step3.value;
+              var parent = br.parentNode;
+              if (parent && parent.nodeName == "LI" && (!focusNode || blockParent(view, focusNode) != parent)) br.remove();
+            }
+          } catch (err) {
+            _iterator3.e(err);
+          } finally {
+            _iterator3.f();
+          }
         }
       }
       var readSel = null;
@@ -18949,7 +21989,11 @@ var DOMObserver = function () {
       if (mut.type == "attributes" && (desc == this.view.docView || mut.attributeName == "contenteditable" || mut.attributeName == "style" && !mut.oldValue && !mut.target.getAttribute("style"))) return null;
       if (!desc || desc.ignoreMutation(mut)) return null;
       if (mut.type == "childList") {
-        for (var i = 0; i < mut.addedNodes.length; i++) added.push(mut.addedNodes[i]);
+        for (var i = 0; i < mut.addedNodes.length; i++) {
+          var node = mut.addedNodes[i];
+          added.push(node);
+          if (node.nodeType == 3) this.lastChangedTextNode = node;
+        }
         if (desc.contentDOM && desc.contentDOM != desc.dom && !desc.contentDOM.contains(mut.target)) return {
           from: desc.posBefore,
           to: desc.posAfter
@@ -18979,6 +22023,7 @@ var DOMObserver = function () {
           to: desc.posAtEnd + desc.border
         };
       } else {
+        this.lastChangedTextNode = mut.target;
         return {
           from: desc.posAtStart,
           to: desc.posAtEnd,
@@ -19001,7 +22046,31 @@ function checkCSS(view) {
     cssCheckWarned = true;
   }
 }
-function safariShadowSelectionRange(view) {
+function rangeToSelectionRange(view, range) {
+  var anchorNode = range.startContainer,
+    anchorOffset = range.startOffset;
+  var focusNode = range.endContainer,
+    focusOffset = range.endOffset;
+  var currentAnchor = view.domAtPos(view.state.selection.anchor);
+  if (isEquivalentPosition(currentAnchor.node, currentAnchor.offset, focusNode, focusOffset)) {
+    var _ref5 = [focusNode, focusOffset, anchorNode, anchorOffset];
+    anchorNode = _ref5[0];
+    anchorOffset = _ref5[1];
+    focusNode = _ref5[2];
+    focusOffset = _ref5[3];
+  }
+  return {
+    anchorNode: anchorNode,
+    anchorOffset: anchorOffset,
+    focusNode: focusNode,
+    focusOffset: focusOffset
+  };
+}
+function safariShadowSelectionRange(view, selection) {
+  if (selection.getComposedRanges) {
+    var range = selection.getComposedRanges(view.root)[0];
+    if (range) return rangeToSelectionRange(view, range);
+  }
   var found;
   function read(event) {
     event.preventDefault();
@@ -19011,24 +22080,14 @@ function safariShadowSelectionRange(view) {
   view.dom.addEventListener("beforeinput", read, true);
   document.execCommand("indent");
   view.dom.removeEventListener("beforeinput", read, true);
-  var anchorNode = found.startContainer,
-    anchorOffset = found.startOffset;
-  var focusNode = found.endContainer,
-    focusOffset = found.endOffset;
-  var currentAnchor = view.domAtPos(view.state.selection.anchor);
-  if (isEquivalentPosition(currentAnchor.node, currentAnchor.offset, focusNode, focusOffset)) {
-    var _ref3 = [focusNode, focusOffset, anchorNode, anchorOffset];
-    anchorNode = _ref3[0];
-    anchorOffset = _ref3[1];
-    focusNode = _ref3[2];
-    focusOffset = _ref3[3];
+  return found ? rangeToSelectionRange(view, found) : null;
+}
+function blockParent(view, node) {
+  for (var p = node.parentNode; p && p != view.dom; p = p.parentNode) {
+    var desc = view.docView.nearestDesc(p, true);
+    if (desc && desc.node.isBlock) return p;
   }
-  return {
-    anchorNode: anchorNode,
-    anchorOffset: anchorOffset,
-    focusNode: focusNode,
-    focusOffset: focusOffset
-  };
+  return null;
 }
 function parseBetween(view, from_, to_) {
   var _view$docView$parseRa = view.docView.parseRange(from_, to_),
@@ -19151,6 +22210,7 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
   }
   view.input.lastKeyCode = null;
   var change = findDiff(compare.content, parse.doc.content, parse.from, preferredPos, preferredSide);
+  if (change) view.input.domChangeCount++;
   if ((ios && view.input.lastIOSEnter > Date.now() - 225 || android) && addedNodes.some(function (n) {
     return n.nodeType == 1 && !isInline.test(n.nodeName);
   }) && (!change || change.endA >= change.endB) && view.someProp("handleKeyDown", function (f) {
@@ -19168,9 +22228,9 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
       };
     } else {
       if (parse.sel) {
-        var _sel = resolveSelection(view, view.state.doc, parse.sel);
-        if (_sel && !_sel.eq(view.state.selection)) {
-          var _tr2 = view.state.tr.setSelection(_sel);
+        var _sel2 = resolveSelection(view, view.state.doc, parse.sel);
+        if (_sel2 && !_sel2.eq(view.state.selection)) {
+          var _tr2 = view.state.tr.setSelection(_sel2);
           if (compositionID) _tr2.setMeta("composition", compositionID);
           view.dispatch(_tr2);
         }
@@ -19178,14 +22238,6 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
       return;
     }
   }
-  if (chrome && view.cursorWrapper && parse.sel && parse.sel.anchor == view.cursorWrapper.deco.from && parse.sel.head == parse.sel.anchor) {
-    var size = change.endB - change.start;
-    parse.sel = {
-      anchor: parse.sel.anchor + size,
-      head: parse.sel.anchor + size
-    };
-  }
-  view.input.domChangeCount++;
   if (view.state.selection.from < view.state.selection.to && change.start == change.endB && view.state.selection instanceof prosemirrorState.TextSelection) {
     if (change.start > view.state.selection.from && change.start <= view.state.selection.from + 2 && view.state.selection.from >= parse.from) {
       change.start = view.state.selection.from;
@@ -19212,13 +22264,13 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
     view.input.lastIOSEnter = 0;
     return;
   }
-  if (view.state.selection.anchor > change.start && looksLikeJoin(doc, change.start, change.endA, $from, $to) && view.someProp("handleKeyDown", function (f) {
+  if (view.state.selection.anchor > change.start && looksLikeBackspace(doc, change.start, change.endA, $from, $to) && view.someProp("handleKeyDown", function (f) {
     return f(view, keyEvent(8, "Backspace"));
   })) {
     if (android && chrome) view.domObserver.suppressSelectionUpdates();
     return;
   }
-  if (chrome && android && change.endB == change.start) view.input.lastAndroidDelete = Date.now();
+  if (chrome && change.endB == change.start) view.input.lastChromeDelete = Date.now();
   if (android && !inlineChange && $from.start() != $to.start() && $to.parentOffset == 0 && $from.depth == $to.depth && parse.sel && parse.sel.anchor == parse.sel.head && parse.sel.head == change.endA) {
     change.endB -= 2;
     $to = parse.doc.resolveNoCache(change.endB - parse.from);
@@ -19254,8 +22306,8 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
   }
   if (!tr) tr = view.state.tr.replace(chFrom, chTo, parse.doc.slice(change.start - parse.from, change.endB - parse.from));
   if (parse.sel) {
-    var _sel2 = resolveSelection(view, tr.doc, parse.sel);
-    if (_sel2 && !(chrome && android && view.composing && _sel2.empty && (change.start != change.endB || view.input.lastAndroidDelete < Date.now() - 100) && (_sel2.head == chFrom || _sel2.head == tr.mapping.map(chTo) - 1) || ie && _sel2.empty && _sel2.head == chFrom)) tr.setSelection(_sel2);
+    var _sel3 = resolveSelection(view, tr.doc, parse.sel);
+    if (_sel3 && !(chrome && view.composing && _sel3.empty && (change.start != change.endB || view.input.lastChromeDelete < Date.now() - 100) && (_sel3.head == chFrom || _sel3.head == tr.mapping.map(chTo) - 1) || ie && _sel3.empty && _sel3.head == chFrom)) tr.setSelection(_sel3);
   }
   if (storedMarks) tr.ensureMarks(storedMarks);
   if (compositionID) tr.setMeta("composition", compositionID);
@@ -19297,9 +22349,13 @@ function isMarkChange(cur, prev) {
     type: type
   };
 }
-function looksLikeJoin(old, start, end, $newStart, $newEnd) {
-  if (!$newStart.parent.isTextblock || end - start <= $newEnd.pos - $newStart.pos || skipClosingAndOpening($newStart, true, false) < $newEnd.pos) return false;
+function looksLikeBackspace(old, start, end, $newStart, $newEnd) {
+  if (end - start <= $newEnd.pos - $newStart.pos || skipClosingAndOpening($newStart, true, false) < $newEnd.pos) return false;
   var $start = old.resolve(start);
+  if (!$newStart.parent.isTextblock) {
+    var after = $start.nodeAfter;
+    return after != null && end == start + after.nodeSize;
+  }
   if ($start.parentOffset < $start.parent.content.size || !$start.parent.isTextblock) return false;
   var $next = old.resolve(skipClosingAndOpening($start, true, true));
   if (!$next.parent.isTextblock || $next.pos > end || skipClosingAndOpening($next, true, false) < end) return false;
@@ -19474,8 +22530,9 @@ var EditorView = function () {
         var forceSelUpdate = updateDoc && (ie || chrome) && !this.composing && !prev.selection.empty && !state.selection.empty && selectionContextChanged(prev.selection, state.selection);
         if (updateDoc) {
           var chromeKludge = chrome ? this.trackWrites = this.domSelectionRange().focusNode : null;
+          if (this.composing) this.input.compositionNode = findCompositionNode(this);
           if (redraw || !this.docView.update(state.doc, outerDeco, innerDeco, this)) {
-            this.docView.updateOuterDeco([]);
+            this.docView.updateOuterDeco(outerDeco);
             this.docView.destroy();
             this.docView = docViewDesc(state.doc, outerDeco, innerDeco, this.dom, this);
           }
@@ -19682,6 +22739,7 @@ var EditorView = function () {
       }
       this.docView.destroy();
       this.docView = null;
+      clearReusedRange();
     }
   }, {
     key: "isDestroyed",
@@ -19702,7 +22760,14 @@ var EditorView = function () {
   }, {
     key: "domSelectionRange",
     value: function domSelectionRange() {
-      return safari && this.root.nodeType === 11 && deepActiveElement(this.dom.ownerDocument) == this.dom ? safariShadowSelectionRange(this) : this.domSelection();
+      var sel = this.domSelection();
+      if (!sel) return {
+        focusNode: null,
+        focusOffset: 0,
+        anchorNode: null,
+        anchorOffset: 0
+      };
+      return safari && this.root.nodeType === 11 && deepActiveElement(this.dom.ownerDocument) == this.dom && safariShadowSelectionRange(this, sel) || sel;
     }
   }, {
     key: "domSelection",
@@ -19733,7 +22798,7 @@ function updateCursorWrapper(view) {
     dom.setAttribute("alt", "");
     view.cursorWrapper = {
       dom: dom,
-      deco: Decoration.widget(view.state.selection.head, dom, {
+      deco: Decoration.widget(view.state.selection.from, dom, {
         raw: true,
         marks: view.markCursor
       })
@@ -19780,7 +22845,7 @@ exports.__endComposition = __endComposition;
 exports.__parseFromClipboard = __parseFromClipboard;
 exports.__serializeForClipboard = __serializeForClipboard;
 
-},{"prosemirror-model":41,"prosemirror-state":43,"prosemirror-transform":44}],46:[function(require,module,exports){
+},{"prosemirror-model":44,"prosemirror-state":46,"prosemirror-transform":47}],49:[function(require,module,exports){
 'use strict';
 
 var GOOD_LEAF_SIZE = 200;
@@ -19991,7 +23056,7 @@ var Append = /*@__PURE__*/(function (RopeSequence) {
 
 module.exports = RopeSequence;
 
-},{}],47:[function(require,module,exports){
+},{}],50:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });

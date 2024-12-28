@@ -1,38 +1,64 @@
-use leptos::*;
-use leptos_meta::{provide_meta_context, Meta, Script, Stylesheet, Title};
-use leptos_router::*;
-use leptos_tiptap::{TiptapContent, TiptapInstance, TiptapInstanceMsg, TiptapSelectionState};
+use leptos::prelude::*;
+use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
+use leptos_router::{
+    components::{Route, Router, Routes},
+    StaticSegment,
+};
+use leptos_tiptap::{
+    TiptapContent, TiptapInstance, TiptapInstanceMsg, TiptapLinkResource, TiptapSelectionState,
+    TiptapYoutubeVideoResource,
+};
+
+pub fn shell(options: LeptosOptions) -> impl IntoView {
+    view! {
+        <!DOCTYPE html>
+        <html lang="en">
+            <head>
+                <meta charset="utf-8"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <script type_="module" src="/js/tiptap-bundle.min.js"/>
+                <script type_="module" src="/js/tiptap.js"/>
+                <AutoReload options=options.clone() />
+                <HydrationScripts options/>
+                <MetaTags/>
+            </head>
+            <body>
+                <App/>
+            </body>
+        </html>
+    }
+}
 
 #[component]
 pub fn App() -> impl IntoView {
+    // Provides context that manages stylesheets, titles, meta tags, etc.
     provide_meta_context();
 
     view! {
-        <Meta name="charset" content="UTF-8"/>
-        <Meta name="description" content="Demo SSR"/>
-        <Meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-
+        // injects a stylesheet into the document <head>
+        // id=leptos means cargo-leptos will hot-reload this stylesheet
         <Stylesheet id="leptos" href="/pkg/demo-ssr.css"/>
 
-        <Script type_="module" src="/js/tiptap-bundle.min.js"/>
-        <Script type_="module" src="/js/tiptap.js"/>
-        
-        <Title text="Demo SSR"/>
+        // sets the document title
+        <Title text="Tiptap demo ssr"/>
 
+        // content for this welcome page
         <Router>
-            <Routes>
-                <Route path="" view=|| view! { <Demo/> }/>
-            </Routes>
+            <main>
+                <Routes fallback=|| "Page not found.".into_view()>
+                    <Route path=StaticSegment("") view=Demo/>
+                </Routes>
+            </main>
         </Router>
     }
 }
 
 #[component]
 pub fn Demo() -> impl IntoView {
-    let (msg, set_msg) = create_signal(TiptapInstanceMsg::Noop);
-    let (value, set_value) = create_signal(r#"<h1>This is a simple <em><s>paragraph</s></em> ... <strong>H1</strong>!</h1><p style="text-align: center"><strong>Lorem ipsum dolor sit amet, consetetur sadipscing elitr, <mark>sed diam nonumy</mark> eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua.</strong></p><p style="text-align: justify">Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.</p>"#.to_owned());
-    let (selection, set_selection) = create_signal(TiptapSelectionState::default());
-    let (disabled, set_disabled) = create_signal(false);
+    let (msg, set_msg) = signal(TiptapInstanceMsg::Noop);
+    let (value, set_value) = signal(r#"<h1>This is a simple <em><s>paragraph</s></em> ... <strong>H1</strong>!</h1><p style="text-align: center"><strong>Lorem ipsum dolor sit amet, consetetur sadipscing elitr, <mark>sed diam nonumy</mark> eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua.</strong></p><p style="text-align: justify">Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.</p>"#.to_owned());
+    let (selection, set_selection) = signal(TiptapSelectionState::default());
+    let (disabled, set_disabled) = signal(false);
 
     view! {
         <h2>"Tiptap instance"</h2>
@@ -54,6 +80,29 @@ pub fn Demo() -> impl IntoView {
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::AlignCenter)>"AlignCenter"</button>
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::AlignRight)>"AlignRight"</button>
         <button on:click=move |_| set_msg.set(TiptapInstanceMsg::AlignJustify)>"AlignJustify"</button>
+        <button on:click=move |_| set_msg.set(TiptapInstanceMsg::SetLink(TiptapLinkResource {
+            href: "https://www.google.com/".to_string(),
+            target: "_blank".to_string(),
+            rel: "alternate".to_string(),
+        }))>
+            "Add link"
+        </button>
+        <button on:click=move |_| set_msg.set(TiptapInstanceMsg::ToggleLink(TiptapLinkResource {
+            href: "https://www.google.com/".to_string(),
+            target: "_blank".to_string(),
+            rel: "alternate".to_string(),
+        }))>
+            "Toggle link"
+        </button>
+        <button on:click=move |_| set_msg.set(TiptapInstanceMsg::UnsetLink())>"Unset link"</button>
+        <button on:click=move |_| set_msg.set(TiptapInstanceMsg::SetYoutubeVideo(TiptapYoutubeVideoResource {
+            src: "https://www.youtube.com/embed/dQw4w9WgXcQ?si=6LwJzVo1t8hpLywC".to_string(),
+            start: "0".to_string(),
+            width: "640".to_string(),
+            height: "480".to_string(),
+        }))>
+            "Toggle YouTube video"
+        </button>
 
         <TiptapInstance
             id="id"
@@ -64,8 +113,10 @@ pub fn Demo() -> impl IntoView {
                 TiptapContent::Html(content) => content,
                 TiptapContent::Json(content) => content,
             })
-            on_selection_change=move |state| set_selection.set(state)
-            style="display: block; width: auto; height: auto; border: 1px solid; padding: 0.5em; white-space: pre-wrap;"
+            on_selection_change=move |state| {
+                set_selection.set(state);
+            }
+            attr:style="display: block; width: auto; height: auto; border: 1px solid; padding: 0.5em; white-space: pre-wrap;"
         />
 
         <div style="display: flex; flex-direction: row; gap: 0.5em; margin-top: 0.5em;">
@@ -147,6 +198,14 @@ pub fn Demo() -> impl IntoView {
                                 <tr>
                                     <td>"Align justify"</td>
                                     <td class="value" class:active=selection.align_justify>{ selection.align_justify }</td>
+                                </tr>
+                                <tr>
+                                    <td>"Link"</td>
+                                    <td class="value" class:active=selection.link>{ selection.link }</td>
+                                </tr>
+                                <tr>
+                                    <td>"YouTube"</td>
+                                    <td class="value" class:active=selection.youtube>{ selection.youtube }</td>
                                 </tr>
                             </tbody>
                         </table>
