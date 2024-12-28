@@ -32,6 +32,16 @@ mod js {
         pub fn setTextAlignRight(id: String) -> JsValue;
         pub fn setTextAlignJustify(id: String) -> JsValue;
         pub fn setImage(id: String, src: String, alt: String, title: String) -> JsValue;
+        pub fn setLink(id: String, href: String, target: String, rel: String) -> JsValue;
+        pub fn toggleLink(id: String, href: String, target: String, rel: String) -> JsValue;
+        pub fn unsetLink(id: String) -> JsValue;
+        pub fn setYoutubeVideo(
+            id: String,
+            src: String,
+            start: String,
+            width: String,
+            height: String,
+        ) -> JsValue;
         pub fn getEditorState(id: String) -> JsValue;
         pub fn getSelectionState(id: String) -> JsValue;
     }
@@ -189,6 +199,48 @@ pub fn set_image(id: String, src: String, alt: String, title: String) {
         let _src = src;
         let _alt = alt;
         let _title = title;
+    }}
+}
+
+pub fn set_link(id: String, href: String, target: String, rel: String) {
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::setLink(id, href, target, rel);
+    } else {
+        let _id = id;
+        let _href = href;
+        let _target = target;
+        let _rel = rel;
+    }}
+}
+
+pub fn toggle_link(id: String, href: String, target: String, rel: String) {
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::toggleLink(id, href, target, rel);
+    } else {
+        let _id = id;
+        let _href = href;
+        let _target = target;
+        let _rel = rel;
+    }}
+}
+
+pub fn unset_link(id: String) {
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::unsetLink(id);
+    } else {
+        let _id = id;
+    }}
+}
+
+pub fn set_youtube_video(id: String, src: String, start: String, width: String, height: String) {
+    cfg_if! {if #[cfg(not(feature = "ssr"))] {
+        js::setYoutubeVideo(id, src, start, width, height);
+    } else {
+        let _id = id;
+        let _src = src;
+        let _start = start;
+        let _width = width;
+        let _height = height;
     }}
 }
 
