@@ -7,6 +7,10 @@ use this dependency.
 
 ## Changelog
 
+0.2.8
+
+- Updated Tiptap and plugins from `2.10.4` to `2.12.0`.
+
 0.2.7
 
 - Updated Tiptap and plugins from `2.2.0` to `2.10.4`.
