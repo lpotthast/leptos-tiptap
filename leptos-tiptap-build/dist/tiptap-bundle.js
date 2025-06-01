@@ -342,7 +342,7 @@ function mergeAttributes(...objects) {
                 return;
             }
             if (key === 'class') {
-                const valueClasses = value ? value.split(' ') : [];
+                const valueClasses = value ? String(value).split(' ') : [];
                 const existingClasses = mergedAttributes[key] ? mergedAttributes[key].split(' ') : [];
                 const insertClasses = valueClasses.filter(valueClass => !existingClasses.includes(valueClass));
                 mergedAttributes[key] = [...existingClasses, ...insertClasses].join(' ');
@@ -384,6 +384,7 @@ function getRenderedAttributes(nodeOrMark, extensionAttributes) {
         .reduce((attributes, attribute) => mergeAttributes(attributes, attribute), {});
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
 function isFunction(value) {
     return typeof value === 'function';
 }
@@ -1018,6 +1019,8 @@ function run(config) {
     const success = handlers.every(handler => handler !== null);
     return success;
 }
+// When dragging across editors, must get another editor instance to delete selection content.
+let tiptapDragFromOtherEditor = null;
 const createClipboardPasteEvent = (text) => {
     var _a;
     const event = new ClipboardEvent('paste', {
@@ -1041,7 +1044,7 @@ function pasteRulesPlugin(props) {
     try {
         dropEvent = typeof DragEvent !== 'undefined' ? new DragEvent('drop') : null;
     }
-    catch (e) {
+    catch {
         dropEvent = null;
     }
     const processEvent = ({ state, from, to, rule, pasteEvt, }) => {
@@ -1065,7 +1068,7 @@ function pasteRulesPlugin(props) {
         try {
             dropEvent = typeof DragEvent !== 'undefined' ? new DragEvent('drop') : null;
         }
-        catch (e) {
+        catch {
             dropEvent = null;
         }
         pasteEvent = typeof ClipboardEvent !== 'undefined' ? new ClipboardEvent('paste') : null;
@@ -1080,11 +1083,21 @@ function pasteRulesPlugin(props) {
                     dragSourceElement = ((_a = view.dom.parentElement) === null || _a === void 0 ? void 0 : _a.contains(event.target))
                         ? view.dom.parentElement
                         : null;
+                    if (dragSourceElement) {
+                        tiptapDragFromOtherEditor = editor;
+                    }
+                };
+                const handleDragend = () => {
+                    if (tiptapDragFromOtherEditor) {
+                        tiptapDragFromOtherEditor = null;
+                    }
                 };
                 window.addEventListener('dragstart', handleDragstart);
+                window.addEventListener('dragend', handleDragend);
                 return {
                     destroy() {
                         window.removeEventListener('dragstart', handleDragstart);
+                        window.removeEventListener('dragend', handleDragend);
                     },
                 };
             },
@@ -1093,6 +1106,18 @@ function pasteRulesPlugin(props) {
                     drop: (view, event) => {
                         isDroppedFromProseMirror = dragSourceElement === view.dom.parentElement;
                         dropEvent = event;
+                        if (!isDroppedFromProseMirror) {
+                            const dragFromOtherEditor = tiptapDragFromOtherEditor;
+                            if (dragFromOtherEditor) {
+                                // setTimeout to avoid the wrong content after drop, timeout arg can't be empty or 0
+                                setTimeout(() => {
+                                    const selection = dragFromOtherEditor.state.selection;
+                                    if (selection) {
+                                        dragFromOtherEditor.commands.deleteRange({ from: selection.from, to: selection.to });
+                                    }
+                                }, 10);
+                            }
+                        }
                         return false;
                     },
                     paste: (_view, event) => {
@@ -1851,6 +1876,10 @@ function resolveFocusPosition(doc, position = null) {
     return state.TextSelection.create(doc, minMax(position, minPos, maxPos), minMax(position, minPos, maxPos));
 }
 
+function isAndroid() {
+    return navigator.platform === 'Android' || /android/i.test(navigator.userAgent);
+}
+
 function isiOS() {
     return [
         'iPad Simulator',
@@ -1870,9 +1899,9 @@ const focus = (position = null, options = {}) => ({ editor, view, tr, dispatch, 
         ...options,
     };
     const delayedFocus = () => {
-        // focus within `requestAnimationFrame` breaks focus on iOS
+        // focus within `requestAnimationFrame` breaks focus on iOS and Android
         // so we have to call this
-        if (isiOS()) {
+        if (isiOS() || isAndroid()) {
             view.dom.focus();
         }
         // For React we have to focus asynchronously. Otherwise wild things happen.
@@ -2175,7 +2204,7 @@ const joinItemBackward = () => ({ state, dispatch, tr, }) => {
         }
         return true;
     }
-    catch (e) {
+    catch {
         return false;
     }
 };
@@ -2192,7 +2221,7 @@ const joinItemForward = () => ({ state, dispatch, tr, }) => {
         }
         return true;
     }
-    catch (e) {
+    catch {
         return false;
     }
 };
@@ -2415,11 +2444,12 @@ const scrollIntoView = () => ({ tr, dispatch }) => {
     return true;
 };
 
-const selectAll = () => ({ tr, commands }) => {
-    return commands.setTextSelection({
-        from: 0,
-        to: tr.doc.content.size,
-    });
+const selectAll = () => ({ tr, dispatch }) => {
+    if (dispatch) {
+        const selection = new state.AllSelection(tr.doc);
+        tr.setSelection(selection);
+    }
+    return true;
 };
 
 const selectNodeBackward = () => ({ state, dispatch }) => {
@@ -3104,6 +3134,81 @@ function posToDOMRect(view, from, to) {
         ...data,
         toJSON: () => data,
     };
+}
+
+/**
+ * The actual implementation of the rewriteUnknownContent function
+ */
+function rewriteUnknownContentInner({ json, validMarks, validNodes, options, rewrittenContent = [], }) {
+    if (json.marks && Array.isArray(json.marks)) {
+        json.marks = json.marks.filter(mark => {
+            const name = typeof mark === 'string' ? mark : mark.type;
+            if (validMarks.has(name)) {
+                return true;
+            }
+            rewrittenContent.push({
+                original: JSON.parse(JSON.stringify(mark)),
+                unsupported: name,
+            });
+            // Just ignore any unknown marks
+            return false;
+        });
+    }
+    if (json.content && Array.isArray(json.content)) {
+        json.content = json.content
+            .map(value => rewriteUnknownContentInner({
+            json: value,
+            validMarks,
+            validNodes,
+            options,
+            rewrittenContent,
+        }).json)
+            .filter(a => a !== null && a !== undefined);
+    }
+    if (json.type && !validNodes.has(json.type)) {
+        rewrittenContent.push({
+            original: JSON.parse(JSON.stringify(json)),
+            unsupported: json.type,
+        });
+        if (json.content && Array.isArray(json.content) && ((options === null || options === void 0 ? void 0 : options.fallbackToParagraph) !== false)) {
+            // Just treat it like a paragraph and hope for the best
+            json.type = 'paragraph';
+            return {
+                json,
+                rewrittenContent,
+            };
+        }
+        // or just omit it entirely
+        return {
+            json: null,
+            rewrittenContent,
+        };
+    }
+    return { json, rewrittenContent };
+}
+/**
+ * Rewrite unknown nodes and marks within JSON content
+ * Allowing for user within the editor
+ */
+function rewriteUnknownContent(
+/**
+ * The JSON content to clean of unknown nodes and marks
+ */
+json, 
+/**
+ * The schema to use for validation
+ */
+schema, 
+/**
+ * Options for the cleaning process
+ */
+options) {
+    return rewriteUnknownContentInner({
+        json,
+        validNodes: new Set(Object.keys(schema.nodes)),
+        validMarks: new Set(Object.keys(schema.marks)),
+        options,
+    });
 }
 
 function canSetMark(state, tr, newMarkType) {
@@ -3815,13 +3920,14 @@ const Editable = Extension.create({
     },
 });
 
+const focusEventsPluginKey = new state.PluginKey('focusEvents');
 const FocusEvents = Extension.create({
     name: 'focusEvents',
     addProseMirrorPlugins() {
         const { editor } = this;
         return [
             new state.Plugin({
-                key: new state.PluginKey('focusEvents'),
+                key: focusEventsPluginKey,
                 props: {
                     handleDOMEvents: {
                         focus: (view, event) => {
@@ -3928,6 +4034,9 @@ const Keymap = Extension.create({
             new state.Plugin({
                 key: new state.PluginKey('clearDocument'),
                 appendTransaction: (transactions, oldState, newState) => {
+                    if (transactions.some(tr => tr.getMeta('composition'))) {
+                        return;
+                    }
                     const docChanges = transactions.some(transaction => transaction.docChanged)
                         && !oldState.doc.eq(newState.doc);
                     const ignoreTr = transactions.some(transaction => transaction.getMeta('preventClearDocument'));
@@ -4008,7 +4117,8 @@ var index = /*#__PURE__*/Object.freeze({
   FocusEvents: FocusEvents,
   Keymap: Keymap,
   Paste: Paste,
-  Tabindex: Tabindex
+  Tabindex: Tabindex,
+  focusEventsPluginKey: focusEventsPluginKey
 });
 
 class NodePos {
@@ -4452,7 +4562,7 @@ class Editor extends EventEmitter {
             // @ts-ignore
             const name = typeof nameOrPluginKey === 'string' ? `${nameOrPluginKey}$` : nameOrPluginKey.key;
             // @ts-ignore
-            plugins = prevPlugins.filter(plugin => !plugin.key.startsWith(name));
+            plugins = plugins.filter(plugin => !plugin.key.startsWith(name));
         });
         if (prevPlugins.length === plugins.length) {
             // No plugin was removed, so we don’t need to update the state
@@ -4997,10 +5107,6 @@ class Node {
     }
 }
 
-function isAndroid() {
-    return navigator.platform === 'Android' || /android/i.test(navigator.userAgent);
-}
-
 /**
  * Node views are used to customize the rendered DOM structure of a node.
  * @see https://tiptap.dev/guide/node-views
@@ -5058,7 +5164,8 @@ class NodeView {
             x = handleBox.x - domBox.x + offsetX;
             y = handleBox.y - domBox.y + offsetY;
         }
-        (_g = event.dataTransfer) === null || _g === void 0 ? void 0 : _g.setDragImage(this.dom, x, y);
+        const clonedNode = this.dom.cloneNode(true);
+        (_g = event.dataTransfer) === null || _g === void 0 ? void 0 : _g.setDragImage(clonedNode, x, y);
         const pos = this.getPos();
         if (typeof pos !== 'number') {
             return;
@@ -5101,10 +5208,10 @@ class NodeView {
         // ProseMirror tries to drag selectable nodes
         // even if `draggable` is set to `false`
         // this fix prevents that
-        if (!isDraggable && isSelectable && isDragEvent) {
+        if (!isDraggable && isSelectable && isDragEvent && event.target === this.dom) {
             event.preventDefault();
         }
-        if (isDraggable && isDragEvent && !isDragging) {
+        if (isDraggable && isDragEvent && !isDragging && event.target === this.dom) {
             event.preventDefault();
             return false;
         }
@@ -5430,6 +5537,7 @@ exports.pasteRulesPlugin = pasteRulesPlugin;
 exports.posToDOMRect = posToDOMRect;
 exports.removeDuplicates = removeDuplicates;
 exports.resolveFocusPosition = resolveFocusPosition;
+exports.rewriteUnknownContent = rewriteUnknownContent;
 exports.selectionToInsertionEnd = selectionToInsertionEnd;
 exports.splitExtensions = splitExtensions;
 exports.textInputRule = textInputRule;
@@ -5942,11 +6050,11 @@ var core = require('@tiptap/core');
  *  This ensures that any text between backticks is formatted as code,
  *  regardless of the surrounding characters (exception being another backtick).
  */
-const inputRegex = /(?<!`)`([^`]+)`(?!`)/;
+const inputRegex = /(^|[^`])`([^`]+)`(?!`)/;
 /**
  * Matches inline code while pasting.
  */
-const pasteRegex = /(?<!`)`([^`]+)`(?!`)/g;
+const pasteRegex = /(^|[^`])`([^`]+)`(?!`)/g;
 /**
  * This extension allows you to mark text as inline code.
  * @see https://tiptap.dev/api/marks/code
@@ -6251,7 +6359,7 @@ const Heading = core.Node.create({
     addInputRules() {
         return this.options.levels.map(level => {
             return core.textblockTypeInputRule({
-                find: new RegExp(`^(#{1,${level}})\\s$`),
+                find: new RegExp(`^(#{${Math.min(...this.options.levels)},${level}})\\s$`),
                 type: this.type,
                 getAttributes: {
                     level,
@@ -6886,10 +6994,9 @@ function pasteHandler(options) {
                 if (!textContent || !link) {
                     return false;
                 }
-                options.editor.commands.setMark(options.type, {
+                return options.editor.commands.setMark(options.type, {
                     href: link.href,
                 });
-                return true;
             },
         },
     });
@@ -6926,7 +7033,7 @@ function isAllowedUri(uri, protocols) {
             .replace(ATTR_WHITESPACE, '')
             .match(new RegExp(
         // eslint-disable-next-line no-useless-escape
-        `^(?:(?:${allowedProtocols.join('|')}):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))`, 'i')));
+        `^(?:(?:${allowedProtocols.join('|')}):|[^a-z]|[a-z0-9+.\-]+(?:[^a-z+.\-:]|$))`, 'i')));
 }
 /**
  * This extension allows you to create links.
@@ -7225,7 +7332,7 @@ const OrderedList = core.Node.create({
                 },
             },
             type: {
-                default: undefined,
+                default: null,
                 parseHTML: element => element.getAttribute('type'),
             },
         };
@@ -7440,7 +7547,7 @@ const TextAlign = core.Extension.create({
         return {
             types: [],
             alignments: ['left', 'center', 'right', 'justify'],
-            defaultAlignment: 'left',
+            defaultAlignment: null,
         };
     },
     addGlobalAttributes() {
@@ -7451,11 +7558,11 @@ const TextAlign = core.Extension.create({
                     textAlign: {
                         default: this.options.defaultAlignment,
                         parseHTML: element => {
-                            const alignment = element.style.textAlign || this.options.defaultAlignment;
+                            const alignment = element.style.textAlign;
                             return this.options.alignments.includes(alignment) ? alignment : this.options.defaultAlignment;
                         },
                         renderHTML: attributes => {
-                            if (attributes.textAlign === this.options.defaultAlignment) {
+                            if (!attributes.textAlign) {
                                 return {};
                             }
                             return { style: `text-align: ${attributes.textAlign}` };
@@ -7479,6 +7586,15 @@ const TextAlign = core.Extension.create({
                 return this.options.types
                     .map(type => commands.resetAttributes(type, 'textAlign'))
                     .every(response => response);
+            },
+            toggleTextAlign: alignment => ({ editor, commands }) => {
+                if (!this.options.alignments.includes(alignment)) {
+                    return false;
+                }
+                if (editor.isActive({ textAlign: alignment })) {
+                    return commands.unsetTextAlign();
+                }
+                return commands.setTextAlign(alignment);
             },
         };
     },
@@ -7523,16 +7639,19 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
 
-const YOUTUBE_REGEX = /^(https?:\/\/)?(www\.|music\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)\/(?!channel\/)(?!@)(.+)?$/;
-const YOUTUBE_REGEX_GLOBAL = /^(https?:\/\/)?(www\.|music\.)?(youtube\.com|youtu\.be)\/(?!channel\/)(?!@)(.+)?$/g;
+const YOUTUBE_REGEX = /^((?:https?:)?\/\/)?((?:www|m|music)\.)?((?:youtube\.com|youtu.be|youtube-nocookie\.com))(\/(?:[\w-]+\?v=|embed\/|v\/)?)([\w-]+)(\S+)?$/;
+const YOUTUBE_REGEX_GLOBAL = /^((?:https?:)?\/\/)?((?:www|m|music)\.)?((?:youtube\.com|youtu.be|youtube-nocookie\.com))(\/(?:[\w-]+\?v=|embed\/|v\/)?)([\w-]+)(\S+)?$/g;
 const isValidYoutubeUrl = (url) => {
     return url.match(YOUTUBE_REGEX);
 };
-const getYoutubeEmbedUrl = (nocookie) => {
+const getYoutubeEmbedUrl = (nocookie, isPlaylist) => {
+    if (isPlaylist) {
+        return 'https://www.youtube-nocookie.com/embed/videoseries?list=';
+    }
     return nocookie ? 'https://www.youtube-nocookie.com/embed/' : 'https://www.youtube.com/embed/';
 };
 const getEmbedUrlFromYoutubeUrl = (options) => {
-    const { url, allowFullscreen, autoplay, ccLanguage, ccLoadPolicy, controls, disableKBcontrols, enableIFrameApi, endTime, interfaceLanguage, ivLoadPolicy, loop, modestBranding, nocookie, origin, playlist, progressBarColor, startAt, } = options;
+    const { url, allowFullscreen, autoplay, ccLanguage, ccLoadPolicy, controls, disableKBcontrols, enableIFrameApi, endTime, interfaceLanguage, ivLoadPolicy, loop, modestBranding, nocookie, origin, playlist, progressBarColor, startAt, rel, } = options;
     if (!isValidYoutubeUrl(url)) {
         return null;
     }
@@ -7548,12 +7667,12 @@ const getEmbedUrlFromYoutubeUrl = (options) => {
         }
         return `${getYoutubeEmbedUrl(nocookie)}${id}`;
     }
-    const videoIdRegex = /(?:v=|shorts\/)([-\w]+)/gm;
+    const videoIdRegex = /(?:(v|list)=|shorts\/)([-\w]+)/gm;
     const matches = videoIdRegex.exec(url);
-    if (!matches || !matches[1]) {
+    if (!matches || !matches[2]) {
         return null;
     }
-    let outputUrl = `${getYoutubeEmbedUrl(nocookie)}${matches[1]}`;
+    let outputUrl = `${getYoutubeEmbedUrl(nocookie, matches[1] === 'list')}${matches[2]}`;
     const params = [];
     if (allowFullscreen === false) {
         params.push('fs=0');
@@ -7603,8 +7722,11 @@ const getEmbedUrlFromYoutubeUrl = (options) => {
     if (progressBarColor) {
         params.push(`color=${progressBarColor}`);
     }
+    if (rel !== undefined) {
+        params.push(`rel=${rel}`);
+    }
     if (params.length) {
-        outputUrl += `?${params.join('&')}`;
+        outputUrl += `${matches[1] === 'v' ? '?' : '&'}${params.join('&')}`;
     }
     return outputUrl;
 };
@@ -7638,6 +7760,7 @@ const Youtube = core.Node.create({
             playlist: '',
             progressBarColor: undefined,
             width: 640,
+            rel: 1,
         };
     },
     inline() {
@@ -7717,6 +7840,7 @@ const Youtube = core.Node.create({
             playlist: this.options.playlist,
             progressBarColor: this.options.progressBarColor,
             startAt: HTMLAttributes.start || 0,
+            rel: this.options.rel,
         });
         HTMLAttributes.src = embedUrl;
         return [
@@ -7741,6 +7865,7 @@ const Youtube = core.Node.create({
                     origin: this.options.origin,
                     playlist: this.options.playlist,
                     progressBarColor: this.options.progressBarColor,
+                    rel: this.options.rel,
                 }, HTMLAttributes),
             ],
         ];
@@ -7824,61 +7949,60 @@ var extensionText = require('@tiptap/extension-text');
 const StarterKit = core.Extension.create({
     name: 'starterKit',
     addExtensions() {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t;
         const extensions = [];
         if (this.options.bold !== false) {
-            extensions.push(extensionBold.Bold.configure((_a = this.options) === null || _a === void 0 ? void 0 : _a.bold));
+            extensions.push(extensionBold.Bold.configure(this.options.bold));
         }
         if (this.options.blockquote !== false) {
-            extensions.push(extensionBlockquote.Blockquote.configure((_b = this.options) === null || _b === void 0 ? void 0 : _b.blockquote));
+            extensions.push(extensionBlockquote.Blockquote.configure(this.options.blockquote));
         }
         if (this.options.bulletList !== false) {
-            extensions.push(extensionBulletList.BulletList.configure((_c = this.options) === null || _c === void 0 ? void 0 : _c.bulletList));
+            extensions.push(extensionBulletList.BulletList.configure(this.options.bulletList));
         }
         if (this.options.code !== false) {
-            extensions.push(extensionCode.Code.configure((_d = this.options) === null || _d === void 0 ? void 0 : _d.code));
+            extensions.push(extensionCode.Code.configure(this.options.code));
         }
         if (this.options.codeBlock !== false) {
-            extensions.push(extensionCodeBlock.CodeBlock.configure((_e = this.options) === null || _e === void 0 ? void 0 : _e.codeBlock));
+            extensions.push(extensionCodeBlock.CodeBlock.configure(this.options.codeBlock));
         }
         if (this.options.document !== false) {
-            extensions.push(extensionDocument.Document.configure((_f = this.options) === null || _f === void 0 ? void 0 : _f.document));
+            extensions.push(extensionDocument.Document.configure(this.options.document));
         }
         if (this.options.dropcursor !== false) {
-            extensions.push(extensionDropcursor.Dropcursor.configure((_g = this.options) === null || _g === void 0 ? void 0 : _g.dropcursor));
+            extensions.push(extensionDropcursor.Dropcursor.configure(this.options.dropcursor));
         }
         if (this.options.gapcursor !== false) {
-            extensions.push(extensionGapcursor.Gapcursor.configure((_h = this.options) === null || _h === void 0 ? void 0 : _h.gapcursor));
+            extensions.push(extensionGapcursor.Gapcursor.configure(this.options.gapcursor));
         }
         if (this.options.hardBreak !== false) {
-            extensions.push(extensionHardBreak.HardBreak.configure((_j = this.options) === null || _j === void 0 ? void 0 : _j.hardBreak));
+            extensions.push(extensionHardBreak.HardBreak.configure(this.options.hardBreak));
         }
         if (this.options.heading !== false) {
-            extensions.push(extensionHeading.Heading.configure((_k = this.options) === null || _k === void 0 ? void 0 : _k.heading));
+            extensions.push(extensionHeading.Heading.configure(this.options.heading));
         }
         if (this.options.history !== false) {
-            extensions.push(extensionHistory.History.configure((_l = this.options) === null || _l === void 0 ? void 0 : _l.history));
+            extensions.push(extensionHistory.History.configure(this.options.history));
         }
         if (this.options.horizontalRule !== false) {
-            extensions.push(extensionHorizontalRule.HorizontalRule.configure((_m = this.options) === null || _m === void 0 ? void 0 : _m.horizontalRule));
+            extensions.push(extensionHorizontalRule.HorizontalRule.configure(this.options.horizontalRule));
         }
         if (this.options.italic !== false) {
-            extensions.push(extensionItalic.Italic.configure((_o = this.options) === null || _o === void 0 ? void 0 : _o.italic));
+            extensions.push(extensionItalic.Italic.configure(this.options.italic));
         }
         if (this.options.listItem !== false) {
-            extensions.push(extensionListItem.ListItem.configure((_p = this.options) === null || _p === void 0 ? void 0 : _p.listItem));
+            extensions.push(extensionListItem.ListItem.configure(this.options.listItem));
         }
         if (this.options.orderedList !== false) {
-            extensions.push(extensionOrderedList.OrderedList.configure((_q = this.options) === null || _q === void 0 ? void 0 : _q.orderedList));
+            extensions.push(extensionOrderedList.OrderedList.configure(this.options.orderedList));
         }
         if (this.options.paragraph !== false) {
-            extensions.push(extensionParagraph.Paragraph.configure((_r = this.options) === null || _r === void 0 ? void 0 : _r.paragraph));
+            extensions.push(extensionParagraph.Paragraph.configure(this.options.paragraph));
         }
         if (this.options.strike !== false) {
-            extensions.push(extensionStrike.Strike.configure((_s = this.options) === null || _s === void 0 ? void 0 : _s.strike));
+            extensions.push(extensionStrike.Strike.configure(this.options.strike));
         }
         if (this.options.text !== false) {
-            extensions.push(extensionText.Text.configure((_t = this.options) === null || _t === void 0 ? void 0 : _t.text));
+            extensions.push(extensionText.Text.configure(this.options.text));
         }
         return extensions;
     },
@@ -7891,12 +8015,10 @@ exports.default = StarterKit;
 },{"@tiptap/core":2,"@tiptap/extension-blockquote":3,"@tiptap/extension-bold":4,"@tiptap/extension-bullet-list":5,"@tiptap/extension-code":7,"@tiptap/extension-code-block":6,"@tiptap/extension-document":8,"@tiptap/extension-dropcursor":9,"@tiptap/extension-gapcursor":10,"@tiptap/extension-hard-break":11,"@tiptap/extension-heading":12,"@tiptap/extension-history":14,"@tiptap/extension-horizontal-rule":15,"@tiptap/extension-italic":17,"@tiptap/extension-list-item":19,"@tiptap/extension-ordered-list":20,"@tiptap/extension-paragraph":21,"@tiptap/extension-strike":22,"@tiptap/extension-text":24}],37:[function(require,module,exports){
 'use strict';
 
-Object.defineProperty(exports, '__esModule', { value: true });
-
 // THIS FILE IS AUTOMATICALLY GENERATED DO NOT EDIT DIRECTLY
 // See update-tlds.js for encoding/decoding format
 // https://data.iana.org/TLD/tlds-alpha-by-domain.txt
-const encodedTlds = 'aaa1rp3bb0ott3vie4c1le2ogado5udhabi7c0ademy5centure6ountant0s9o1tor4d0s1ult4e0g1ro2tna4f0l1rica5g0akhan5ency5i0g1rbus3force5tel5kdn3l0ibaba4pay4lfinanz6state5y2sace3tom5m0azon4ericanexpress7family11x2fam3ica3sterdam8nalytics7droid5quan4z2o0l2partments8p0le4q0uarelle8r0ab1mco4chi3my2pa2t0e3s0da2ia2sociates9t0hleta5torney7u0ction5di0ble3o3spost5thor3o0s4w0s2x0a2z0ure5ba0by2idu3namex4d1k2r0celona5laycard4s5efoot5gains6seball5ketball8uhaus5yern5b0c1t1va3cg1n2d1e0ats2uty4er2ntley5rlin4st0buy5t2f1g1h0arti5i0ble3d1ke2ng0o3o1z2j1lack0friday9ockbuster8g1omberg7ue3m0s1w2n0pparibas9o0ats3ehringer8fa2m1nd2o0k0ing5sch2tik2on4t1utique6x2r0adesco6idgestone9oadway5ker3ther5ussels7s1t1uild0ers6siness6y1zz3v1w1y1z0h3ca0b1fe2l0l1vinklein9m0era3p2non3petown5ital0one8r0avan4ds2e0er0s4s2sa1e1h1ino4t0ering5holic7ba1n1re3c1d1enter4o1rn3f0a1d2g1h0anel2nel4rity4se2t2eap3intai5ristmas6ome4urch5i0priani6rcle4sco3tadel4i0c2y3k1l0aims4eaning6ick2nic1que6othing5ud3ub0med6m1n1o0ach3des3ffee4llege4ogne5m0mbank4unity6pany2re3uter5sec4ndos3struction8ulting7tact3ractors9oking4l1p2rsica5untry4pon0s4rses6pa2r0edit0card4union9icket5own3s1uise0s6u0isinella9v1w1x1y0mru3ou3z2dad1nce3ta1e1ing3sun4y2clk3ds2e0al0er2s3gree4livery5l1oitte5ta3mocrat6ntal2ist5si0gn4v2hl2iamonds6et2gital5rect0ory7scount3ver5h2y2j1k1m1np2o0cs1tor4g1mains5t1wnload7rive4tv2ubai3nlop4pont4rban5vag2r2z2earth3t2c0o2deka3u0cation8e1g1mail3erck5nergy4gineer0ing9terprises10pson4quipment8r0icsson6ni3s0q1tate5t1u0rovision8s2vents5xchange6pert3osed4ress5traspace10fage2il1rwinds6th3mily4n0s2rm0ers5shion4t3edex3edback6rrari3ero6i0delity5o2lm2nal1nce1ial7re0stone6mdale6sh0ing5t0ness6j1k1lickr3ghts4r2orist4wers5y2m1o0o0d1tball6rd1ex2sale4um3undation8x2r0ee1senius7l1ogans4ntier7tr2ujitsu5n0d2rniture7tbol5yi3ga0l0lery3o1up4me0s3p1rden4y2b0iz3d0n2e0a1nt0ing5orge5f1g0ee3h1i0ft0s3ves2ing5l0ass3e1obal2o4m0ail3bh2o1x2n1odaddy5ld0point6f2o0dyear5g0le4p1t1v2p1q1r0ainger5phics5tis4een3ipe3ocery4up4s1t1u0cci3ge2ide2tars5ru3w1y2hair2mburg5ngout5us3bo2dfc0bank7ealth0care8lp1sinki6re1mes5iphop4samitsu7tachi5v2k0t2m1n1ockey4ldings5iday5medepot5goods5s0ense7nda3rse3spital5t0ing5t0els3mail5use3w2r1sbc3t1u0ghes5yatt3undai7ibm2cbc2e1u2d1e0ee3fm2kano4l1m0amat4db2mo0bilien9n0c1dustries8finiti5o2g1k1stitute6urance4e4t0ernational10uit4vestments10o1piranga7q1r0ish4s0maili5t0anbul7t0au2v3jaguar4va3cb2e0ep2tzt3welry6io2ll2m0p2nj2o0bs1urg4t1y2p0morgan6rs3uegos4niper7kaufen5ddi3e0rryhotels6logistics9properties14fh2g1h1i0a1ds2m1ndle4tchen5wi3m1n1oeln3matsu5sher5p0mg2n2r0d1ed3uokgroup8w1y0oto4z2la0caixa5mborghini8er3ncaster6d0rover6xess5salle5t0ino3robe5w0yer5b1c1ds2ease3clerc5frak4gal2o2xus4gbt3i0dl2fe0insurance9style7ghting6ke2lly3mited4o2ncoln4k2psy3ve1ing5k1lc1p2oan0s3cker3us3l1ndon4tte1o3ve3pl0financial11r1s1t0d0a3u0ndbeck6xe1ury5v1y2ma0drid4if1son4keup4n0agement7go3p1rket0ing3s4riott5shalls7ttel5ba2c0kinsey7d1e0d0ia3et2lbourne7me1orial6n0u2rckmsd7g1h1iami3crosoft7l1ni1t2t0subishi9k1l0b1s2m0a2n1o0bi0le4da2e1i1m1nash3ey2ster5rmon3tgage6scow4to0rcycles9v0ie4p1q1r1s0d2t0n1r2u0seum3ic4v1w1x1y1z2na0b1goya4me2vy3ba2c1e0c1t0bank4flix4work5ustar5w0s2xt0direct7us4f0l2g0o2hk2i0co2ke1on3nja3ssan1y5l1o0kia3rton4w0ruz3tv4p1r0a1w2tt2u1yc2z2obi1server7ffice5kinawa6layan0group9lo3m0ega4ne1g1l0ine5oo2pen3racle3nge4g0anic5igins6saka4tsuka4t2vh3pa0ge2nasonic7ris2s1tners4s1y3y2ccw3e0t2f0izer5g1h0armacy6d1ilips5one2to0graphy6s4ysio5ics1tet2ures6d1n0g1k2oneer5zza4k1l0ace2y0station9umbing5s3m1n0c2ohl2ker3litie5rn2st3r0america6xi3ess3ime3o0d0uctions8f1gressive8mo2perties3y5tection8u0dential9s1t1ub2w0c2y2qa1pon3uebec3st5racing4dio4e0ad1lestate6tor2y4cipes5d0stone5umbrella9hab3ise0n3t2liance6n0t0als5pair3ort3ublican8st0aurant8view0s5xroth6ich0ardli6oh3l1o1p2o0cks3deo3gers4om3s0vp3u0gby3hr2n2w0e2yukyu6sa0arland6fe0ty4kura4le1on3msclub4ung5ndvik0coromant12ofi4p1rl2s1ve2xo3b0i1s2c0b1haeffler7midt4olarships8ol3ule3warz5ience5ot3d1e0arch3t2cure1ity6ek2lect4ner3rvices6ven3w1x0y3fr2g1h0angrila6rp3ell3ia1ksha5oes2p0ping5uji3w3i0lk2na1gles5te3j1k0i0n2y0pe4l0ing4m0art3ile4n0cf3o0ccer3ial4ftbank4ware6hu2lar2utions7ng1y2y2pa0ce3ort2t3r0l2s1t0ada2ples4r1tebank4farm7c0group6ockholm6rage3e3ream4udio2y3yle4u0cks3pplies3y2ort5rf1gery5zuki5v1watch4iss4x1y0dney4stems6z2tab1ipei4lk2obao4rget4tamotors6r2too4x0i3c0i2d0k2eam2ch0nology8l1masek5nnis4va3f1g1h0d1eater2re6iaa2ckets5enda4ps2res2ol4j0maxx4x2k0maxx5l1m0all4n1o0day3kyo3ols3p1ray3shiba5tal3urs3wn2yota3s3r0ade1ing4ining5vel0ers0insurance16ust3v2t1ube2i1nes3shu4v0s2w1z2ua1bank3s2g1k1nicom3versity8o2ol2ps2s1y1z2va0cations7na1guard7c1e0gas3ntures6risign5mögensberater2ung14sicherung10t2g1i0ajes4deo3g1king4llas4n1p1rgin4sa1ion4va1o3laanderen9n1odka3lvo3te1ing3o2yage5u2wales2mart4ter4ng0gou5tch0es6eather0channel12bcam3er2site5d0ding5ibo2r3f1hoswho6ien2ki2lliamhill9n0dows4e1ners6me2olterskluwer11odside6rk0s2ld3w2s1tc1f3xbox3erox4ihuan4n2xx2yz3yachts4hoo3maxun5ndex5e1odobashi7ga2kohama6u0tube6t1un3za0ppos4ra3ero3ip2m1one3uerich6w2';
+const encodedTlds = 'aaa1rp3bb0ott3vie4c1le2ogado5udhabi7c0ademy5centure6ountant0s9o1tor4d0s1ult4e0g1ro2tna4f0l1rica5g0akhan5ency5i0g1rbus3force5tel5kdn3l0ibaba4pay4lfinanz6state5y2sace3tom5m0azon4ericanexpress7family11x2fam3ica3sterdam8nalytics7droid5quan4z2o0l2partments8p0le4q0uarelle8r0ab1mco4chi3my2pa2t0e3s0da2ia2sociates9t0hleta5torney7u0ction5di0ble3o3spost5thor3o0s4w0s2x0a2z0ure5ba0by2idu3namex4d1k2r0celona5laycard4s5efoot5gains6seball5ketball8uhaus5yern5b0c1t1va3cg1n2d1e0ats2uty4er2rlin4st0buy5t2f1g1h0arti5i0ble3d1ke2ng0o3o1z2j1lack0friday9ockbuster8g1omberg7ue3m0s1w2n0pparibas9o0ats3ehringer8fa2m1nd2o0k0ing5sch2tik2on4t1utique6x2r0adesco6idgestone9oadway5ker3ther5ussels7s1t1uild0ers6siness6y1zz3v1w1y1z0h3ca0b1fe2l0l1vinklein9m0era3p2non3petown5ital0one8r0avan4ds2e0er0s4s2sa1e1h1ino4t0ering5holic7ba1n1re3c1d1enter4o1rn3f0a1d2g1h0anel2nel4rity4se2t2eap3intai5ristmas6ome4urch5i0priani6rcle4sco3tadel4i0c2y3k1l0aims4eaning6ick2nic1que6othing5ud3ub0med6m1n1o0ach3des3ffee4llege4ogne5m0mbank4unity6pany2re3uter5sec4ndos3struction8ulting7tact3ractors9oking4l1p2rsica5untry4pon0s4rses6pa2r0edit0card4union9icket5own3s1uise0s6u0isinella9v1w1x1y0mru3ou3z2dad1nce3ta1e1ing3sun4y2clk3ds2e0al0er2s3gree4livery5l1oitte5ta3mocrat6ntal2ist5si0gn4v2hl2iamonds6et2gital5rect0ory7scount3ver5h2y2j1k1m1np2o0cs1tor4g1mains5t1wnload7rive4tv2ubai3nlop4pont4rban5vag2r2z2earth3t2c0o2deka3u0cation8e1g1mail3erck5nergy4gineer0ing9terprises10pson4quipment8r0icsson6ni3s0q1tate5t1u0rovision8s2vents5xchange6pert3osed4ress5traspace10fage2il1rwinds6th3mily4n0s2rm0ers5shion4t3edex3edback6rrari3ero6i0delity5o2lm2nal1nce1ial7re0stone6mdale6sh0ing5t0ness6j1k1lickr3ghts4r2orist4wers5y2m1o0o0d1tball6rd1ex2sale4um3undation8x2r0ee1senius7l1ogans4ntier7tr2ujitsu5n0d2rniture7tbol5yi3ga0l0lery3o1up4me0s3p1rden4y2b0iz3d0n2e0a1nt0ing5orge5f1g0ee3h1i0ft0s3ves2ing5l0ass3e1obal2o4m0ail3bh2o1x2n1odaddy5ld0point6f2o0dyear5g0le4p1t1v2p1q1r0ainger5phics5tis4een3ipe3ocery4up4s1t1u0cci3ge2ide2tars5ru3w1y2hair2mburg5ngout5us3bo2dfc0bank7ealth0care8lp1sinki6re1mes5iphop4samitsu7tachi5v2k0t2m1n1ockey4ldings5iday5medepot5goods5s0ense7nda3rse3spital5t0ing5t0els3mail5use3w2r1sbc3t1u0ghes5yatt3undai7ibm2cbc2e1u2d1e0ee3fm2kano4l1m0amat4db2mo0bilien9n0c1dustries8finiti5o2g1k1stitute6urance4e4t0ernational10uit4vestments10o1piranga7q1r0ish4s0maili5t0anbul7t0au2v3jaguar4va3cb2e0ep2tzt3welry6io2ll2m0p2nj2o0bs1urg4t1y2p0morgan6rs3uegos4niper7kaufen5ddi3e0rryhotels6properties14fh2g1h1i0a1ds2m1ndle4tchen5wi3m1n1oeln3matsu5sher5p0mg2n2r0d1ed3uokgroup8w1y0oto4z2la0caixa5mborghini8er3nd0rover6xess5salle5t0ino3robe5w0yer5b1c1ds2ease3clerc5frak4gal2o2xus4gbt3i0dl2fe0insurance9style7ghting6ke2lly3mited4o2ncoln4k2ve1ing5k1lc1p2oan0s3cker3us3l1ndon4tte1o3ve3pl0financial11r1s1t0d0a3u0ndbeck6xe1ury5v1y2ma0drid4if1son4keup4n0agement7go3p1rket0ing3s4riott5shalls7ttel5ba2c0kinsey7d1e0d0ia3et2lbourne7me1orial6n0u2rckmsd7g1h1iami3crosoft7l1ni1t2t0subishi9k1l0b1s2m0a2n1o0bi0le4da2e1i1m1nash3ey2ster5rmon3tgage6scow4to0rcycles9v0ie4p1q1r1s0d2t0n1r2u0seum3ic4v1w1x1y1z2na0b1goya4me2vy3ba2c1e0c1t0bank4flix4work5ustar5w0s2xt0direct7us4f0l2g0o2hk2i0co2ke1on3nja3ssan1y5l1o0kia3rton4w0ruz3tv4p1r0a1w2tt2u1yc2z2obi1server7ffice5kinawa6layan0group9lo3m0ega4ne1g1l0ine5oo2pen3racle3nge4g0anic5igins6saka4tsuka4t2vh3pa0ge2nasonic7ris2s1tners4s1y3y2ccw3e0t2f0izer5g1h0armacy6d1ilips5one2to0graphy6s4ysio5ics1tet2ures6d1n0g1k2oneer5zza4k1l0ace2y0station9umbing5s3m1n0c2ohl2ker3litie5rn2st3r0america6xi3ess3ime3o0d0uctions8f1gressive8mo2perties3y5tection8u0dential9s1t1ub2w0c2y2qa1pon3uebec3st5racing4dio4e0ad1lestate6tor2y4cipes5d0stone5umbrella9hab3ise0n3t2liance6n0t0als5pair3ort3ublican8st0aurant8view0s5xroth6ich0ardli6oh3l1o1p2o0cks3deo3gers4om3s0vp3u0gby3hr2n2w0e2yukyu6sa0arland6fe0ty4kura4le1on3msclub4ung5ndvik0coromant12ofi4p1rl2s1ve2xo3b0i1s2c0b1haeffler7midt4olarships8ol3ule3warz5ience5ot3d1e0arch3t2cure1ity6ek2lect4ner3rvices6ven3w1x0y3fr2g1h0angrila6rp3ell3ia1ksha5oes2p0ping5uji3w3i0lk2na1gles5te3j1k0i0n2y0pe4l0ing4m0art3ile4n0cf3o0ccer3ial4ftbank4ware6hu2lar2utions7ng1y2y2pa0ce3ort2t3r0l2s1t0ada2ples4r1tebank4farm7c0group6ockholm6rage3e3ream4udio2y3yle4u0cks3pplies3y2ort5rf1gery5zuki5v1watch4iss4x1y0dney4stems6z2tab1ipei4lk2obao4rget4tamotors6r2too4x0i3c0i2d0k2eam2ch0nology8l1masek5nnis4va3f1g1h0d1eater2re6iaa2ckets5enda4ps2res2ol4j0maxx4x2k0maxx5l1m0all4n1o0day3kyo3ols3p1ray3shiba5tal3urs3wn2yota3s3r0ade1ing4ining5vel0ers0insurance16ust3v2t1ube2i1nes3shu4v0s2w1z2ua1bank3s2g1k1nicom3versity8o2ol2ps2s1y1z2va0cations7na1guard7c1e0gas3ntures6risign5mögensberater2ung14sicherung10t2g1i0ajes4deo3g1king4llas4n1p1rgin4sa1ion4va1o3laanderen9n1odka3lvo3te1ing3o2yage5u2wales2mart4ter4ng0gou5tch0es6eather0channel12bcam3er2site5d0ding5ibo2r3f1hoswho6ien2ki2lliamhill9n0dows4e1ners6me2olterskluwer11odside6rk0s2ld3w2s1tc1f3xbox3erox4ihuan4n2xx2yz3yachts4hoo3maxun5ndex5e1odobashi7ga2kohama6u0tube6t1un3za0ppos4ra3ero3ip2m1one3uerich6w2';
 // Internationalized domain names containing non-ASCII
 const encodedUtlds = 'ελ1υ2бг1ел3дети4ею2католик6ом3мкд2он1сква6онлайн5рг3рус2ф2сайт3рб3укр3қаз3հայ3ישראל5קום3ابوظبي5رامكو5لاردن4بحرين5جزائر5سعودية6عليان5مغرب5مارات5یران5بارت2زار4يتك3ھارت5تونس4سودان3رية5شبكة4عراق2ب2مان4فلسطين6قطر3كاثوليك6وم3مصر2ليسيا5وريتانيا7قع4همراه5پاکستان7ڀارت4कॉम3नेट3भारत0म्3ोत5संगठन5বাংলা5ভারত2ৰত4ਭਾਰਤ4ભારત4ଭାରତ4இந்தியா6லங்கை6சிங்கப்பூர்11భారత్5ಭಾರತ4ഭാരതം5ලංකා4คอม3ไทย3ລາວ3გე2みんな3アマゾン4クラウド4グーグル4コム2ストア3セール3ファッション6ポイント4世界2中信1国1國1文网3亚马逊3企业2佛山2信息2健康2八卦2公司1益2台湾1灣2商城1店1标2嘉里0大酒店5在线2大拿2天主教3娱乐2家電2广东2微博2慈善2我爱你3手机2招聘2政务1府2新加坡2闻2时尚2書籍2机构2淡马锡3游戏2澳門2点看2移动2组织机构4网址1店1站1络2联通2谷歌2购物2通販2集团2電訊盈科4飞利浦3食品2餐厅2香格里拉3港2닷넷1컴2삼성2한국2';
 
@@ -8336,61 +8458,61 @@ const SYM = 'SYM';
 
 var tk = /*#__PURE__*/Object.freeze({
 	__proto__: null,
-	WORD: WORD,
-	UWORD: UWORD,
-	ASCIINUMERICAL: ASCIINUMERICAL,
 	ALPHANUMERICAL: ALPHANUMERICAL,
-	LOCALHOST: LOCALHOST,
-	TLD: TLD,
-	UTLD: UTLD,
-	SCHEME: SCHEME,
-	SLASH_SCHEME: SLASH_SCHEME,
-	NUM: NUM,
-	WS: WS,
-	NL: NL,
-	OPENBRACE: OPENBRACE,
-	CLOSEBRACE: CLOSEBRACE,
-	OPENBRACKET: OPENBRACKET,
-	CLOSEBRACKET: CLOSEBRACKET,
-	OPENPAREN: OPENPAREN,
-	CLOSEPAREN: CLOSEPAREN,
-	OPENANGLEBRACKET: OPENANGLEBRACKET,
-	CLOSEANGLEBRACKET: CLOSEANGLEBRACKET,
-	FULLWIDTHLEFTPAREN: FULLWIDTHLEFTPAREN,
-	FULLWIDTHRIGHTPAREN: FULLWIDTHRIGHTPAREN,
-	LEFTCORNERBRACKET: LEFTCORNERBRACKET,
-	RIGHTCORNERBRACKET: RIGHTCORNERBRACKET,
-	LEFTWHITECORNERBRACKET: LEFTWHITECORNERBRACKET,
-	RIGHTWHITECORNERBRACKET: RIGHTWHITECORNERBRACKET,
-	FULLWIDTHLESSTHAN: FULLWIDTHLESSTHAN,
-	FULLWIDTHGREATERTHAN: FULLWIDTHGREATERTHAN,
 	AMPERSAND: AMPERSAND,
 	APOSTROPHE: APOSTROPHE,
+	ASCIINUMERICAL: ASCIINUMERICAL,
 	ASTERISK: ASTERISK,
 	AT: AT,
 	BACKSLASH: BACKSLASH,
 	BACKTICK: BACKTICK,
 	CARET: CARET,
+	CLOSEANGLEBRACKET: CLOSEANGLEBRACKET,
+	CLOSEBRACE: CLOSEBRACE,
+	CLOSEBRACKET: CLOSEBRACKET,
+	CLOSEPAREN: CLOSEPAREN,
 	COLON: COLON,
 	COMMA: COMMA,
 	DOLLAR: DOLLAR,
 	DOT: DOT,
+	EMOJI: EMOJI$1,
 	EQUALS: EQUALS,
 	EXCLAMATION: EXCLAMATION,
+	FULLWIDTHGREATERTHAN: FULLWIDTHGREATERTHAN,
+	FULLWIDTHLEFTPAREN: FULLWIDTHLEFTPAREN,
+	FULLWIDTHLESSTHAN: FULLWIDTHLESSTHAN,
+	FULLWIDTHMIDDLEDOT: FULLWIDTHMIDDLEDOT,
+	FULLWIDTHRIGHTPAREN: FULLWIDTHRIGHTPAREN,
 	HYPHEN: HYPHEN,
+	LEFTCORNERBRACKET: LEFTCORNERBRACKET,
+	LEFTWHITECORNERBRACKET: LEFTWHITECORNERBRACKET,
+	LOCALHOST: LOCALHOST,
+	NL: NL,
+	NUM: NUM,
+	OPENANGLEBRACKET: OPENANGLEBRACKET,
+	OPENBRACE: OPENBRACE,
+	OPENBRACKET: OPENBRACKET,
+	OPENPAREN: OPENPAREN,
 	PERCENT: PERCENT,
 	PIPE: PIPE,
 	PLUS: PLUS,
 	POUND: POUND,
 	QUERY: QUERY,
 	QUOTE: QUOTE,
-	FULLWIDTHMIDDLEDOT: FULLWIDTHMIDDLEDOT,
+	RIGHTCORNERBRACKET: RIGHTCORNERBRACKET,
+	RIGHTWHITECORNERBRACKET: RIGHTWHITECORNERBRACKET,
+	SCHEME: SCHEME,
 	SEMI: SEMI,
 	SLASH: SLASH,
+	SLASH_SCHEME: SLASH_SCHEME,
+	SYM: SYM,
 	TILDE: TILDE,
+	TLD: TLD,
 	UNDERSCORE: UNDERSCORE,
-	EMOJI: EMOJI$1,
-	SYM: SYM
+	UTLD: UTLD,
+	UWORD: UWORD,
+	WORD: WORD,
+	WS: WS
 });
 
 // Note that these two Unicode ones expand into a really big one with Babel
@@ -8404,10 +8526,10 @@ const SPACE = /\s/;
 var regexp = /*#__PURE__*/Object.freeze({
 	__proto__: null,
 	ASCII_LETTER: ASCII_LETTER,
-	LETTER: LETTER,
+	DIGIT: DIGIT,
 	EMOJI: EMOJI,
 	EMOJI_VARIATION: EMOJI_VARIATION$1,
-	DIGIT: DIGIT,
+	LETTER: LETTER,
 	SPACE: SPACE
 });
 
@@ -8415,6 +8537,7 @@ var regexp = /*#__PURE__*/Object.freeze({
 	The scanner provides an interface that takes a string of text as input, and
 	outputs an array of tokens instances that can be used for easy URL parsing.
 */
+
 const CR = '\r'; // carriage-return character
 const LF = '\n'; // line-feed character
 const EMOJI_VARIATION = '\ufe0f'; // Variation selector, follows heart and others
@@ -9007,9 +9130,9 @@ function noop(val) {
 
 var options = /*#__PURE__*/Object.freeze({
 	__proto__: null,
-	defaults: defaults,
 	Options: Options,
-	assign: assign
+	assign: assign,
+	defaults: defaults
 });
 
 /******************************************************************************
@@ -9240,13 +9363,13 @@ const Url = createTokenClass('url', {
 
 var multi = /*#__PURE__*/Object.freeze({
 	__proto__: null,
-	MultiToken: MultiToken,
 	Base: MultiToken,
-	createTokenClass: createTokenClass,
 	Email: Email,
-	Text: Text,
+	MultiToken: MultiToken,
 	Nl: Nl,
-	Url: Url
+	Text: Text,
+	Url: Url,
+	createTokenClass: createTokenClass
 });
 
 /**
@@ -9263,6 +9386,7 @@ var multi = /*#__PURE__*/Object.freeze({
 	@submodule parser
 	@main run
 */
+
 const makeState = arg => new State(arg);
 
 /**
@@ -9278,7 +9402,7 @@ function init$1({
   // Types of tokens that can follow a URL and be part of the query string
   // but cannot be the very last characters
   // Characters that cannot appear in the URL at all should be excluded
-  const qsNonAccepting = [COLON, COMMA, DOT, EXCLAMATION, PERCENT, QUERY, QUOTE, SEMI, OPENANGLEBRACKET, CLOSEANGLEBRACKET, OPENBRACE, CLOSEBRACE, CLOSEBRACKET, OPENBRACKET, OPENPAREN, CLOSEPAREN, FULLWIDTHLEFTPAREN, FULLWIDTHRIGHTPAREN, LEFTCORNERBRACKET, RIGHTCORNERBRACKET, LEFTWHITECORNERBRACKET, RIGHTWHITECORNERBRACKET, FULLWIDTHLESSTHAN, FULLWIDTHGREATERTHAN];
+  const qsNonAccepting = [APOSTROPHE, COLON, COMMA, DOT, EXCLAMATION, PERCENT, QUERY, QUOTE, SEMI, OPENANGLEBRACKET, CLOSEANGLEBRACKET, OPENBRACE, CLOSEBRACE, CLOSEBRACKET, OPENBRACKET, OPENPAREN, CLOSEPAREN, FULLWIDTHLEFTPAREN, FULLWIDTHRIGHTPAREN, LEFTCORNERBRACKET, RIGHTCORNERBRACKET, LEFTWHITECORNERBRACKET, RIGHTWHITECORNERBRACKET, FULLWIDTHLESSTHAN, FULLWIDTHGREATERTHAN];
 
   // For addresses without the mailto prefix
   // Tokens allowed in the localpart of the email
@@ -10222,6 +10346,7 @@ function splitBlockAs(splitNode) {
       } : null;
       can = prosemirrorTransform.canSplit(tr.doc, splitPos, types.length, types);
     }
+    if (!can) return false;
     tr.split(splitPos, types.length, types);
     if (!atEnd && atStart && $from.node(splitDepth).type != deflt) {
       var first = tr.mapping.map($from.before(splitDepth)),
@@ -10428,6 +10553,7 @@ function toggleMark(markType) {
   var options = arguments.length > 2 ? arguments[2] : undefined;
   var removeWhenPresent = (options && options.removeWhenPresent) !== false;
   var enterAtoms = (options && options.enterInlineAtoms) !== false;
+  var dropSpace = !(options && options.includeWhitespace);
   return function (state, dispatch) {
     var _state$selection9 = state.selection,
       empty = _state$selection9.empty,
@@ -10466,8 +10592,8 @@ function toggleMark(markType) {
               to = $to.pos,
               start = $from.nodeAfter,
               end = $to.nodeBefore;
-            var spaceStart = start && start.isText ? /^\s*/.exec(start.text)[0].length : 0;
-            var spaceEnd = end && end.isText ? /\s*$/.exec(end.text)[0].length : 0;
+            var spaceStart = dropSpace && start && start.isText ? /^\s*/.exec(start.text)[0].length : 0;
+            var spaceEnd = dropSpace && end && end.isText ? /\s*$/.exec(end.text)[0].length : 0;
             if (from + spaceStart < to) {
               from += spaceStart;
               to -= spaceEnd;
@@ -10593,20 +10719,14 @@ exports.wrapIn = wrapIn;
 },{"prosemirror-model":44,"prosemirror-state":46,"prosemirror-transform":47}],40:[function(require,module,exports){
 'use strict';
 
+function _typeof(o) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) { return typeof o; } : function (o) { return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o; }, _typeof(o); }
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } }
-
+function _defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, _toPropertyKey(descriptor.key), descriptor); } }
 function _createClass(Constructor, protoProps, staticProps) { if (protoProps) _defineProperties(Constructor.prototype, protoProps); if (staticProps) _defineProperties(Constructor, staticProps); Object.defineProperty(Constructor, "prototype", { writable: false }); return Constructor; }
-
-Object.defineProperty(exports, '__esModule', {
-  value: true
-});
-
+function _toPropertyKey(arg) { var key = _toPrimitive(arg, "string"); return _typeof(key) === "symbol" ? key : String(key); }
+function _toPrimitive(input, hint) { if (_typeof(input) !== "object" || input === null) return input; var prim = input[Symbol.toPrimitive]; if (prim !== undefined) { var res = prim.call(input, hint || "default"); if (_typeof(res) !== "object") return res; throw new TypeError("@@toPrimitive must return a primitive value."); } return (hint === "string" ? String : Number)(input); }
 var prosemirrorState = require('prosemirror-state');
-
 var prosemirrorTransform = require('prosemirror-transform');
-
 function dropCursor() {
   var options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
   return new prosemirrorState.Plugin({
@@ -10615,15 +10735,11 @@ function dropCursor() {
     }
   });
 }
-
 var DropCursorView = function () {
   function DropCursorView(editorView, options) {
     var _this = this;
-
     _classCallCheck(this, DropCursorView);
-
     var _a;
-
     this.editorView = editorView;
     this.cursorPos = null;
     this.element = null;
@@ -10635,7 +10751,6 @@ var DropCursorView = function () {
       var handler = function handler(e) {
         _this[name](e);
       };
-
       editorView.dom.addEventListener(name, handler);
       return {
         name: name,
@@ -10643,15 +10758,13 @@ var DropCursorView = function () {
       };
     });
   }
-
   _createClass(DropCursorView, [{
     key: "destroy",
     value: function destroy() {
       var _this2 = this;
-
       this.handlers.forEach(function (_ref) {
         var name = _ref.name,
-            handler = _ref.handler;
+          handler = _ref.handler;
         return _this2.editorView.dom.removeEventListener(name, handler);
       });
     }
@@ -10667,7 +10780,6 @@ var DropCursorView = function () {
     value: function setCursor(pos) {
       if (pos == this.cursorPos) return;
       this.cursorPos = pos;
-
       if (pos == null) {
         this.element.parentNode.removeChild(this.element);
         this.element = null;
@@ -10680,75 +10792,71 @@ var DropCursorView = function () {
     value: function updateOverlay() {
       var $pos = this.editorView.state.doc.resolve(this.cursorPos);
       var isBlock = !$pos.parent.inlineContent,
-          rect;
-
+        rect;
+      var editorDOM = this.editorView.dom,
+        editorRect = editorDOM.getBoundingClientRect();
+      var scaleX = editorRect.width / editorDOM.offsetWidth,
+        scaleY = editorRect.height / editorDOM.offsetHeight;
       if (isBlock) {
         var before = $pos.nodeBefore,
-            after = $pos.nodeAfter;
-
+          after = $pos.nodeAfter;
         if (before || after) {
           var node = this.editorView.nodeDOM(this.cursorPos - (before ? before.nodeSize : 0));
-
           if (node) {
             var nodeRect = node.getBoundingClientRect();
             var top = before ? nodeRect.bottom : nodeRect.top;
             if (before && after) top = (top + this.editorView.nodeDOM(this.cursorPos).getBoundingClientRect().top) / 2;
+            var halfWidth = this.width / 2 * scaleY;
             rect = {
               left: nodeRect.left,
               right: nodeRect.right,
-              top: top - this.width / 2,
-              bottom: top + this.width / 2
+              top: top - halfWidth,
+              bottom: top + halfWidth
             };
           }
         }
       }
-
       if (!rect) {
         var coords = this.editorView.coordsAtPos(this.cursorPos);
+        var _halfWidth = this.width / 2 * scaleX;
         rect = {
-          left: coords.left - this.width / 2,
-          right: coords.left + this.width / 2,
+          left: coords.left - _halfWidth,
+          right: coords.left + _halfWidth,
           top: coords.top,
           bottom: coords.bottom
         };
       }
-
       var parent = this.editorView.dom.offsetParent;
-
       if (!this.element) {
         this.element = parent.appendChild(document.createElement("div"));
         if (this["class"]) this.element.className = this["class"];
         this.element.style.cssText = "position: absolute; z-index: 50; pointer-events: none;";
-
         if (this.color) {
           this.element.style.backgroundColor = this.color;
         }
       }
-
       this.element.classList.toggle("prosemirror-dropcursor-block", isBlock);
       this.element.classList.toggle("prosemirror-dropcursor-inline", !isBlock);
       var parentLeft, parentTop;
-
       if (!parent || parent == document.body && getComputedStyle(parent).position == "static") {
         parentLeft = -pageXOffset;
         parentTop = -pageYOffset;
       } else {
         var _rect = parent.getBoundingClientRect();
-
-        parentLeft = _rect.left - parent.scrollLeft;
-        parentTop = _rect.top - parent.scrollTop;
+        var parentScaleX = _rect.width / parent.offsetWidth,
+          parentScaleY = _rect.height / parent.offsetHeight;
+        parentLeft = _rect.left - parent.scrollLeft * parentScaleX;
+        parentTop = _rect.top - parent.scrollTop * parentScaleY;
       }
-
-      this.element.style.left = rect.left - parentLeft + "px";
-      this.element.style.top = rect.top - parentTop + "px";
-      this.element.style.width = rect.right - rect.left + "px";
-      this.element.style.height = rect.bottom - rect.top + "px";
+      this.element.style.left = (rect.left - parentLeft) / scaleX + "px";
+      this.element.style.top = (rect.top - parentTop) / scaleY + "px";
+      this.element.style.width = (rect.right - rect.left) / scaleX + "px";
+      this.element.style.height = (rect.bottom - rect.top) / scaleY + "px";
     }
   }, {
     key: "scheduleRemoval",
     value: function scheduleRemoval(timeout) {
       var _this3 = this;
-
       clearTimeout(this.timeout);
       this.timeout = setTimeout(function () {
         return _this3.setCursor(null);
@@ -10765,15 +10873,12 @@ var DropCursorView = function () {
       var node = pos && pos.inside >= 0 && this.editorView.state.doc.nodeAt(pos.inside);
       var disableDropCursor = node && node.type.spec.disableDropCursor;
       var disabled = typeof disableDropCursor == "function" ? disableDropCursor(this.editorView, pos, event) : disableDropCursor;
-
       if (pos && !disabled) {
         var target = pos.pos;
-
         if (this.editorView.dragging && this.editorView.dragging.slice) {
           var point = prosemirrorTransform.dropPoint(this.editorView.state.doc, target, this.editorView.dragging.slice);
           if (point != null) target = point;
         }
-
         this.setCursor(target);
         this.scheduleRemoval(5000);
       }
@@ -10791,13 +10896,11 @@ var DropCursorView = function () {
   }, {
     key: "dragleave",
     value: function dragleave(event) {
-      if (event.target == this.editorView.dom || !this.editorView.dom.contains(event.relatedTarget)) this.setCursor(null);
+      if (!this.editorView.dom.contains(event.relatedTarget)) this.setCursor(null);
     }
   }]);
-
   return DropCursorView;
 }();
-
 exports.dropCursor = dropCursor;
 
 },{"prosemirror-state":46,"prosemirror-transform":47}],41:[function(require,module,exports){
@@ -11480,46 +11583,32 @@ exports.undoNoScroll = undoNoScroll;
 },{"prosemirror-state":46,"prosemirror-transform":47,"rope-sequence":49}],43:[function(require,module,exports){
 'use strict';
 
-Object.defineProperty(exports, '__esModule', {
-  value: true
-});
-
 var w3cKeyname = require('w3c-keyname');
-
 var prosemirrorState = require('prosemirror-state');
-
-var mac = typeof navigator != "undefined" ? /Mac|iP(hone|[oa]d)/.test(navigator.platform) : false;
-
+var mac = typeof navigator != "undefined" && /Mac|iP(hone|[oa]d)/.test(navigator.platform);
+var windows = typeof navigator != "undefined" && /Win/.test(navigator.platform);
 function normalizeKeyName(name) {
   var parts = name.split(/-(?!$)/),
-      result = parts[parts.length - 1];
+    result = parts[parts.length - 1];
   if (result == "Space") result = " ";
   var alt, ctrl, shift, meta;
-
   for (var i = 0; i < parts.length - 1; i++) {
     var mod = parts[i];
     if (/^(cmd|meta|m)$/i.test(mod)) meta = true;else if (/^a(lt)?$/i.test(mod)) alt = true;else if (/^(c|ctrl|control)$/i.test(mod)) ctrl = true;else if (/^s(hift)?$/i.test(mod)) shift = true;else if (/^mod$/i.test(mod)) {
       if (mac) meta = true;else ctrl = true;
     } else throw new Error("Unrecognized modifier name: " + mod);
   }
-
   if (alt) result = "Alt-" + result;
   if (ctrl) result = "Ctrl-" + result;
   if (meta) result = "Meta-" + result;
   if (shift) result = "Shift-" + result;
   return result;
 }
-
 function normalize(map) {
   var copy = Object.create(null);
-
-  for (var prop in map) {
-    copy[normalizeKeyName(prop)] = map[prop];
-  }
-
+  for (var prop in map) copy[normalizeKeyName(prop)] = map[prop];
   return copy;
 }
-
 function modifiers(name, event) {
   var shift = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : true;
   if (event.altKey) name = "Alt-" + name;
@@ -11528,7 +11617,6 @@ function modifiers(name, event) {
   if (shift && event.shiftKey) name = "Shift-" + name;
   return name;
 }
-
 function keymap(bindings) {
   return new prosemirrorState.Plugin({
     props: {
@@ -11536,31 +11624,26 @@ function keymap(bindings) {
     }
   });
 }
-
 function keydownHandler(bindings) {
   var map = normalize(bindings);
   return function (view, event) {
     var name = w3cKeyname.keyName(event),
-        baseName,
-        direct = map[modifiers(name, event)];
+      baseName,
+      direct = map[modifiers(name, event)];
     if (direct && direct(view.state, view.dispatch, view)) return true;
-
     if (name.length == 1 && name != " ") {
       if (event.shiftKey) {
         var noShift = map[modifiers(name, event, false)];
         if (noShift && noShift(view.state, view.dispatch, view)) return true;
       }
-
-      if ((event.shiftKey || event.altKey || event.metaKey || name.charCodeAt(0) > 127) && (baseName = w3cKeyname.base[event.keyCode]) && baseName != name) {
+      if ((event.altKey || event.metaKey || event.ctrlKey) && !(windows && event.ctrlKey && event.altKey) && (baseName = w3cKeyname.base[event.keyCode]) && baseName != name) {
         var fromCode = map[modifiers(baseName, event)];
         if (fromCode && fromCode(view.state, view.dispatch, view)) return true;
       }
     }
-
     return false;
   };
 }
-
 exports.keydownHandler = keydownHandler;
 exports.keymap = keymap;
 
@@ -13870,7 +13953,7 @@ var ParseContext = function () {
         } else {
           value = value.replace(/\r\n?/g, "\n");
         }
-        if (value) this.insertNode(this.parser.schema.text(value), marks);
+        if (value) this.insertNode(this.parser.schema.text(value), marks, !/\S/.test(value));
         this.findInText(dom);
       } else {
         this.findInside(dom);
@@ -13922,7 +14005,7 @@ var ParseContext = function () {
   }, {
     key: "ignoreFallback",
     value: function ignoreFallback(dom, marks) {
-      if (dom.nodeName == "BR" && (!this.top.type || !this.top.type.inlineContent)) this.findPlace(this.parser.schema.text("-"), marks);
+      if (dom.nodeName == "BR" && (!this.top.type || !this.top.type.inlineContent)) this.findPlace(this.parser.schema.text("-"), marks, true);
     }
   }, {
     key: "readStyles",
@@ -13974,7 +14057,7 @@ var ParseContext = function () {
             sync = true;
             marks = inner;
           }
-        } else if (!this.insertNode(nodeType.create(rule.attrs), marks)) {
+        } else if (!this.insertNode(nodeType.create(rule.attrs), marks, dom.nodeName == "BR")) {
           this.leafFallback(dom, marks);
         }
       } else {
@@ -13989,7 +14072,7 @@ var ParseContext = function () {
       } else if (rule.getContent) {
         this.findInside(dom);
         rule.getContent(dom, this.parser.schema).forEach(function (node) {
-          return _this4.insertNode(node, marks);
+          return _this4.insertNode(node, marks, false);
         });
       } else {
         var contentDOM = dom;
@@ -14012,17 +14095,20 @@ var ParseContext = function () {
     }
   }, {
     key: "findPlace",
-    value: function findPlace(node, marks) {
+    value: function findPlace(node, marks, cautious) {
       var route, sync;
-      for (var depth = this.open; depth >= 0; depth--) {
+      for (var depth = this.open, penalty = 0; depth >= 0; depth--) {
         var cx = this.nodes[depth];
         var _found2 = cx.findWrapping(node);
-        if (_found2 && (!route || route.length > _found2.length)) {
+        if (_found2 && (!route || route.length > _found2.length + penalty)) {
           route = _found2;
           sync = cx;
           if (!_found2.length) break;
         }
-        if (cx.solid) break;
+        if (cx.solid) {
+          if (cautious) break;
+          penalty += 2;
+        }
       }
       if (!route) return null;
       this.sync(sync);
@@ -14031,12 +14117,12 @@ var ParseContext = function () {
     }
   }, {
     key: "insertNode",
-    value: function insertNode(node, marks) {
+    value: function insertNode(node, marks, cautious) {
       if (node.isInline && this.needsBlock && !this.top.type) {
         var block = this.textblockFromContext();
         if (block) marks = this.enterInner(block, null, marks);
       }
-      var innerMarks = this.findPlace(node, marks);
+      var innerMarks = this.findPlace(node, marks, cautious);
       if (innerMarks) {
         this.closeExtra();
         var top = this.top;
@@ -14062,7 +14148,7 @@ var ParseContext = function () {
   }, {
     key: "enter",
     value: function enter(type, attrs, marks, preserveWS) {
-      var innerMarks = this.findPlace(type.create(attrs), marks);
+      var innerMarks = this.findPlace(type.create(attrs), marks, false);
       if (innerMarks) innerMarks = this.enterInner(type, attrs, marks, true, preserveWS);
       return innerMarks;
     }
@@ -14652,8 +14738,8 @@ function liftToOuterList(state, dispatch, itemType, range) {
   var target = prosemirrorTransform.liftTarget(range);
   if (target == null) return false;
   tr.lift(range, target);
-  var after = tr.mapping.map(end, -1) - 1;
-  if (prosemirrorTransform.canJoin(tr.doc, after)) tr.join(after);
+  var $after = tr.doc.resolve(tr.mapping.map(end, -1) - 1);
+  if (prosemirrorTransform.canJoin(tr.doc, $after.pos) && $after.nodeBefore.type == $after.nodeAfter.type) tr.join($after.pos);
   dispatch(tr.scrollIntoView());
   return true;
 }
@@ -15920,41 +16006,45 @@ var StepMap = function () {
 }();
 StepMap.empty = new StepMap([]);
 var Mapping = function () {
-  function Mapping() {
-    var maps = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
-    var mirror = arguments.length > 1 ? arguments[1] : undefined;
+  function Mapping(maps, mirror) {
     var from = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : 0;
-    var to = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : maps.length;
+    var to = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : maps ? maps.length : 0;
     _classCallCheck(this, Mapping);
-    this.maps = maps;
     this.mirror = mirror;
     this.from = from;
     this.to = to;
+    this._maps = maps || [];
+    this.ownData = !(maps || mirror);
   }
   _createClass(Mapping, [{
+    key: "maps",
+    get: function get() {
+      return this._maps;
+    }
+  }, {
     key: "slice",
     value: function slice() {
       var from = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : 0;
       var to = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : this.maps.length;
-      return new Mapping(this.maps, this.mirror, from, to);
-    }
-  }, {
-    key: "copy",
-    value: function copy() {
-      return new Mapping(this.maps.slice(), this.mirror && this.mirror.slice(), this.from, this.to);
+      return new Mapping(this._maps, this.mirror, from, to);
     }
   }, {
     key: "appendMap",
     value: function appendMap(map, mirrors) {
-      this.to = this.maps.push(map);
-      if (mirrors != null) this.setMirror(this.maps.length - 1, mirrors);
+      if (!this.ownData) {
+        this._maps = this._maps.slice();
+        this.mirror = this.mirror && this.mirror.slice();
+        this.ownData = true;
+      }
+      this.to = this._maps.push(map);
+      if (mirrors != null) this.setMirror(this._maps.length - 1, mirrors);
     }
   }, {
     key: "appendMapping",
     value: function appendMapping(mapping) {
-      for (var i = 0, startSize = this.maps.length; i < mapping.maps.length; i++) {
+      for (var i = 0, startSize = this._maps.length; i < mapping._maps.length; i++) {
         var mirr = mapping.getMirror(i);
-        this.appendMap(mapping.maps[i], mirr != null && mirr < i ? startSize + mirr : undefined);
+        this.appendMap(mapping._maps[i], mirr != null && mirr < i ? startSize + mirr : undefined);
       }
     }
   }, {
@@ -15971,9 +16061,9 @@ var Mapping = function () {
   }, {
     key: "appendMappingInverted",
     value: function appendMappingInverted(mapping) {
-      for (var i = mapping.maps.length - 1, totalSize = this.maps.length + mapping.maps.length; i >= 0; i--) {
+      for (var i = mapping.maps.length - 1, totalSize = this._maps.length + mapping._maps.length; i >= 0; i--) {
         var mirr = mapping.getMirror(i);
-        this.appendMap(mapping.maps[i].invert(), mirr != null && mirr > i ? totalSize - mirr - 1 : undefined);
+        this.appendMap(mapping._maps[i].invert(), mirr != null && mirr > i ? totalSize - mirr - 1 : undefined);
       }
     }
   }, {
@@ -15988,7 +16078,7 @@ var Mapping = function () {
     value: function map(pos) {
       var assoc = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 1;
       if (this.mirror) return this._map(pos, assoc, true);
-      for (var i = this.from; i < this.to; i++) pos = this.maps[i].map(pos, assoc);
+      for (var i = this.from; i < this.to; i++) pos = this._maps[i].map(pos, assoc);
       return pos;
     }
   }, {
@@ -16002,13 +16092,13 @@ var Mapping = function () {
     value: function _map(pos, assoc, simple) {
       var delInfo = 0;
       for (var i = this.from; i < this.to; i++) {
-        var map = this.maps[i],
+        var map = this._maps[i],
           result = map.mapResult(pos, assoc);
         if (result.recover != null) {
           var corr = this.getMirror(i);
           if (corr != null && corr > i && corr < this.to) {
             i = corr;
-            pos = this.maps[corr].recover(result.recover);
+            pos = this._maps[corr].recover(result.recover);
             continue;
           }
         }
@@ -16362,7 +16452,7 @@ var ReplaceStep = function (_Step5) {
       var from = mapping.mapResult(this.from, 1),
         to = mapping.mapResult(this.to, -1);
       if (from.deletedAcross && to.deletedAcross) return null;
-      return new ReplaceStep(from.pos, Math.max(from.pos, to.pos), this.slice);
+      return new ReplaceStep(from.pos, Math.max(from.pos, to.pos), this.slice, this.structure);
     }
   }, {
     key: "merge",
@@ -17545,13 +17635,20 @@ var Transform = function () {
   }, {
     key: "removeNodeMark",
     value: function removeNodeMark(pos, mark) {
-      if (!(mark instanceof prosemirrorModel.Mark)) {
-        var node = this.doc.nodeAt(pos);
-        if (!node) throw new RangeError("No node at position " + pos);
-        mark = mark.isInSet(node.marks);
-        if (!mark) return this;
+      var node = this.doc.nodeAt(pos);
+      if (!node) throw new RangeError("No node at position " + pos);
+      if (mark instanceof prosemirrorModel.Mark) {
+        if (mark.isInSet(node.marks)) this.step(new RemoveNodeMarkStep(pos, mark));
+      } else {
+        var set = node.marks,
+          found,
+          steps = [];
+        while (found = mark.isInSet(set)) {
+          steps.push(new RemoveNodeMarkStep(pos, found));
+          set = found.removeFromSet(set);
+        }
+        for (var i = steps.length - 1; i >= 0; i--) this.step(steps[i]);
       }
-      this.step(new RemoveNodeMarkStep(pos, mark));
       return this;
     }
   }, {
@@ -17809,9 +17906,12 @@ function scrollRectIntoView(view, rect, startDOM) {
   var scrollThreshold = view.someProp("scrollThreshold") || 0,
     scrollMargin = view.someProp("scrollMargin") || 5;
   var doc = view.dom.ownerDocument;
-  for (var parent = startDOM || view.dom;; parent = parentNode(parent)) {
+  for (var parent = startDOM || view.dom;;) {
     if (!parent) break;
-    if (parent.nodeType != 1) continue;
+    if (parent.nodeType != 1) {
+      parent = parentNode(parent);
+      continue;
+    }
     var elt = parent;
     var atTop = elt == doc.body;
     var bounding = atTop ? windowRect(doc) : clientRect(elt);
@@ -17837,7 +17937,9 @@ function scrollRectIntoView(view, rect, startDOM) {
         };
       }
     }
-    if (atTop || /^(fixed|sticky)$/.test(getComputedStyle(parent).position)) break;
+    var pos = atTop ? "fixed" : getComputedStyle(parent).position;
+    if (/^(fixed|sticky)$/.test(pos)) break;
+    parent = pos == "absolute" ? parent.offsetParent : parentNode(parent);
   }
 }
 function storeScrollPos(view) {
@@ -18419,7 +18521,15 @@ var ViewDesc = function () {
         var child = this.children[i],
           end = offset + child.size;
         if (offset == pos && end != offset) {
-          while (!child.border && child.children.length) child = child.children[0];
+          while (!child.border && child.children.length) {
+            for (var _i = 0; _i < child.children.length; _i++) {
+              var inner = child.children[_i];
+              if (inner.size) {
+                child = inner;
+                break;
+              }
+            }
+          }
           return child;
         }
         if (pos < end) return child.descAt(pos - offset - child.border);
@@ -19309,7 +19419,7 @@ function patchAttributes(dom, prev, cur) {
     var prevList = prev["class"] ? prev["class"].split(" ").filter(Boolean) : [];
     var curList = cur["class"] ? cur["class"].split(" ").filter(Boolean) : [];
     for (var i = 0; i < prevList.length; i++) if (curList.indexOf(prevList[i]) == -1) dom.classList.remove(prevList[i]);
-    for (var _i = 0; _i < curList.length; _i++) if (prevList.indexOf(curList[_i]) == -1) dom.classList.add(curList[_i]);
+    for (var _i2 = 0; _i2 < curList.length; _i2++) if (prevList.indexOf(curList[_i2]) == -1) dom.classList.add(curList[_i2]);
     if (dom.classList.length == 0) dom.removeAttribute("class");
   }
   if (prev.style != cur.style) {
@@ -19629,7 +19739,7 @@ function iterDeco(parent, deco, onWidget, onNode) {
     if (widget) {
       if (widgets) {
         widgets.sort(compareSide);
-        for (var _i2 = 0; _i2 < widgets.length; _i2++) onWidget(widgets[_i2], parentIndex, !!restNode);
+        for (var _i3 = 0; _i3 < widgets.length; _i3++) onWidget(widgets[_i3], parentIndex, !!restNode);
       } else {
         onWidget(widget, parentIndex, !!restNode);
       }
@@ -19646,13 +19756,13 @@ function iterDeco(parent, deco, onWidget, onNode) {
     } else {
       break;
     }
-    for (var _i3 = 0; _i3 < active.length; _i3++) if (active[_i3].to <= offset) active.splice(_i3--, 1);
+    for (var _i4 = 0; _i4 < active.length; _i4++) if (active[_i4].to <= offset) active.splice(_i4--, 1);
     while (decoIndex < locals.length && locals[decoIndex].from <= offset && locals[decoIndex].to > offset) active.push(locals[decoIndex++]);
     var end = offset + _child.nodeSize;
     if (_child.isText) {
       var cutAt = end;
       if (decoIndex < locals.length && locals[decoIndex].from < cutAt) cutAt = locals[decoIndex].from;
-      for (var _i4 = 0; _i4 < active.length; _i4++) if (active[_i4].to < cutAt) cutAt = active[_i4].to;
+      for (var _i5 = 0; _i5 < active.length; _i5++) if (active[_i5].to < cutAt) cutAt = active[_i5].to;
       if (cutAt < end) {
         restNode = _child.cut(cutAt - offset);
         _child = _child.cut(0, cutAt - offset);
@@ -20210,7 +20320,7 @@ function captureKeyDown(view, event) {
   }
   return false;
 }
-function serializeForClipboard(view, slice) {
+function _serializeForClipboard(view, slice) {
   view.someProp("transformCopied", function (f) {
     slice = f(slice, view);
   });
@@ -20409,7 +20519,7 @@ var _policy = null;
 function maybeWrapTrusted(html) {
   var trustedTypes = window.trustedTypes;
   if (!trustedTypes) return html;
-  if (!_policy) _policy = trustedTypes.createPolicy("ProseMirrorClipboard", {
+  if (!_policy) _policy = trustedTypes.defaultPolicy || trustedTypes.createPolicy("ProseMirrorClipboard", {
     createHTML: function createHTML(s) {
       return s;
     }
@@ -20475,7 +20585,8 @@ var InputState = _createClass(function InputState() {
     time: 0,
     x: 0,
     y: 0,
-    type: ""
+    type: "",
+    button: 0
   };
   this.lastSelectionOrigin = null;
   this.lastSelectionTime = 0;
@@ -20701,14 +20812,15 @@ handlers.mousedown = function (view, _event) {
   var flushed = forceDOMFlush(view);
   var now = Date.now(),
     type = "singleClick";
-  if (now - view.input.lastClick.time < 500 && isNear(event, view.input.lastClick) && !event[selectNodeModifier]) {
+  if (now - view.input.lastClick.time < 500 && isNear(event, view.input.lastClick) && !event[selectNodeModifier] && view.input.lastClick.button == event.button) {
     if (view.input.lastClick.type == "singleClick") type = "doubleClick";else if (view.input.lastClick.type == "doubleClick") type = "tripleClick";
   }
   view.input.lastClick = {
     time: now,
     x: event.clientX,
     y: event.clientY,
-    type: type
+    type: type,
+    button: event.button
   };
   var pos = view.posAtCoords(eventCoords(event));
   if (!pos) return;
@@ -20925,8 +21037,9 @@ function endComposition(view) {
   view.domObserver.forceFlush();
   clearComposition(view);
   if (restarting || view.docView && view.docView.dirty) {
-    var sel = selectionFromDOM(view);
-    if (sel && !sel.eq(view.state.selection)) view.dispatch(view.state.tr.setSelection(sel));else if ((view.markCursor || restarting) && !view.state.selection.empty) view.dispatch(view.state.tr.deleteSelection());else view.updateState(view.state);
+    var sel = selectionFromDOM(view),
+      cur = view.state.selection;
+    if (sel && !sel.eq(cur)) view.dispatch(view.state.tr.setSelection(sel));else if ((view.markCursor || restarting) && !cur.$from.node(cur.$from.sharedDepth(cur.to)).inlineContent) view.dispatch(view.state.tr.deleteSelection());else view.updateState(view.state);
     return true;
   }
   return false;
@@ -20955,7 +21068,7 @@ handlers.copy = editHandlers.cut = function (view, _event) {
   if (sel.empty) return;
   var data = brokenClipboardAPI ? null : event.clipboardData;
   var slice = sel.content(),
-    _serializeForClipboar = serializeForClipboard(view, slice),
+    _serializeForClipboar = _serializeForClipboard(view, slice),
     dom = _serializeForClipboar.dom,
     text = _serializeForClipboar.text;
   if (data) {
@@ -21016,6 +21129,12 @@ var Dragging = _createClass(function Dragging(slice, move, node) {
   this.node = node;
 });
 var dragCopyModifier = mac ? "altKey" : "ctrlKey";
+function dragMoves(view, event) {
+  var moves = view.someProp("dragCopies", function (test) {
+    return !test(event);
+  });
+  return moves != null ? moves : !event[dragCopyModifier];
+}
 handlers.dragstart = function (view, _event) {
   var event = _event;
   var mouseDown = view.input.mouseDown;
@@ -21031,7 +21150,7 @@ handlers.dragstart = function (view, _event) {
     if (desc && desc.node.type.spec.draggable && desc != view.docView) node = prosemirrorState.NodeSelection.create(view.state.doc, desc.posBefore);
   }
   var draggedSlice = (node || view.state.selection).content();
-  var _serializeForClipboar2 = serializeForClipboard(view, draggedSlice),
+  var _serializeForClipboar2 = _serializeForClipboard(view, draggedSlice),
     dom = _serializeForClipboar2.dom,
     text = _serializeForClipboar2.text,
     slice = _serializeForClipboar2.slice;
@@ -21039,7 +21158,7 @@ handlers.dragstart = function (view, _event) {
   event.dataTransfer.setData(brokenClipboardAPI ? "Text" : "text/html", dom.innerHTML);
   event.dataTransfer.effectAllowed = "copyMove";
   if (!brokenClipboardAPI) event.dataTransfer.setData("text/plain", text);
-  view.dragging = new Dragging(slice, !event[dragCopyModifier], node);
+  view.dragging = new Dragging(slice, dragMoves(view, event), node);
 };
 handlers.dragend = function (view) {
   var dragging = view.dragging;
@@ -21066,7 +21185,7 @@ editHandlers.drop = function (view, _event) {
   } else {
     slice = parseFromClipboard(view, getText(event.dataTransfer), brokenClipboardAPI ? null : event.dataTransfer.getData("text/html"), false, $mouse);
   }
-  var move = !!(dragging && !event[dragCopyModifier]);
+  var move = !!(dragging && dragMoves(view, event));
   if (view.someProp("handleDrop", function (f) {
     return f(view, event, slice || prosemirrorModel.Slice.empty, move);
   })) {
@@ -21326,10 +21445,10 @@ var DecorationSet = function () {
         var span = this.local[i];
         if (span.from <= end && span.to >= start && (!predicate || predicate(span.spec))) result.push(span.copy(span.from + offset, span.to + offset));
       }
-      for (var _i5 = 0; _i5 < this.children.length; _i5 += 3) {
-        if (this.children[_i5] < end && this.children[_i5 + 1] > start) {
-          var childOff = this.children[_i5] + 1;
-          this.children[_i5 + 2].findInner(start - childOff, end - childOff, result, offset + childOff, predicate);
+      for (var _i6 = 0; _i6 < this.children.length; _i6 += 3) {
+        if (this.children[_i6] < end && this.children[_i6 + 1] > start) {
+          var childOff = this.children[_i6] + 1;
+          this.children[_i6 + 2].findInner(start - childOff, end - childOff, result, offset + childOff, predicate);
         }
       }
     }
@@ -21406,7 +21525,7 @@ var DecorationSet = function () {
           i -= 3;
         }
       }
-      if (local.length) for (var _i6 = 0, _span; _i6 < decorations.length; _i6++) if (_span = decorations[_i6]) {
+      if (local.length) for (var _i7 = 0, _span; _i7 < decorations.length; _i7++) if (_span = decorations[_i7]) {
         for (var _j2 = 0; _j2 < local.length; _j2++) if (local[_j2].eq(_span, offset)) {
           if (local == this.local) local = this.local.slice();
           local.splice(_j2--, 1);
@@ -21427,8 +21546,8 @@ var DecorationSet = function () {
       }
       var start = offset + 1,
         end = start + node.content.size;
-      for (var _i7 = 0; _i7 < this.local.length; _i7++) {
-        var dec = this.local[_i7];
+      for (var _i8 = 0; _i8 < this.local.length; _i8++) {
+        var dec = this.local[_i8];
         if (dec.from < end && dec.to > start && dec.type instanceof InlineType) {
           var from = Math.max(start, dec.from) - start,
             to = Math.min(end, dec.to) - start;
@@ -21447,7 +21566,7 @@ var DecorationSet = function () {
       if (this == other) return true;
       if (!(other instanceof DecorationSet) || this.local.length != other.local.length || this.children.length != other.children.length) return false;
       for (var i = 0; i < this.local.length; i++) if (!this.local[i].eq(other.local[i])) return false;
-      for (var _i8 = 0; _i8 < this.children.length; _i8 += 3) if (this.children[_i8] != other.children[_i8] || this.children[_i8 + 1] != other.children[_i8 + 1] || !this.children[_i8 + 2].eq(other.children[_i8 + 2])) return false;
+      for (var _i9 = 0; _i9 < this.children.length; _i9 += 3) if (this.children[_i9] != other.children[_i9] || this.children[_i9 + 1] != other.children[_i9 + 1] || !this.children[_i9 + 2].eq(other.children[_i9 + 2])) return false;
       return true;
     }
   }, {
@@ -21564,15 +21683,15 @@ function mapChildren(oldChildren, newLocal, mapping, node, offset, oldOffset, op
     var moved = 0;
     mapping.maps[i].forEach(function (oldStart, oldEnd, newStart, newEnd) {
       var dSize = newEnd - newStart - (oldEnd - oldStart);
-      for (var _i12 = 0; _i12 < children.length; _i12 += 3) {
-        var end = children[_i12 + 1];
+      for (var _i13 = 0; _i13 < children.length; _i13 += 3) {
+        var end = children[_i13 + 1];
         if (end < 0 || oldStart > end + _baseOffset - moved) continue;
-        var start = children[_i12] + _baseOffset - moved;
+        var start = children[_i13] + _baseOffset - moved;
         if (oldEnd >= start) {
-          children[_i12 + 1] = oldStart <= start ? -2 : -1;
+          children[_i13 + 1] = oldStart <= start ? -2 : -1;
         } else if (oldStart >= _baseOffset && dSize) {
-          children[_i12] += dSize;
-          children[_i12 + 1] += dSize;
+          children[_i13] += dSize;
+          children[_i13 + 1] += dSize;
         }
       }
       moved += dSize;
@@ -21584,32 +21703,32 @@ function mapChildren(oldChildren, newLocal, mapping, node, offset, oldOffset, op
     _loop4(baseOffset);
   }
   var mustRebuild = false;
-  for (var _i9 = 0; _i9 < children.length; _i9 += 3) if (children[_i9 + 1] < 0) {
-    if (children[_i9 + 1] == -2) {
+  for (var _i10 = 0; _i10 < children.length; _i10 += 3) if (children[_i10 + 1] < 0) {
+    if (children[_i10 + 1] == -2) {
       mustRebuild = true;
-      children[_i9 + 1] = -1;
+      children[_i10 + 1] = -1;
       continue;
     }
-    var from = mapping.map(oldChildren[_i9] + oldOffset),
+    var from = mapping.map(oldChildren[_i10] + oldOffset),
       fromLocal = from - offset;
     if (fromLocal < 0 || fromLocal >= node.content.size) {
       mustRebuild = true;
       continue;
     }
-    var to = mapping.map(oldChildren[_i9 + 1] + oldOffset, -1),
+    var to = mapping.map(oldChildren[_i10 + 1] + oldOffset, -1),
       toLocal = to - offset;
     var _node$content$findInd2 = node.content.findIndex(fromLocal),
       index = _node$content$findInd2.index,
       childOffset = _node$content$findInd2.offset;
     var childNode = node.maybeChild(index);
     if (childNode && childOffset == fromLocal && childOffset + childNode.nodeSize == toLocal) {
-      var mapped = children[_i9 + 2].mapInner(mapping, childNode, from + 1, oldChildren[_i9] + oldOffset + 1, options);
+      var mapped = children[_i10 + 2].mapInner(mapping, childNode, from + 1, oldChildren[_i10] + oldOffset + 1, options);
       if (mapped != empty) {
-        children[_i9] = fromLocal;
-        children[_i9 + 1] = toLocal;
-        children[_i9 + 2] = mapped;
+        children[_i10] = fromLocal;
+        children[_i10 + 1] = toLocal;
+        children[_i10 + 2] = mapped;
       } else {
-        children[_i9 + 1] = -2;
+        children[_i10 + 1] = -2;
         mustRebuild = true;
       }
     } else {
@@ -21620,14 +21739,14 @@ function mapChildren(oldChildren, newLocal, mapping, node, offset, oldOffset, op
     var decorations = mapAndGatherRemainingDecorations(children, oldChildren, newLocal, mapping, offset, oldOffset, options);
     var built = buildTree(decorations, node, 0, options);
     newLocal = built.local;
-    for (var _i10 = 0; _i10 < children.length; _i10 += 3) if (children[_i10 + 1] < 0) {
-      children.splice(_i10, 3);
-      _i10 -= 3;
+    for (var _i11 = 0; _i11 < children.length; _i11 += 3) if (children[_i11 + 1] < 0) {
+      children.splice(_i11, 3);
+      _i11 -= 3;
     }
-    for (var _i11 = 0, j = 0; _i11 < built.children.length; _i11 += 3) {
-      var _from2 = built.children[_i11];
+    for (var _i12 = 0, j = 0; _i12 < built.children.length; _i12 += 3) {
+      var _from2 = built.children[_i12];
       while (j < children.length && children[j] < _from2) j += 3;
-      children.splice(j, 0, built.children[_i11], built.children[_i11 + 1], built.children[_i11 + 2]);
+      children.splice(j, 0, built.children[_i12], built.children[_i12 + 1], built.children[_i12 + 2]);
     }
   }
   return new DecorationSet(newLocal.sort(byPos), children);
@@ -21647,7 +21766,7 @@ function mapAndGatherRemainingDecorations(children, oldChildren, decorations, ma
       var mapped = set.local[i].map(mapping, offset, oldOffset);
       if (mapped) decorations.push(mapped);else if (options.onRemove) options.onRemove(set.local[i].spec);
     }
-    for (var _i13 = 0; _i13 < set.children.length; _i13 += 3) gather(set.children[_i13 + 2], set.children[_i13] + oldOffset + 1);
+    for (var _i14 = 0; _i14 < set.children.length; _i14 += 3) gather(set.children[_i14 + 2], set.children[_i14] + oldOffset + 1);
   }
   for (var i = 0; i < children.length; i += 3) if (children[i + 1] == -1) gather(children[i + 2], oldChildren[i] + oldOffset + 1);
   return decorations;
@@ -22001,8 +22120,8 @@ var DOMObserver = function () {
         var prev = mut.previousSibling,
           next = mut.nextSibling;
         if (ie && ie_version <= 11 && mut.addedNodes.length) {
-          for (var _i14 = 0; _i14 < mut.addedNodes.length; _i14++) {
-            var _mut$addedNodes$_i = mut.addedNodes[_i14],
+          for (var _i15 = 0; _i15 < mut.addedNodes.length; _i15++) {
+            var _mut$addedNodes$_i = mut.addedNodes[_i15],
               previousSibling = _mut$addedNodes$_i.previousSibling,
               nextSibling = _mut$addedNodes$_i.nextSibling;
             if (!previousSibling || Array.prototype.indexOf.call(mut.addedNodes, previousSibling) < 0) prev = previousSibling;
@@ -22258,7 +22377,7 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
   var nextSel;
   if ((ios && view.input.lastIOSEnter > Date.now() - 225 && (!inlineChange || addedNodes.some(function (n) {
     return n.nodeName == "DIV" || n.nodeName == "P";
-  })) || !inlineChange && $from.pos < parse.doc.content.size && !$from.sameParent($to) && (nextSel = prosemirrorState.Selection.findFrom(parse.doc.resolve($from.pos + 1), 1, true)) && nextSel.head == $to.pos) && view.someProp("handleKeyDown", function (f) {
+  })) || !inlineChange && $from.pos < parse.doc.content.size && (!$from.sameParent($to) || !$from.parent.inlineContent) && !/\S/.test(parse.doc.textBetween($from.pos, $to.pos, "", "")) && (nextSel = prosemirrorState.Selection.findFrom(parse.doc.resolve($from.pos + 1), 1, true)) && nextSel.head > $from.pos) && view.someProp("handleKeyDown", function (f) {
     return f(view, keyEvent(13, "Enter"));
   })) {
     view.input.lastIOSEnter = 0;
@@ -22326,7 +22445,7 @@ function isMarkChange(cur, prev) {
     mark,
     update;
   for (var i = 0; i < prevMarks.length; i++) added = prevMarks[i].removeFromSet(added);
-  for (var _i15 = 0; _i15 < curMarks.length; _i15++) removed = curMarks[_i15].removeFromSet(removed);
+  for (var _i16 = 0; _i16 < curMarks.length; _i16++) removed = curMarks[_i16].removeFromSet(removed);
   if (added.length == 1 && removed.length == 0) {
     mark = added[0];
     type = "add";
@@ -22343,7 +22462,7 @@ function isMarkChange(cur, prev) {
     return null;
   }
   var updated = [];
-  for (var _i16 = 0; _i16 < prev.childCount; _i16++) updated.push(update(prev.child(_i16)));
+  for (var _i17 = 0; _i17 < prev.childCount; _i17++) updated.push(update(prev.child(_i17)));
   if (prosemirrorModel.Fragment.from(updated).eq(cur)) return {
     mark: mark,
     type: type
@@ -22413,7 +22532,6 @@ function isSurrogatePair(str) {
     b = str.charCodeAt(1);
   return a >= 0xDC00 && a <= 0xDFFF && b >= 0xD800 && b <= 0xDBFF;
 }
-var __serializeForClipboard = serializeForClipboard;
 var __parseFromClipboard = parseFromClipboard;
 var __endComposition = endComposition;
 var EditorView = function () {
@@ -22561,7 +22679,7 @@ var EditorView = function () {
     value: function scrollToSelection() {
       var _this16 = this;
       var startDOM = this.domSelectionRange().focusNode;
-      if (this.someProp("handleScrollToSelection", function (f) {
+      if (!startDOM || !this.dom.contains(startDOM.nodeType == 1 ? startDOM : startDOM.parentNode)) ;else if (this.someProp("handleScrollToSelection", function (f) {
         return f(_this16);
       })) ;else if (this.state.selection instanceof prosemirrorState.NodeSelection) {
         var target = this.docView.domAfterPos(this.state.selection.from);
@@ -22586,13 +22704,13 @@ var EditorView = function () {
           var plugin = this.directPlugins[i];
           if (plugin.spec.view) this.pluginViews.push(plugin.spec.view(this));
         }
-        for (var _i17 = 0; _i17 < this.state.plugins.length; _i17++) {
-          var _plugin = this.state.plugins[_i17];
+        for (var _i18 = 0; _i18 < this.state.plugins.length; _i18++) {
+          var _plugin = this.state.plugins[_i18];
           if (_plugin.spec.view) this.pluginViews.push(_plugin.spec.view(this));
         }
       } else {
-        for (var _i18 = 0; _i18 < this.pluginViews.length; _i18++) {
-          var pluginView = this.pluginViews[_i18];
+        for (var _i19 = 0; _i19 < this.pluginViews.length; _i19++) {
+          var pluginView = this.pluginViews[_i19];
           if (pluginView.update) pluginView.update(this, prevState);
         }
       }
@@ -22622,8 +22740,8 @@ var EditorView = function () {
         if (_prop != null && (value = f ? f(_prop) : _prop)) return value;
       }
       var plugins = this.state.plugins;
-      if (plugins) for (var _i19 = 0; _i19 < plugins.length; _i19++) {
-        var _prop2 = plugins[_i19].props[propName];
+      if (plugins) for (var _i20 = 0; _i20 < plugins.length; _i20++) {
+        var _prop2 = plugins[_i20].props[propName];
         if (_prop2 != null && (value = f ? f(_prop2) : _prop2)) return value;
       }
     }
@@ -22724,6 +22842,11 @@ var EditorView = function () {
     key: "pasteText",
     value: function pasteText(text, event) {
       return doPaste(this, text, null, true, event || new ClipboardEvent("paste"));
+    }
+  }, {
+    key: "serializeForClipboard",
+    value: function serializeForClipboard(slice) {
+      return _serializeForClipboard(this, slice);
     }
   }, {
     key: "destroy",
@@ -22843,7 +22966,6 @@ exports.DecorationSet = DecorationSet;
 exports.EditorView = EditorView;
 exports.__endComposition = __endComposition;
 exports.__parseFromClipboard = __parseFromClipboard;
-exports.__serializeForClipboard = __serializeForClipboard;
 
 },{"prosemirror-model":44,"prosemirror-state":46,"prosemirror-transform":47}],49:[function(require,module,exports){
 'use strict';
