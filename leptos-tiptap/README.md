@@ -27,7 +27,8 @@ library [Leptonic](https://leptonic.dev/), which already incorporates this crate
 | 0.5, 0.6      | 0.5 (csr and ssr)         |
 | 0.7           | 0.6                       |
 | 0.8           | 0.7                       |
+| 0.9           | 0.8                       |
 
 ## MSRV
 
-The minimum supported rust version is `1.65`
+The minimum supported rust version is `1.76.0`
