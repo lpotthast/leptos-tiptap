@@ -13,12 +13,12 @@ leptos-tiptap-build = { path = "../../../leptos-tiptap-build" }
 [dependencies]
 console_error_panic_hook = "0.1.7"
 leptos-tiptap = { path = "../../../leptos-tiptap" }
-axum = { version = "0.7.9", optional = true }
+axum = { version = "0.8.4", optional = true }
 axum-server = { version = "0.7.1", features = ["tls-rustls"], optional = true }
-leptos = { version = "0.7.2", features = [] }
-leptos_axum = { version = "0.7.2", optional = true }
-leptos_meta = { version = "0.7.2", features = [] }
-leptos_router = { version = "0.7.2", features = [] }
+leptos = { version = "0.8.2", features = [] }
+leptos_axum = { version = "0.8.2", optional = true }
+leptos_meta = { version = "0.8.2", features = [] }
+leptos_router = { version = "0.8.2", features = [] }
 tokio = { version = "1.42.0", features = ["rt-multi-thread"], optional = true }
 tower = { version = "0.5.2", optional = true }
 tower-http = { version = "0.6.2", features = ["fs"], optional = true }
