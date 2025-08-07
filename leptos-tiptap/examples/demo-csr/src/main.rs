@@ -16,6 +16,7 @@ pub fn App() -> impl IntoView {
     let (value, set_value) = signal(r#"<h1>This is a simple <em><s>paragraph</s></em> ... <strong>H1</strong>!</h1><p style="text-align: center"><strong>Lorem ipsum dolor sit amet, consetetur sadipscing elitr, <mark>sed diam nonumy</mark> eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua.</strong></p><p style="text-align: justify">Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.</p>"#.to_owned());
     let (selection, set_selection) = signal(TiptapSelectionState::default());
     let (disabled, set_disabled) = signal(false);
+    let (placeholder, set_placeholder) = signal("Start typing here...".to_owned());
 
     view! {
         <h2>"Tiptap instance"</h2>
@@ -62,6 +63,7 @@ pub fn App() -> impl IntoView {
         }))>
             "Toggle YouTube video"
         </button>
+        <button on:click=move |_| set_placeholder.set("Start typing here...".to_owned())>"Placeholder: " { move || placeholder.get() }</button>
 
         <TiptapInstance
             id="id"
@@ -74,6 +76,7 @@ pub fn App() -> impl IntoView {
             })
             on_selection_change=move |state| set_selection.set(state)
             attr:style="display: block; width: auto; height: auto; border: 1px solid; padding: 0.5em; white-space: pre-wrap;"
+            placeholder=placeholder
         />
 
         <div style="display: flex; flex-direction: row; gap: 0.5em; margin-top: 0.5em;">

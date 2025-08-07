@@ -5,6 +5,7 @@ const TipTapTextAlign = require('@tiptap/extension-text-align')
 const TipTapImage = require('@tiptap/extension-image')
 const TipTapLink = require('@tiptap/extension-link')
 const TipTapYoutube = require('@tiptap/extension-youtube');
+const TipTapPlaceholder = require('@tiptap/extension-placeholder');
 
 global.window.TipTap = TipTap
 global.window.TipTapStarterKit = TipTapStarterKit
@@ -13,3 +14,4 @@ global.window.TipTapTextAlign = TipTapTextAlign
 global.window.TipTapImage = TipTapImage
 global.window.TipTapLink = TipTapLink
 global.window.TipTapYoutube = TipTapYoutube
+global.window.TipTapPlaceholder = TipTapPlaceholder

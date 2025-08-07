@@ -17,7 +17,7 @@ function _getEditor(id) {
   return window._leptosTiptapEditors.get(id)
 }
 
-export function create(id, content, editable, onChange, onSelection) {
+export function create(id, content, editable, onChange, onSelection, placeholder) {
   var myElem = document.getElementById(id);
   if (myElem == null) {
     console.error('Can not create Tiptap instance on element with id "' + id + '", as element could not be found. You may have executed this function when the element was not yet mounted to the DOM.');
@@ -34,7 +34,10 @@ export function create(id, content, editable, onChange, onSelection) {
       window.TipTapHighlight.Highlight,
       window.TipTapImage.Image,
       window.TipTapLink.Link,
-      window.TipTapYoutube.Youtube
+      window.TipTapYoutube.Youtube,
+      window.TiptapPlaceholder.Placeholder.configure({
+        placeholder,
+      }),
     ],
     injectCSS: false,
     content: content,
