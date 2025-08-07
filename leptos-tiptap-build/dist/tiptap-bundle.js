@@ -7,6 +7,7 @@ const TipTapTextAlign = require('@tiptap/extension-text-align')
 const TipTapImage = require('@tiptap/extension-image')
 const TipTapLink = require('@tiptap/extension-link')
 const TipTapYoutube = require('@tiptap/extension-youtube');
+const TipTapPlaceholder = require('@tiptap/extension-placeholder');
 
 global.window.TipTap = TipTap
 global.window.TipTapStarterKit = TipTapStarterKit
@@ -15,9 +16,10 @@ global.window.TipTapTextAlign = TipTapTextAlign
 global.window.TipTapImage = TipTapImage
 global.window.TipTapLink = TipTapLink
 global.window.TipTapYoutube = TipTapYoutube
+global.window.TipTapPlaceholder = TipTapPlaceholder
 
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"@tiptap/core":2,"@tiptap/extension-highlight":13,"@tiptap/extension-image":16,"@tiptap/extension-link":18,"@tiptap/extension-text-align":23,"@tiptap/extension-youtube":25,"@tiptap/starter-kit":36}],2:[function(require,module,exports){
+},{"@tiptap/core":2,"@tiptap/extension-highlight":13,"@tiptap/extension-image":16,"@tiptap/extension-link":18,"@tiptap/extension-placeholder":22,"@tiptap/extension-text-align":24,"@tiptap/extension-youtube":26,"@tiptap/starter-kit":37}],2:[function(require,module,exports){
 'use strict';
 
 var state = require('@tiptap/pm/state');
@@ -1108,7 +1110,7 @@ function pasteRulesPlugin(props) {
                         dropEvent = event;
                         if (!isDroppedFromProseMirror) {
                             const dragFromOtherEditor = tiptapDragFromOtherEditor;
-                            if (dragFromOtherEditor) {
+                            if (dragFromOtherEditor === null || dragFromOtherEditor === void 0 ? void 0 : dragFromOtherEditor.isEditable) {
                                 // setTimeout to avoid the wrong content after drop, timeout arg can't be empty or 0
                                 setTimeout(() => {
                                     const selection = dragFromOtherEditor.state.selection;
@@ -1659,7 +1661,7 @@ const cut = (originRange, targetPos) => ({ editor, tr }) => {
     tr.deleteRange(originRange.from, originRange.to);
     const newPos = tr.mapping.map(targetPos);
     tr.insert(newPos, contentSlice.content);
-    tr.setSelection(new state.TextSelection(tr.doc.resolve(newPos - 1)));
+    tr.setSelection(new state.TextSelection(tr.doc.resolve(Math.max(newPos - 1, 0))));
     return true;
 };
 
@@ -2091,25 +2093,42 @@ const insertContentAt = (position, value, options) => ({ tr, dispatch, editor })
             ...options,
         };
         let content;
-        try {
-            content = createNodeFromContent(value, editor.schema, {
-                parseOptions: {
-                    preserveWhitespace: 'full',
-                    ...options.parseOptions,
-                },
-                errorOnInvalidContent: (_a = options.errorOnInvalidContent) !== null && _a !== void 0 ? _a : editor.options.enableContentCheck,
-            });
-        }
-        catch (e) {
+        const emitContentError = (error) => {
             editor.emit('contentError', {
                 editor,
-                error: e,
+                error,
                 disableCollaboration: () => {
                     if (editor.storage.collaboration) {
                         editor.storage.collaboration.isDisabled = true;
                     }
                 },
             });
+        };
+        const parseOptions = {
+            preserveWhitespace: 'full',
+            ...options.parseOptions,
+        };
+        // If `emitContentError` is enabled, we want to check the content for errors
+        // but ignore them (do not remove the invalid content from the document)
+        if (!options.errorOnInvalidContent && !editor.options.enableContentCheck && editor.options.emitContentError) {
+            try {
+                createNodeFromContent(value, editor.schema, {
+                    parseOptions,
+                    errorOnInvalidContent: true,
+                });
+            }
+            catch (e) {
+                emitContentError(e);
+            }
+        }
+        try {
+            content = createNodeFromContent(value, editor.schema, {
+                parseOptions,
+                errorOnInvalidContent: (_a = options.errorOnInvalidContent) !== null && _a !== void 0 ? _a : editor.options.enableContentCheck,
+            });
+        }
+        catch (e) {
+            emitContentError(e);
             return false;
         }
         let { from, to } = typeof position === 'number' ? { from: position, to: position } : { from: position.from, to: position.to };
@@ -4217,6 +4236,10 @@ class NodePos {
             const isBlock = node.isBlock && !node.isTextblock;
             const isNonTextAtom = node.isAtom && !node.isText;
             const targetPos = this.pos + offset + (isNonTextAtom ? 0 : 1);
+            // Check if targetPos is within valid document range
+            if (targetPos < 0 || targetPos > this.resolvedPos.doc.nodeSize - 2) {
+                return;
+            }
             const $pos = this.resolvedPos.doc.resolve(targetPos);
             if (!isBlock && $pos.depth <= this.depth) {
                 return;
@@ -4416,6 +4439,7 @@ class Editor extends EventEmitter {
             enablePasteRules: true,
             enableCoreExtensions: true,
             enableContentCheck: false,
+            emitContentError: false,
             onBeforeCreate: () => null,
             onCreate: () => null,
             onUpdate: () => null,
@@ -5368,6 +5392,30 @@ function markPasteRule(config) {
     });
 }
 
+function canInsertNode(state$1, nodeType) {
+    const { selection } = state$1;
+    const { $from } = selection;
+    // Special handling for NodeSelection
+    if (selection instanceof state.NodeSelection) {
+        const index = $from.index();
+        const parent = $from.parent;
+        // Can we replace the selected node with the horizontal rule?
+        return parent.canReplaceWith(index, index + 1, nodeType);
+    }
+    // Default: check if we can insert at the current position
+    let depth = $from.depth;
+    while (depth >= 0) {
+        const index = $from.index(depth);
+        const parent = $from.node(depth);
+        const match = parent.contentMatchAt(index);
+        if (match.matchType(nodeType)) {
+            return true;
+        }
+        depth -= 1;
+    }
+    return false;
+}
+
 // source: https://stackoverflow.com/a/6969486
 function escapeForRegEx(string) {
     return string.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
@@ -5463,6 +5511,7 @@ exports.NodeView = NodeView;
 exports.PasteRule = PasteRule;
 exports.Tracker = Tracker;
 exports.callOrReturn = callOrReturn;
+exports.canInsertNode = canInsertNode;
 exports.combineTransactionSteps = combineTransactionSteps;
 exports.createChainableState = createChainableState;
 exports.createDocument = createDocument;
@@ -5546,7 +5595,7 @@ exports.textblockTypeInputRule = textblockTypeInputRule;
 exports.wrappingInputRule = wrappingInputRule;
 
 
-},{"@tiptap/pm/commands":26,"@tiptap/pm/keymap":30,"@tiptap/pm/model":31,"@tiptap/pm/schema-list":32,"@tiptap/pm/state":33,"@tiptap/pm/transform":34,"@tiptap/pm/view":35}],3:[function(require,module,exports){
+},{"@tiptap/pm/commands":27,"@tiptap/pm/keymap":31,"@tiptap/pm/model":32,"@tiptap/pm/schema-list":33,"@tiptap/pm/state":34,"@tiptap/pm/transform":35,"@tiptap/pm/view":36}],3:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
@@ -6034,7 +6083,7 @@ exports.default = CodeBlock;
 exports.tildeInputRegex = tildeInputRegex;
 
 
-},{"@tiptap/core":2,"@tiptap/pm/state":33}],7:[function(require,module,exports){
+},{"@tiptap/core":2,"@tiptap/pm/state":34}],7:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
@@ -6174,7 +6223,7 @@ exports.Dropcursor = Dropcursor;
 exports.default = Dropcursor;
 
 
-},{"@tiptap/core":2,"@tiptap/pm/dropcursor":27}],10:[function(require,module,exports){
+},{"@tiptap/core":2,"@tiptap/pm/dropcursor":28}],10:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
@@ -6212,7 +6261,7 @@ exports.Gapcursor = Gapcursor;
 exports.default = Gapcursor;
 
 
-},{"@tiptap/core":2,"@tiptap/pm/gapcursor":28}],11:[function(require,module,exports){
+},{"@tiptap/core":2,"@tiptap/pm/gapcursor":29}],11:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
@@ -6528,7 +6577,7 @@ exports.History = History;
 exports.default = History;
 
 
-},{"@tiptap/core":2,"@tiptap/pm/history":29}],15:[function(require,module,exports){
+},{"@tiptap/core":2,"@tiptap/pm/history":30}],15:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
@@ -6557,6 +6606,10 @@ const HorizontalRule = core.Node.create({
     addCommands() {
         return {
             setHorizontalRule: () => ({ chain, state: state$1 }) => {
+                // Check if we can insert the node at the current selection
+                if (!core.canInsertNode(state$1, state$1.schema.nodes[this.name])) {
+                    return false;
+                }
                 const { selection } = state$1;
                 const { $from: $originFrom, $to: $originTo } = selection;
                 const currentChain = chain();
@@ -6624,7 +6677,7 @@ exports.HorizontalRule = HorizontalRule;
 exports.default = HorizontalRule;
 
 
-},{"@tiptap/core":2,"@tiptap/pm/state":33}],16:[function(require,module,exports){
+},{"@tiptap/core":2,"@tiptap/pm/state":34}],16:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
@@ -6826,6 +6879,13 @@ var core = require('@tiptap/core');
 var linkifyjs = require('linkifyjs');
 var state = require('@tiptap/pm/state');
 
+// From DOMPurify
+// https://github.com/cure53/DOMPurify/blob/main/src/regexp.ts
+const UNICODE_WHITESPACE_PATTERN = '[\u0000-\u0020\u00A0\u1680\u180E\u2000-\u2029\u205F\u3000]';
+const UNICODE_WHITESPACE_REGEX = new RegExp(UNICODE_WHITESPACE_PATTERN);
+const UNICODE_WHITESPACE_REGEX_END = new RegExp(`${UNICODE_WHITESPACE_PATTERN}$`);
+const UNICODE_WHITESPACE_REGEX_GLOBAL = new RegExp(UNICODE_WHITESPACE_PATTERN, 'g');
+
 /**
  * Check if the provided tokens form a valid link structure, which can either be a single link token
  * or a link token surrounded by parentheses or square brackets.
@@ -6882,14 +6942,16 @@ function autolink(options) {
                     textBlock = nodesInChangedRanges[0];
                     textBeforeWhitespace = newState.doc.textBetween(textBlock.pos, textBlock.pos + textBlock.node.nodeSize, undefined, ' ');
                 }
-                else if (nodesInChangedRanges.length
-                    // We want to make sure to include the block seperator argument to treat hard breaks like spaces.
-                    && newState.doc.textBetween(newRange.from, newRange.to, ' ', ' ').endsWith(' ')) {
+                else if (nodesInChangedRanges.length) {
+                    const endText = newState.doc.textBetween(newRange.from, newRange.to, ' ', ' ');
+                    if (!UNICODE_WHITESPACE_REGEX_END.test(endText)) {
+                        return;
+                    }
                     textBlock = nodesInChangedRanges[0];
                     textBeforeWhitespace = newState.doc.textBetween(textBlock.pos, newRange.to, undefined, ' ');
                 }
                 if (textBlock && textBeforeWhitespace) {
-                    const wordsBeforeWhitespace = textBeforeWhitespace.split(' ').filter(s => s !== '');
+                    const wordsBeforeWhitespace = textBeforeWhitespace.split(UNICODE_WHITESPACE_REGEX).filter(Boolean);
                     if (wordsBeforeWhitespace.length <= 0) {
                         return false;
                     }
@@ -7003,10 +7065,6 @@ function pasteHandler(options) {
 }
 
 const pasteRegex = /https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z]{2,}\b(?:[-a-zA-Z0-9@:%._+~#=?!&/]*)(?:[-a-zA-Z0-9@:%._+~#=?!&/]*)/gi;
-// From DOMPurify
-// https://github.com/cure53/DOMPurify/blob/main/src/regexp.js
-// eslint-disable-next-line no-control-regex
-const ATTR_WHITESPACE = /[\u0000-\u0020\u00A0\u1680\u180E\u2000-\u2029\u205F\u3000]/g;
 function isAllowedUri(uri, protocols) {
     const allowedProtocols = [
         'http',
@@ -7029,9 +7087,7 @@ function isAllowedUri(uri, protocols) {
         });
     }
     return (!uri
-        || uri
-            .replace(ATTR_WHITESPACE, '')
-            .match(new RegExp(
+        || uri.replace(UNICODE_WHITESPACE_REGEX_GLOBAL, '').match(new RegExp(
         // eslint-disable-next-line no-useless-escape
         `^(?:(?:${allowedProtocols.join('|')}):|[^a-z]|[a-z0-9+.\-]+(?:[^a-z+.\-:]|$))`, 'i')));
 }
@@ -7243,7 +7299,7 @@ exports.isAllowedUri = isAllowedUri;
 exports.pasteRegex = pasteRegex;
 
 
-},{"@tiptap/core":2,"@tiptap/pm/state":33,"linkifyjs":37}],19:[function(require,module,exports){
+},{"@tiptap/core":2,"@tiptap/pm/state":34,"linkifyjs":38}],19:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
@@ -7447,6 +7503,80 @@ exports.default = Paragraph;
 Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
+var state = require('@tiptap/pm/state');
+var view = require('@tiptap/pm/view');
+
+/**
+ * This extension allows you to add a placeholder to your editor.
+ * A placeholder is a text that appears when the editor or a node is empty.
+ * @see https://www.tiptap.dev/api/extensions/placeholder
+ */
+const Placeholder = core.Extension.create({
+    name: 'placeholder',
+    addOptions() {
+        return {
+            emptyEditorClass: 'is-editor-empty',
+            emptyNodeClass: 'is-empty',
+            placeholder: 'Write something …',
+            showOnlyWhenEditable: true,
+            showOnlyCurrent: true,
+            includeChildren: false,
+        };
+    },
+    addProseMirrorPlugins() {
+        return [
+            new state.Plugin({
+                key: new state.PluginKey('placeholder'),
+                props: {
+                    decorations: ({ doc, selection }) => {
+                        const active = this.editor.isEditable || !this.options.showOnlyWhenEditable;
+                        const { anchor } = selection;
+                        const decorations = [];
+                        if (!active) {
+                            return null;
+                        }
+                        const isEmptyDoc = this.editor.isEmpty;
+                        doc.descendants((node, pos) => {
+                            const hasAnchor = anchor >= pos && anchor <= pos + node.nodeSize;
+                            const isEmpty = !node.isLeaf && core.isNodeEmpty(node);
+                            if ((hasAnchor || !this.options.showOnlyCurrent) && isEmpty) {
+                                const classes = [this.options.emptyNodeClass];
+                                if (isEmptyDoc) {
+                                    classes.push(this.options.emptyEditorClass);
+                                }
+                                const decoration = view.Decoration.node(pos, pos + node.nodeSize, {
+                                    class: classes.join(' '),
+                                    'data-placeholder': typeof this.options.placeholder === 'function'
+                                        ? this.options.placeholder({
+                                            editor: this.editor,
+                                            node,
+                                            pos,
+                                            hasAnchor,
+                                        })
+                                        : this.options.placeholder,
+                                });
+                                decorations.push(decoration);
+                            }
+                            return this.options.includeChildren;
+                        });
+                        return view.DecorationSet.create(doc, decorations);
+                    },
+                },
+            }),
+        ];
+    },
+});
+
+exports.Placeholder = Placeholder;
+exports.default = Placeholder;
+
+
+},{"@tiptap/core":2,"@tiptap/pm/state":34,"@tiptap/pm/view":36}],23:[function(require,module,exports){
+'use strict';
+
+Object.defineProperty(exports, '__esModule', { value: true });
+
+var core = require('@tiptap/core');
 
 /**
  * Matches a strike to a ~~strike~~ on input.
@@ -7530,7 +7660,7 @@ exports.inputRegex = inputRegex;
 exports.pasteRegex = pasteRegex;
 
 
-},{"@tiptap/core":2}],23:[function(require,module,exports){
+},{"@tiptap/core":2}],24:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
@@ -7612,7 +7742,7 @@ exports.TextAlign = TextAlign;
 exports.default = TextAlign;
 
 
-},{"@tiptap/core":2}],24:[function(require,module,exports){
+},{"@tiptap/core":2}],25:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
@@ -7632,15 +7762,15 @@ exports.Text = Text;
 exports.default = Text;
 
 
-},{"@tiptap/core":2}],25:[function(require,module,exports){
+},{"@tiptap/core":2}],26:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
 
 var core = require('@tiptap/core');
 
-const YOUTUBE_REGEX = /^((?:https?:)?\/\/)?((?:www|m|music)\.)?((?:youtube\.com|youtu.be|youtube-nocookie\.com))(\/(?:[\w-]+\?v=|embed\/|v\/)?)([\w-]+)(\S+)?$/;
-const YOUTUBE_REGEX_GLOBAL = /^((?:https?:)?\/\/)?((?:www|m|music)\.)?((?:youtube\.com|youtu.be|youtube-nocookie\.com))(\/(?:[\w-]+\?v=|embed\/|v\/)?)([\w-]+)(\S+)?$/g;
+const YOUTUBE_REGEX = /^((?:https?:)?\/\/)?((?:www|m|music)\.)?((?:youtube\.com|youtu\.be|youtube-nocookie\.com))(\/(?:[\w-]+\?v=|embed\/|v\/)?)([\w-]+)(\S+)?$/;
+const YOUTUBE_REGEX_GLOBAL = /^((?:https?:)?\/\/)?((?:www|m|music)\.)?((?:youtube\.com|youtu\.be|youtube-nocookie\.com))(\/(?:[\w-]+\?v=|embed\/|v\/)?)([\w-]+)(\S+)?$/g;
 const isValidYoutubeUrl = (url) => {
     return url.match(YOUTUBE_REGEX);
 };
@@ -7650,7 +7780,22 @@ const getYoutubeEmbedUrl = (nocookie, isPlaylist) => {
     }
     return nocookie ? 'https://www.youtube-nocookie.com/embed/' : 'https://www.youtube.com/embed/';
 };
+const getYoutubeVideoOrPlaylistId = (url) => {
+    if (url.searchParams.has('v')) {
+        return { id: url.searchParams.get('v') };
+    }
+    if (url.hostname === 'youtu.be'
+        || url.pathname.includes('shorts')
+        || url.pathname.includes('live')) {
+        return { id: url.pathname.split('/').pop() };
+    }
+    if (url.searchParams.has('list')) {
+        return { id: url.searchParams.get('list'), isPlaylist: true };
+    }
+    return null;
+};
 const getEmbedUrlFromYoutubeUrl = (options) => {
+    var _a;
     const { url, allowFullscreen, autoplay, ccLanguage, ccLoadPolicy, controls, disableKBcontrols, enableIFrameApi, endTime, interfaceLanguage, ivLoadPolicy, loop, modestBranding, nocookie, origin, playlist, progressBarColor, startAt, rel, } = options;
     if (!isValidYoutubeUrl(url)) {
         return null;
@@ -7659,76 +7804,67 @@ const getEmbedUrlFromYoutubeUrl = (options) => {
     if (url.includes('/embed/')) {
         return url;
     }
-    // if is a youtu.be url, get the id after the /
-    if (url.includes('youtu.be')) {
-        const id = url.split('/').pop();
-        if (!id) {
-            return null;
-        }
-        return `${getYoutubeEmbedUrl(nocookie)}${id}`;
-    }
-    const videoIdRegex = /(?:(v|list)=|shorts\/)([-\w]+)/gm;
-    const matches = videoIdRegex.exec(url);
-    if (!matches || !matches[2]) {
+    const urlObject = new URL(url);
+    const { id, isPlaylist } = (_a = getYoutubeVideoOrPlaylistId(urlObject)) !== null && _a !== void 0 ? _a : {};
+    if (!id) {
         return null;
     }
-    let outputUrl = `${getYoutubeEmbedUrl(nocookie, matches[1] === 'list')}${matches[2]}`;
-    const params = [];
+    const embedUrl = new URL(`${getYoutubeEmbedUrl(nocookie, isPlaylist)}${id}`);
+    if (urlObject.searchParams.has('t')) {
+        embedUrl.searchParams.set('start', urlObject.searchParams.get('t').replaceAll('s', ''));
+    }
     if (allowFullscreen === false) {
-        params.push('fs=0');
+        embedUrl.searchParams.set('fs', '0');
     }
     if (autoplay) {
-        params.push('autoplay=1');
+        embedUrl.searchParams.set('autoplay', '1');
     }
     if (ccLanguage) {
-        params.push(`cc_lang_pref=${ccLanguage}`);
+        embedUrl.searchParams.set('cc_lang_pref', ccLanguage);
     }
     if (ccLoadPolicy) {
-        params.push('cc_load_policy=1');
+        embedUrl.searchParams.set('cc_load_policy', '1');
     }
     if (!controls) {
-        params.push('controls=0');
+        embedUrl.searchParams.set('controls', '0');
     }
     if (disableKBcontrols) {
-        params.push('disablekb=1');
+        embedUrl.searchParams.set('disablekb', '1');
     }
     if (enableIFrameApi) {
-        params.push('enablejsapi=1');
+        embedUrl.searchParams.set('enablejsapi', '1');
     }
     if (endTime) {
-        params.push(`end=${endTime}`);
+        embedUrl.searchParams.set('end', endTime.toString());
     }
     if (interfaceLanguage) {
-        params.push(`hl=${interfaceLanguage}`);
+        embedUrl.searchParams.set('hl', interfaceLanguage);
     }
     if (ivLoadPolicy) {
-        params.push(`iv_load_policy=${ivLoadPolicy}`);
+        embedUrl.searchParams.set('iv_load_policy', ivLoadPolicy.toString());
     }
     if (loop) {
-        params.push('loop=1');
+        embedUrl.searchParams.set('loop', '1');
     }
     if (modestBranding) {
-        params.push('modestbranding=1');
+        embedUrl.searchParams.set('modestbranding', '1');
     }
     if (origin) {
-        params.push(`origin=${origin}`);
+        embedUrl.searchParams.set('origin', origin);
     }
     if (playlist) {
-        params.push(`playlist=${playlist}`);
+        embedUrl.searchParams.set('playlist', playlist);
     }
     if (startAt) {
-        params.push(`start=${startAt}`);
+        embedUrl.searchParams.set('start', startAt.toString());
     }
     if (progressBarColor) {
-        params.push(`color=${progressBarColor}`);
+        embedUrl.searchParams.set('color', progressBarColor);
     }
     if (rel !== undefined) {
-        params.push(`rel=${rel}`);
+        embedUrl.searchParams.set('rel', rel.toString());
     }
-    if (params.length) {
-        outputUrl += `${matches[1] === 'v' ? '?' : '&'}${params.join('&')}`;
-    }
-    return outputUrl;
+    return embedUrl.toString();
 };
 
 /**
@@ -7876,47 +8012,47 @@ exports.Youtube = Youtube;
 exports.default = Youtube;
 
 
-},{"@tiptap/core":2}],26:[function(require,module,exports){
+},{"@tiptap/core":2}],27:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// commands/index.ts
 var _prosemirrorcommands = require('prosemirror-commands'); _createStarExport(_prosemirrorcommands);
 
-},{"prosemirror-commands":39}],27:[function(require,module,exports){
+},{"prosemirror-commands":40}],28:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// dropcursor/index.ts
 var _prosemirrordropcursor = require('prosemirror-dropcursor'); _createStarExport(_prosemirrordropcursor);
 
-},{"prosemirror-dropcursor":40}],28:[function(require,module,exports){
+},{"prosemirror-dropcursor":41}],29:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// gapcursor/index.ts
 var _prosemirrorgapcursor = require('prosemirror-gapcursor'); _createStarExport(_prosemirrorgapcursor);
 
-},{"prosemirror-gapcursor":41}],29:[function(require,module,exports){
+},{"prosemirror-gapcursor":42}],30:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// history/index.ts
 var _prosemirrorhistory = require('prosemirror-history'); _createStarExport(_prosemirrorhistory);
 
-},{"prosemirror-history":42}],30:[function(require,module,exports){
+},{"prosemirror-history":43}],31:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// keymap/index.ts
 var _prosemirrorkeymap = require('prosemirror-keymap'); _createStarExport(_prosemirrorkeymap);
 
-},{"prosemirror-keymap":43}],31:[function(require,module,exports){
+},{"prosemirror-keymap":44}],32:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// model/index.ts
 var _prosemirrormodel = require('prosemirror-model'); _createStarExport(_prosemirrormodel);
 
-},{"prosemirror-model":44}],32:[function(require,module,exports){
+},{"prosemirror-model":45}],33:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// schema-list/index.ts
 var _prosemirrorschemalist = require('prosemirror-schema-list'); _createStarExport(_prosemirrorschemalist);
 
-},{"prosemirror-schema-list":45}],33:[function(require,module,exports){
+},{"prosemirror-schema-list":46}],34:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// state/index.ts
 var _prosemirrorstate = require('prosemirror-state'); _createStarExport(_prosemirrorstate);
 
-},{"prosemirror-state":46}],34:[function(require,module,exports){
+},{"prosemirror-state":47}],35:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// transform/index.ts
 var _prosemirrortransform = require('prosemirror-transform'); _createStarExport(_prosemirrortransform);
 
-},{"prosemirror-transform":47}],35:[function(require,module,exports){
+},{"prosemirror-transform":48}],36:[function(require,module,exports){
 "use strict";Object.defineProperty(exports, "__esModule", {value: true}); function _createStarExport(obj) { Object.keys(obj) .filter((key) => key !== "default" && key !== "__esModule") .forEach((key) => { if (exports.hasOwnProperty(key)) { return; } Object.defineProperty(exports, key, {enumerable: true, configurable: true, get: () => obj[key]}); }); }// view/index.ts
 var _prosemirrorview = require('prosemirror-view'); _createStarExport(_prosemirrorview);
 
-},{"prosemirror-view":48}],36:[function(require,module,exports){
+},{"prosemirror-view":49}],37:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
@@ -8012,29 +8148,15 @@ exports.StarterKit = StarterKit;
 exports.default = StarterKit;
 
 
-},{"@tiptap/core":2,"@tiptap/extension-blockquote":3,"@tiptap/extension-bold":4,"@tiptap/extension-bullet-list":5,"@tiptap/extension-code":7,"@tiptap/extension-code-block":6,"@tiptap/extension-document":8,"@tiptap/extension-dropcursor":9,"@tiptap/extension-gapcursor":10,"@tiptap/extension-hard-break":11,"@tiptap/extension-heading":12,"@tiptap/extension-history":14,"@tiptap/extension-horizontal-rule":15,"@tiptap/extension-italic":17,"@tiptap/extension-list-item":19,"@tiptap/extension-ordered-list":20,"@tiptap/extension-paragraph":21,"@tiptap/extension-strike":22,"@tiptap/extension-text":24}],37:[function(require,module,exports){
+},{"@tiptap/core":2,"@tiptap/extension-blockquote":3,"@tiptap/extension-bold":4,"@tiptap/extension-bullet-list":5,"@tiptap/extension-code":7,"@tiptap/extension-code-block":6,"@tiptap/extension-document":8,"@tiptap/extension-dropcursor":9,"@tiptap/extension-gapcursor":10,"@tiptap/extension-hard-break":11,"@tiptap/extension-heading":12,"@tiptap/extension-history":14,"@tiptap/extension-horizontal-rule":15,"@tiptap/extension-italic":17,"@tiptap/extension-list-item":19,"@tiptap/extension-ordered-list":20,"@tiptap/extension-paragraph":21,"@tiptap/extension-strike":23,"@tiptap/extension-text":25}],38:[function(require,module,exports){
 'use strict';
 
 // THIS FILE IS AUTOMATICALLY GENERATED DO NOT EDIT DIRECTLY
 // See update-tlds.js for encoding/decoding format
 // https://data.iana.org/TLD/tlds-alpha-by-domain.txt
-const encodedTlds = 'aaa1rp3bb0ott3vie4c1le2ogado5udhabi7c0ademy5centure6ountant0s9o1tor4d0s1ult4e0g1ro2tna4f0l1rica5g0akhan5ency5i0g1rbus3force5tel5kdn3l0ibaba4pay4lfinanz6state5y2sace3tom5m0azon4ericanexpress7family11x2fam3ica3sterdam8nalytics7droid5quan4z2o0l2partments8p0le4q0uarelle8r0ab1mco4chi3my2pa2t0e3s0da2ia2sociates9t0hleta5torney7u0ction5di0ble3o3spost5thor3o0s4w0s2x0a2z0ure5ba0by2idu3namex4d1k2r0celona5laycard4s5efoot5gains6seball5ketball8uhaus5yern5b0c1t1va3cg1n2d1e0ats2uty4er2rlin4st0buy5t2f1g1h0arti5i0ble3d1ke2ng0o3o1z2j1lack0friday9ockbuster8g1omberg7ue3m0s1w2n0pparibas9o0ats3ehringer8fa2m1nd2o0k0ing5sch2tik2on4t1utique6x2r0adesco6idgestone9oadway5ker3ther5ussels7s1t1uild0ers6siness6y1zz3v1w1y1z0h3ca0b1fe2l0l1vinklein9m0era3p2non3petown5ital0one8r0avan4ds2e0er0s4s2sa1e1h1ino4t0ering5holic7ba1n1re3c1d1enter4o1rn3f0a1d2g1h0anel2nel4rity4se2t2eap3intai5ristmas6ome4urch5i0priani6rcle4sco3tadel4i0c2y3k1l0aims4eaning6ick2nic1que6othing5ud3ub0med6m1n1o0ach3des3ffee4llege4ogne5m0mbank4unity6pany2re3uter5sec4ndos3struction8ulting7tact3ractors9oking4l1p2rsica5untry4pon0s4rses6pa2r0edit0card4union9icket5own3s1uise0s6u0isinella9v1w1x1y0mru3ou3z2dad1nce3ta1e1ing3sun4y2clk3ds2e0al0er2s3gree4livery5l1oitte5ta3mocrat6ntal2ist5si0gn4v2hl2iamonds6et2gital5rect0ory7scount3ver5h2y2j1k1m1np2o0cs1tor4g1mains5t1wnload7rive4tv2ubai3nlop4pont4rban5vag2r2z2earth3t2c0o2deka3u0cation8e1g1mail3erck5nergy4gineer0ing9terprises10pson4quipment8r0icsson6ni3s0q1tate5t1u0rovision8s2vents5xchange6pert3osed4ress5traspace10fage2il1rwinds6th3mily4n0s2rm0ers5shion4t3edex3edback6rrari3ero6i0delity5o2lm2nal1nce1ial7re0stone6mdale6sh0ing5t0ness6j1k1lickr3ghts4r2orist4wers5y2m1o0o0d1tball6rd1ex2sale4um3undation8x2r0ee1senius7l1ogans4ntier7tr2ujitsu5n0d2rniture7tbol5yi3ga0l0lery3o1up4me0s3p1rden4y2b0iz3d0n2e0a1nt0ing5orge5f1g0ee3h1i0ft0s3ves2ing5l0ass3e1obal2o4m0ail3bh2o1x2n1odaddy5ld0point6f2o0dyear5g0le4p1t1v2p1q1r0ainger5phics5tis4een3ipe3ocery4up4s1t1u0cci3ge2ide2tars5ru3w1y2hair2mburg5ngout5us3bo2dfc0bank7ealth0care8lp1sinki6re1mes5iphop4samitsu7tachi5v2k0t2m1n1ockey4ldings5iday5medepot5goods5s0ense7nda3rse3spital5t0ing5t0els3mail5use3w2r1sbc3t1u0ghes5yatt3undai7ibm2cbc2e1u2d1e0ee3fm2kano4l1m0amat4db2mo0bilien9n0c1dustries8finiti5o2g1k1stitute6urance4e4t0ernational10uit4vestments10o1piranga7q1r0ish4s0maili5t0anbul7t0au2v3jaguar4va3cb2e0ep2tzt3welry6io2ll2m0p2nj2o0bs1urg4t1y2p0morgan6rs3uegos4niper7kaufen5ddi3e0rryhotels6properties14fh2g1h1i0a1ds2m1ndle4tchen5wi3m1n1oeln3matsu5sher5p0mg2n2r0d1ed3uokgroup8w1y0oto4z2la0caixa5mborghini8er3nd0rover6xess5salle5t0ino3robe5w0yer5b1c1ds2ease3clerc5frak4gal2o2xus4gbt3i0dl2fe0insurance9style7ghting6ke2lly3mited4o2ncoln4k2ve1ing5k1lc1p2oan0s3cker3us3l1ndon4tte1o3ve3pl0financial11r1s1t0d0a3u0ndbeck6xe1ury5v1y2ma0drid4if1son4keup4n0agement7go3p1rket0ing3s4riott5shalls7ttel5ba2c0kinsey7d1e0d0ia3et2lbourne7me1orial6n0u2rckmsd7g1h1iami3crosoft7l1ni1t2t0subishi9k1l0b1s2m0a2n1o0bi0le4da2e1i1m1nash3ey2ster5rmon3tgage6scow4to0rcycles9v0ie4p1q1r1s0d2t0n1r2u0seum3ic4v1w1x1y1z2na0b1goya4me2vy3ba2c1e0c1t0bank4flix4work5ustar5w0s2xt0direct7us4f0l2g0o2hk2i0co2ke1on3nja3ssan1y5l1o0kia3rton4w0ruz3tv4p1r0a1w2tt2u1yc2z2obi1server7ffice5kinawa6layan0group9lo3m0ega4ne1g1l0ine5oo2pen3racle3nge4g0anic5igins6saka4tsuka4t2vh3pa0ge2nasonic7ris2s1tners4s1y3y2ccw3e0t2f0izer5g1h0armacy6d1ilips5one2to0graphy6s4ysio5ics1tet2ures6d1n0g1k2oneer5zza4k1l0ace2y0station9umbing5s3m1n0c2ohl2ker3litie5rn2st3r0america6xi3ess3ime3o0d0uctions8f1gressive8mo2perties3y5tection8u0dential9s1t1ub2w0c2y2qa1pon3uebec3st5racing4dio4e0ad1lestate6tor2y4cipes5d0stone5umbrella9hab3ise0n3t2liance6n0t0als5pair3ort3ublican8st0aurant8view0s5xroth6ich0ardli6oh3l1o1p2o0cks3deo3gers4om3s0vp3u0gby3hr2n2w0e2yukyu6sa0arland6fe0ty4kura4le1on3msclub4ung5ndvik0coromant12ofi4p1rl2s1ve2xo3b0i1s2c0b1haeffler7midt4olarships8ol3ule3warz5ience5ot3d1e0arch3t2cure1ity6ek2lect4ner3rvices6ven3w1x0y3fr2g1h0angrila6rp3ell3ia1ksha5oes2p0ping5uji3w3i0lk2na1gles5te3j1k0i0n2y0pe4l0ing4m0art3ile4n0cf3o0ccer3ial4ftbank4ware6hu2lar2utions7ng1y2y2pa0ce3ort2t3r0l2s1t0ada2ples4r1tebank4farm7c0group6ockholm6rage3e3ream4udio2y3yle4u0cks3pplies3y2ort5rf1gery5zuki5v1watch4iss4x1y0dney4stems6z2tab1ipei4lk2obao4rget4tamotors6r2too4x0i3c0i2d0k2eam2ch0nology8l1masek5nnis4va3f1g1h0d1eater2re6iaa2ckets5enda4ps2res2ol4j0maxx4x2k0maxx5l1m0all4n1o0day3kyo3ols3p1ray3shiba5tal3urs3wn2yota3s3r0ade1ing4ining5vel0ers0insurance16ust3v2t1ube2i1nes3shu4v0s2w1z2ua1bank3s2g1k1nicom3versity8o2ol2ps2s1y1z2va0cations7na1guard7c1e0gas3ntures6risign5mögensberater2ung14sicherung10t2g1i0ajes4deo3g1king4llas4n1p1rgin4sa1ion4va1o3laanderen9n1odka3lvo3te1ing3o2yage5u2wales2mart4ter4ng0gou5tch0es6eather0channel12bcam3er2site5d0ding5ibo2r3f1hoswho6ien2ki2lliamhill9n0dows4e1ners6me2olterskluwer11odside6rk0s2ld3w2s1tc1f3xbox3erox4ihuan4n2xx2yz3yachts4hoo3maxun5ndex5e1odobashi7ga2kohama6u0tube6t1un3za0ppos4ra3ero3ip2m1one3uerich6w2';
+const encodedTlds = 'aaa1rp3bb0ott3vie4c1le2ogado5udhabi7c0ademy5centure6ountant0s9o1tor4d0s1ult4e0g1ro2tna4f0l1rica5g0akhan5ency5i0g1rbus3force5tel5kdn3l0ibaba4pay4lfinanz6state5y2sace3tom5m0azon4ericanexpress7family11x2fam3ica3sterdam8nalytics7droid5quan4z2o0l2partments8p0le4q0uarelle8r0ab1mco4chi3my2pa2t0e3s0da2ia2sociates9t0hleta5torney7u0ction5di0ble3o3spost5thor3o0s4w0s2x0a2z0ure5ba0by2idu3namex4d1k2r0celona5laycard4s5efoot5gains6seball5ketball8uhaus5yern5b0c1t1va3cg1n2d1e0ats2uty4er2rlin4st0buy5t2f1g1h0arti5i0ble3d1ke2ng0o3o1z2j1lack0friday9ockbuster8g1omberg7ue3m0s1w2n0pparibas9o0ats3ehringer8fa2m1nd2o0k0ing5sch2tik2on4t1utique6x2r0adesco6idgestone9oadway5ker3ther5ussels7s1t1uild0ers6siness6y1zz3v1w1y1z0h3ca0b1fe2l0l1vinklein9m0era3p2non3petown5ital0one8r0avan4ds2e0er0s4s2sa1e1h1ino4t0ering5holic7ba1n1re3c1d1enter4o1rn3f0a1d2g1h0anel2nel4rity4se2t2eap3intai5ristmas6ome4urch5i0priani6rcle4sco3tadel4i0c2y3k1l0aims4eaning6ick2nic1que6othing5ud3ub0med6m1n1o0ach3des3ffee4llege4ogne5m0mbank4unity6pany2re3uter5sec4ndos3struction8ulting7tact3ractors9oking4l1p2rsica5untry4pon0s4rses6pa2r0edit0card4union9icket5own3s1uise0s6u0isinella9v1w1x1y0mru3ou3z2dad1nce3ta1e1ing3sun4y2clk3ds2e0al0er2s3gree4livery5l1oitte5ta3mocrat6ntal2ist5si0gn4v2hl2iamonds6et2gital5rect0ory7scount3ver5h2y2j1k1m1np2o0cs1tor4g1mains5t1wnload7rive4tv2ubai3nlop4pont4rban5vag2r2z2earth3t2c0o2deka3u0cation8e1g1mail3erck5nergy4gineer0ing9terprises10pson4quipment8r0icsson6ni3s0q1tate5t1u0rovision8s2vents5xchange6pert3osed4ress5traspace10fage2il1rwinds6th3mily4n0s2rm0ers5shion4t3edex3edback6rrari3ero6i0delity5o2lm2nal1nce1ial7re0stone6mdale6sh0ing5t0ness6j1k1lickr3ghts4r2orist4wers5y2m1o0o0d1tball6rd1ex2sale4um3undation8x2r0ee1senius7l1ogans4ntier7tr2ujitsu5n0d2rniture7tbol5yi3ga0l0lery3o1up4me0s3p1rden4y2b0iz3d0n2e0a1nt0ing5orge5f1g0ee3h1i0ft0s3ves2ing5l0ass3e1obal2o4m0ail3bh2o1x2n1odaddy5ld0point6f2o0dyear5g0le4p1t1v2p1q1r0ainger5phics5tis4een3ipe3ocery4up4s1t1u0cci3ge2ide2tars5ru3w1y2hair2mburg5ngout5us3bo2dfc0bank7ealth0care8lp1sinki6re1mes5iphop4samitsu7tachi5v2k0t2m1n1ockey4ldings5iday5medepot5goods5s0ense7nda3rse3spital5t0ing5t0els3mail5use3w2r1sbc3t1u0ghes5yatt3undai7ibm2cbc2e1u2d1e0ee3fm2kano4l1m0amat4db2mo0bilien9n0c1dustries8finiti5o2g1k1stitute6urance4e4t0ernational10uit4vestments10o1piranga7q1r0ish4s0maili5t0anbul7t0au2v3jaguar4va3cb2e0ep2tzt3welry6io2ll2m0p2nj2o0bs1urg4t1y2p0morgan6rs3uegos4niper7kaufen5ddi3e0rryhotels6properties14fh2g1h1i0a1ds2m1ndle4tchen5wi3m1n1oeln3matsu5sher5p0mg2n2r0d1ed3uokgroup8w1y0oto4z2la0caixa5mborghini8er3nd0rover6xess5salle5t0ino3robe5w0yer5b1c1ds2ease3clerc5frak4gal2o2xus4gbt3i0dl2fe0insurance9style7ghting6ke2lly3mited4o2ncoln4k2ve1ing5k1lc1p2oan0s3cker3us3l1ndon4tte1o3ve3pl0financial11r1s1t0d0a3u0ndbeck6xe1ury5v1y2ma0drid4if1son4keup4n0agement7go3p1rket0ing3s4riott5shalls7ttel5ba2c0kinsey7d1e0d0ia3et2lbourne7me1orial6n0u2rckmsd7g1h1iami3crosoft7l1ni1t2t0subishi9k1l0b1s2m0a2n1o0bi0le4da2e1i1m1nash3ey2ster5rmon3tgage6scow4to0rcycles9v0ie4p1q1r1s0d2t0n1r2u0seum3ic4v1w1x1y1z2na0b1goya4me2vy3ba2c1e0c1t0bank4flix4work5ustar5w0s2xt0direct7us4f0l2g0o2hk2i0co2ke1on3nja3ssan1y5l1o0kia3rton4w0ruz3tv4p1r0a1w2tt2u1yc2z2obi1server7ffice5kinawa6layan0group9lo3m0ega4ne1g1l0ine5oo2pen3racle3nge4g0anic5igins6saka4tsuka4t2vh3pa0ge2nasonic7ris2s1tners4s1y3y2ccw3e0t2f0izer5g1h0armacy6d1ilips5one2to0graphy6s4ysio5ics1tet2ures6d1n0g1k2oneer5zza4k1l0ace2y0station9umbing5s3m1n0c2ohl2ker3litie5rn2st3r0axi3ess3ime3o0d0uctions8f1gressive8mo2perties3y5tection8u0dential9s1t1ub2w0c2y2qa1pon3uebec3st5racing4dio4e0ad1lestate6tor2y4cipes5d0stone5umbrella9hab3ise0n3t2liance6n0t0als5pair3ort3ublican8st0aurant8view0s5xroth6ich0ardli6oh3l1o1p2o0cks3deo3gers4om3s0vp3u0gby3hr2n2w0e2yukyu6sa0arland6fe0ty4kura4le1on3msclub4ung5ndvik0coromant12ofi4p1rl2s1ve2xo3b0i1s2c0b1haeffler7midt4olarships8ol3ule3warz5ience5ot3d1e0arch3t2cure1ity6ek2lect4ner3rvices6ven3w1x0y3fr2g1h0angrila6rp3ell3ia1ksha5oes2p0ping5uji3w3i0lk2na1gles5te3j1k0i0n2y0pe4l0ing4m0art3ile4n0cf3o0ccer3ial4ftbank4ware6hu2lar2utions7ng1y2y2pa0ce3ort2t3r0l2s1t0ada2ples4r1tebank4farm7c0group6ockholm6rage3e3ream4udio2y3yle4u0cks3pplies3y2ort5rf1gery5zuki5v1watch4iss4x1y0dney4stems6z2tab1ipei4lk2obao4rget4tamotors6r2too4x0i3c0i2d0k2eam2ch0nology8l1masek5nnis4va3f1g1h0d1eater2re6iaa2ckets5enda4ps2res2ol4j0maxx4x2k0maxx5l1m0all4n1o0day3kyo3ols3p1ray3shiba5tal3urs3wn2yota3s3r0ade1ing4ining5vel0ers0insurance16ust3v2t1ube2i1nes3shu4v0s2w1z2ua1bank3s2g1k1nicom3versity8o2ol2ps2s1y1z2va0cations7na1guard7c1e0gas3ntures6risign5mögensberater2ung14sicherung10t2g1i0ajes4deo3g1king4llas4n1p1rgin4sa1ion4va1o3laanderen9n1odka3lvo3te1ing3o2yage5u2wales2mart4ter4ng0gou5tch0es6eather0channel12bcam3er2site5d0ding5ibo2r3f1hoswho6ien2ki2lliamhill9n0dows4e1ners6me2olterskluwer11odside6rk0s2ld3w2s1tc1f3xbox3erox4ihuan4n2xx2yz3yachts4hoo3maxun5ndex5e1odobashi7ga2kohama6u0tube6t1un3za0ppos4ra3ero3ip2m1one3uerich6w2';
 // Internationalized domain names containing non-ASCII
 const encodedUtlds = 'ελ1υ2бг1ел3дети4ею2католик6ом3мкд2он1сква6онлайн5рг3рус2ф2сайт3рб3укр3қаз3հայ3ישראל5קום3ابوظبي5رامكو5لاردن4بحرين5جزائر5سعودية6عليان5مغرب5مارات5یران5بارت2زار4يتك3ھارت5تونس4سودان3رية5شبكة4عراق2ب2مان4فلسطين6قطر3كاثوليك6وم3مصر2ليسيا5وريتانيا7قع4همراه5پاکستان7ڀارت4कॉम3नेट3भारत0म्3ोत5संगठन5বাংলা5ভারত2ৰত4ਭਾਰਤ4ભારત4ଭାରତ4இந்தியா6லங்கை6சிங்கப்பூர்11భారత్5ಭಾರತ4ഭാരതം5ලංකා4คอม3ไทย3ລາວ3გე2みんな3アマゾン4クラウド4グーグル4コム2ストア3セール3ファッション6ポイント4世界2中信1国1國1文网3亚马逊3企业2佛山2信息2健康2八卦2公司1益2台湾1灣2商城1店1标2嘉里0大酒店5在线2大拿2天主教3娱乐2家電2广东2微博2慈善2我爱你3手机2招聘2政务1府2新加坡2闻2时尚2書籍2机构2淡马锡3游戏2澳門2点看2移动2组织机构4网址1店1站1络2联通2谷歌2购物2通販2集团2電訊盈科4飞利浦3食品2餐厅2香格里拉3港2닷넷1컴2삼성2한국2';
-
-/**
- * @template A
- * @template B
- * @param {A} target
- * @param {B} properties
- * @return {A & B}
- */
-const assign = (target, properties) => {
-  for (const key in properties) {
-    target[key] = properties[key];
-  }
-  return target;
-};
 
 /**
  * Finite State Machine generation utilities
@@ -8298,7 +8420,7 @@ State.prototype = {
       templateState = state.go(input);
     if (templateState) {
       nextState = new State();
-      assign(nextState.j, templateState.j);
+      Object.assign(nextState.j, templateState.j);
       nextState.jr.push.apply(nextState.jr, templateState.jr);
       nextState.jd = templateState.jd;
       nextState.t = templateState.t;
@@ -8309,7 +8431,7 @@ State.prototype = {
       // Ensure newly token is in the same groups as the old token
       if (groups) {
         if (nextState.t && typeof nextState.t === 'string') {
-          const allFlags = assign(flagsForToken(nextState.t, groups), flags);
+          const allFlags = Object.assign(flagsForToken(nextState.t, groups), flags);
           addToGroups(t, allFlags, groups);
         } else if (flags) {
           addToGroups(t, flags, groups);
@@ -8759,7 +8881,7 @@ function init$2(customSchemes = []) {
   Start.jd = new State(SYM);
   return {
     start: Start,
-    tokens: assign({
+    tokens: Object.assign({
       groups
     }, tk)
   };
@@ -9028,9 +9150,9 @@ const defaults = {
  *   Similar to render option
  */
 function Options(opts, defaultRender = null) {
-  let o = assign({}, defaults);
+  let o = Object.assign({}, defaults);
   if (opts) {
-    o = assign(o, opts instanceof Options ? opts.o : opts);
+    o = Object.assign(o, opts instanceof Options ? opts.o : opts);
   }
 
   // Ensure all ignored tags are uppercase
@@ -9131,7 +9253,6 @@ function noop(val) {
 var options = /*#__PURE__*/Object.freeze({
 	__proto__: null,
 	Options: Options,
-	assign: assign,
 	defaults: defaults
 });
 
@@ -9282,7 +9403,7 @@ MultiToken.prototype = {
       attributes.rel = rel;
     }
     if (attrs) {
-      assign(attributes, attrs);
+      Object.assign(attributes, attrs);
     }
     return {
       tagName,
@@ -9886,7 +10007,7 @@ exports.test = test;
 exports.text = multi;
 exports.tokenize = tokenize;
 
-},{}],38:[function(require,module,exports){
+},{}],39:[function(require,module,exports){
 'use strict';
 
 // ::- Persistent data structure representing an ordered mapping from
@@ -10027,7 +10148,7 @@ OrderedMap.from = function(value) {
 
 module.exports = OrderedMap;
 
-},{}],39:[function(require,module,exports){
+},{}],40:[function(require,module,exports){
 'use strict';
 
 var prosemirrorTransform = require('prosemirror-transform');
@@ -10716,7 +10837,7 @@ exports.splitBlockKeepMarks = splitBlockKeepMarks;
 exports.toggleMark = toggleMark;
 exports.wrapIn = wrapIn;
 
-},{"prosemirror-model":44,"prosemirror-state":46,"prosemirror-transform":47}],40:[function(require,module,exports){
+},{"prosemirror-model":45,"prosemirror-state":47,"prosemirror-transform":48}],41:[function(require,module,exports){
 'use strict';
 
 function _typeof(o) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) { return typeof o; } : function (o) { return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o; }, _typeof(o); }
@@ -10903,7 +11024,7 @@ var DropCursorView = function () {
 }();
 exports.dropCursor = dropCursor;
 
-},{"prosemirror-state":46,"prosemirror-transform":47}],41:[function(require,module,exports){
+},{"prosemirror-state":47,"prosemirror-transform":48}],42:[function(require,module,exports){
 'use strict';
 
 function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
@@ -11200,7 +11321,7 @@ function drawGapCursor(state) {
 exports.GapCursor = GapCursor;
 exports.gapCursor = gapCursor;
 
-},{"prosemirror-keymap":43,"prosemirror-model":44,"prosemirror-state":46,"prosemirror-view":48}],42:[function(require,module,exports){
+},{"prosemirror-keymap":44,"prosemirror-model":45,"prosemirror-state":47,"prosemirror-view":49}],43:[function(require,module,exports){
 'use strict';
 
 function _typeof(o) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) { return typeof o; } : function (o) { return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o; }, _typeof(o); }
@@ -11580,7 +11701,7 @@ exports.undo = undo;
 exports.undoDepth = undoDepth;
 exports.undoNoScroll = undoNoScroll;
 
-},{"prosemirror-state":46,"prosemirror-transform":47,"rope-sequence":49}],43:[function(require,module,exports){
+},{"prosemirror-state":47,"prosemirror-transform":48,"rope-sequence":50}],44:[function(require,module,exports){
 'use strict';
 
 var w3cKeyname = require('w3c-keyname');
@@ -11647,7 +11768,7 @@ function keydownHandler(bindings) {
 exports.keydownHandler = keydownHandler;
 exports.keymap = keymap;
 
-},{"prosemirror-state":46,"w3c-keyname":50}],44:[function(require,module,exports){
+},{"prosemirror-state":47,"w3c-keyname":51}],45:[function(require,module,exports){
 'use strict';
 
 function _createForOfIteratorHelper(o, allowArrayLike) { var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"]; if (!it) { if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") { if (it) o = it; var i = 0; var F = function F() {}; return { s: F, n: function n() { if (i >= o.length) return { done: true }; return { done: false, value: o[i++] }; }, e: function e(_e) { throw _e; }, f: F }; } throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); } var normalCompletion = true, didErr = false, err; return { s: function s() { it = it.call(o); }, n: function n() { var step = it.next(); normalCompletion = step.done; return step; }, e: function e(_e2) { didErr = true; err = _e2; }, f: function f() { try { if (!normalCompletion && it["return"] != null) it["return"](); } finally { if (didErr) throw err; } } }; }
@@ -11896,7 +12017,6 @@ var Fragment = function () {
   }, {
     key: "findIndex",
     value: function findIndex(pos) {
-      var round = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : -1;
       if (pos == 0) return retIndex(0, pos);
       if (pos == this.size) return retIndex(this.content.length, pos);
       if (pos > this.size || pos < 0) throw new RangeError("Position ".concat(pos, " outside of fragment (").concat(this, ")"));
@@ -11904,7 +12024,7 @@ var Fragment = function () {
         var cur = this.child(i),
           end = curPos + cur.nodeSize;
         if (end >= pos) {
-          if (end == pos || round > 0) return retIndex(i + 1, end);
+          if (end == pos) return retIndex(i + 1, end);
           return retIndex(i, curPos);
         }
         curPos = end;
@@ -12181,7 +12301,7 @@ function insertInto(content, dist, insert, parent) {
     if (parent && !parent.canReplace(index, index, insert)) return null;
     return content.cut(0, dist).append(insert).append(content.cut(dist));
   }
-  var inner = insertInto(child.content, dist - offset - 1, insert);
+  var inner = insertInto(child.content, dist - offset - 1, insert, child);
   return inner && content.replaceChild(index, child.copy(inner));
 }
 function _replace($from, $to, slice) {
@@ -13586,6 +13706,7 @@ var MarkType = function () {
 }();
 var Schema = function () {
   function Schema(spec) {
+    var _this2 = this;
     _classCallCheck(this, Schema);
     this.linebreakReplacement = null;
     this.cached = Object.create(null);
@@ -13613,8 +13734,12 @@ var Schema = function () {
         excl = _type2.spec.excludes;
       _type2.excluded = excl == null ? [_type2] : excl == "" ? [] : gatherMarks(this, excl.split(" "));
     }
-    this.nodeFromJSON = this.nodeFromJSON.bind(this);
-    this.markFromJSON = this.markFromJSON.bind(this);
+    this.nodeFromJSON = function (json) {
+      return Node.fromJSON(_this2, json);
+    };
+    this.markFromJSON = function (json) {
+      return Mark.fromJSON(_this2, json);
+    };
     this.topNodeType = this.nodes[this.spec.topNode || "doc"];
     this.cached.wrappings = Object.create(null);
   }
@@ -13638,16 +13763,6 @@ var Schema = function () {
     value: function mark(type, attrs) {
       if (typeof type == "string") type = this.marks[type];
       return type.create(attrs);
-    }
-  }, {
-    key: "nodeFromJSON",
-    value: function nodeFromJSON(json) {
-      return Node.fromJSON(this, json);
-    }
-  }, {
-    key: "markFromJSON",
-    value: function markFromJSON(json) {
-      return Mark.fromJSON(this, json);
     }
   }, {
     key: "nodeType",
@@ -13685,7 +13800,7 @@ function isStyleRule(rule) {
 }
 var DOMParser = function () {
   function DOMParser(schema, rules) {
-    var _this2 = this;
+    var _this3 = this;
     _classCallCheck(this, DOMParser);
     this.schema = schema;
     this.rules = rules;
@@ -13694,11 +13809,11 @@ var DOMParser = function () {
     var matchedStyles = this.matchedStyles = [];
     rules.forEach(function (rule) {
       if (isTagRule(rule)) {
-        _this2.tags.push(rule);
+        _this3.tags.push(rule);
       } else if (isStyleRule(rule)) {
         var prop = /[^=]*/.exec(rule.style)[0];
         if (matchedStyles.indexOf(prop) < 0) matchedStyles.push(prop);
-        _this2.styles.push(rule);
+        _this3.styles.push(rule);
       }
     });
     this.normalizeLists = !this.tags.some(function (r) {
@@ -14010,14 +14125,14 @@ var ParseContext = function () {
   }, {
     key: "readStyles",
     value: function readStyles(dom, marks) {
-      var _this3 = this;
+      var _this4 = this;
       var styles = dom.style;
       if (styles && styles.length) for (var i = 0; i < this.parser.matchedStyles.length; i++) {
         var name = this.parser.matchedStyles[i],
           value = styles.getPropertyValue(name);
         if (value) {
           var _loop4 = function _loop4(_after) {
-              var rule = _this3.parser.matchStyle(name, value, _this3, _after);
+              var rule = _this4.parser.matchStyle(name, value, _this4, _after);
               if (!rule) {
                 after = _after;
                 return 0;
@@ -14027,7 +14142,7 @@ var ParseContext = function () {
               };
               if (rule.clearMark) marks = marks.filter(function (m) {
                 return !rule.clearMark(m);
-              });else marks = marks.concat(_this3.parser.schema.marks[rule.mark].create(rule.attrs));
+              });else marks = marks.concat(_this4.parser.schema.marks[rule.mark].create(rule.attrs));
               if (rule.consuming === false) _after = rule;else {
                 after = _after;
                 return 0;
@@ -14047,7 +14162,7 @@ var ParseContext = function () {
   }, {
     key: "addElementByRule",
     value: function addElementByRule(dom, rule, marks, continueAfter) {
-      var _this4 = this;
+      var _this5 = this;
       var sync, nodeType;
       if (rule.node) {
         nodeType = this.parser.schema.nodes[rule.node];
@@ -14072,7 +14187,7 @@ var ParseContext = function () {
       } else if (rule.getContent) {
         this.findInside(dom);
         rule.getContent(dom, this.parser.schema).forEach(function (node) {
-          return _this4.insertNode(node, marks, false);
+          return _this5.insertNode(node, marks, false);
         });
       } else {
         var contentDOM = dom;
@@ -14250,7 +14365,7 @@ var ParseContext = function () {
   }, {
     key: "matchesContext",
     value: function matchesContext(context) {
-      var _this5 = this;
+      var _this6 = this;
       if (context.indexOf("|") > -1) return context.split(/\s*\|\s*/).some(this.matchesContext, this);
       var parts = context.split("/");
       var option = this.options.context;
@@ -14264,7 +14379,7 @@ var ParseContext = function () {
             for (; depth >= minDepth; depth--) if (match(i - 1, depth)) return true;
             return false;
           } else {
-            var next = depth > 0 || depth == 0 && useRoot ? _this5.nodes[depth].type : option && depth >= minDepth ? option.node(depth - minDepth).type : null;
+            var next = depth > 0 || depth == 0 && useRoot ? _this6.nodes[depth].type : option && depth >= minDepth ? option.node(depth - minDepth).type : null;
             if (!next || next.name != part && !next.isInGroup(part)) return false;
             depth--;
           }
@@ -14346,7 +14461,7 @@ var DOMSerializer = function () {
   _createClass(DOMSerializer, [{
     key: "serializeFragment",
     value: function serializeFragment(fragment) {
-      var _this6 = this;
+      var _this7 = this;
       var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
       var target = arguments.length > 2 ? arguments[2] : undefined;
       if (!target) target = doc(options).createDocumentFragment();
@@ -14358,7 +14473,7 @@ var DOMSerializer = function () {
             rendered = 0;
           while (keep < active.length && rendered < node.marks.length) {
             var next = node.marks[rendered];
-            if (!_this6.marks[next.type.name]) {
+            if (!_this7.marks[next.type.name]) {
               rendered++;
               continue;
             }
@@ -14369,7 +14484,7 @@ var DOMSerializer = function () {
           while (keep < active.length) top = active.pop()[1];
           while (rendered < node.marks.length) {
             var add = node.marks[rendered++];
-            var markDOM = _this6.serializeMark(add, node.isInline, options);
+            var markDOM = _this7.serializeMark(add, node.isInline, options);
             if (markDOM) {
               active.push([add, top]);
               top.appendChild(markDOM.dom);
@@ -14377,7 +14492,7 @@ var DOMSerializer = function () {
             }
           }
         }
-        top.appendChild(_this6.serializeNodeInner(node, options));
+        top.appendChild(_this7.serializeNodeInner(node, options));
       });
       return target;
     }
@@ -14504,7 +14619,7 @@ function _renderSpec(doc, structure, xmlNS, blockArraysIn) {
     start = 2;
     for (var name in attrs) if (attrs[name] != null) {
       var _space = name.indexOf(" ");
-      if (_space > 0) dom.setAttributeNS(name.slice(0, _space), name.slice(_space + 1), attrs[name]);else dom.setAttribute(name, attrs[name]);
+      if (_space > 0) dom.setAttributeNS(name.slice(0, _space), name.slice(_space + 1), attrs[name]);else if (name == "style" && dom.style) dom.style.cssText = attrs[name];else dom.setAttribute(name, attrs[name]);
     }
   }
   for (var i = start; i < structure.length; i++) {
@@ -14545,7 +14660,7 @@ exports.ResolvedPos = ResolvedPos;
 exports.Schema = Schema;
 exports.Slice = Slice;
 
-},{"orderedmap":38}],45:[function(require,module,exports){
+},{"orderedmap":39}],46:[function(require,module,exports){
 'use strict';
 
 var prosemirrorTransform = require('prosemirror-transform');
@@ -14800,7 +14915,7 @@ exports.splitListItemKeepMarks = splitListItemKeepMarks;
 exports.wrapInList = wrapInList;
 exports.wrapRangeInList = wrapRangeInList;
 
-},{"prosemirror-model":44,"prosemirror-state":46,"prosemirror-transform":47}],46:[function(require,module,exports){
+},{"prosemirror-model":45,"prosemirror-state":47,"prosemirror-transform":48}],47:[function(require,module,exports){
 'use strict';
 
 function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
@@ -15836,7 +15951,7 @@ exports.SelectionRange = SelectionRange;
 exports.TextSelection = TextSelection;
 exports.Transaction = Transaction;
 
-},{"prosemirror-model":44,"prosemirror-transform":47}],47:[function(require,module,exports){
+},{"prosemirror-model":45,"prosemirror-transform":48}],48:[function(require,module,exports){
 'use strict';
 
 function _wrapNativeSuper(Class) { var _cache = typeof Map === "function" ? new Map() : undefined; _wrapNativeSuper = function _wrapNativeSuper(Class) { if (Class === null || !_isNativeFunction(Class)) return Class; if (typeof Class !== "function") { throw new TypeError("Super expression must either be null or a function"); } if (typeof _cache !== "undefined") { if (_cache.has(Class)) return _cache.get(Class); _cache.set(Class, Wrapper); } function Wrapper() { return _construct(Class, arguments, _getPrototypeOf(this).constructor); } Wrapper.prototype = Object.create(Class.prototype, { constructor: { value: Wrapper, enumerable: false, writable: true, configurable: true } }); return _setPrototypeOf(Wrapper, Class); }; return _wrapNativeSuper(Class); }
@@ -17703,7 +17818,7 @@ exports.joinPoint = joinPoint;
 exports.liftTarget = liftTarget;
 exports.replaceStep = replaceStep;
 
-},{"prosemirror-model":44}],48:[function(require,module,exports){
+},{"prosemirror-model":45}],49:[function(require,module,exports){
 'use strict';
 
 function _slicedToArray(arr, i) { return _arrayWithHoles(arr) || _iterableToArrayLimit(arr, i) || _unsupportedIterableToArray(arr, i) || _nonIterableRest(); }
@@ -17756,6 +17871,7 @@ var isEquivalentPosition = function isEquivalentPosition(node, off, targetNode, 
 };
 var atomElements = /^(img|br|input|textarea|hr)$/i;
 function scanFor(node, off, targetNode, targetOff, dir) {
+  var _a;
   for (;;) {
     if (node == targetNode && off == targetOff) return true;
     if (off == (dir < 0 ? 0 : nodeSize(node))) {
@@ -17764,9 +17880,13 @@ function scanFor(node, off, targetNode, targetOff, dir) {
       off = domIndex(node) + (dir < 0 ? 0 : 1);
       node = parent;
     } else if (node.nodeType == 1) {
-      node = node.childNodes[off + (dir < 0 ? -1 : 0)];
-      if (node.contentEditable == "false") return false;
-      off = dir < 0 ? nodeSize(node) : 0;
+      var child = node.childNodes[off + (dir < 0 ? -1 : 0)];
+      if (child.nodeType == 1 && child.contentEditable == "false") {
+        if ((_a = child.pmViewDesc) === null || _a === void 0 ? void 0 : _a.ignoreForSelection) off += dir;else return false;
+      } else {
+        node = child;
+        off = dir < 0 ? nodeSize(node) : 0;
+      }
     } else {
       return false;
     }
@@ -18104,7 +18224,7 @@ function posFromCaret(view, node, offset, coords) {
       rect = void 0;
     if (!desc) return null;
     if (desc.dom.nodeType == 1 && (desc.node.isBlock && desc.parent || !desc.contentDOM) && ((rect = desc.dom.getBoundingClientRect()).width || rect.height)) {
-      if (desc.node.isBlock && desc.parent) {
+      if (desc.node.isBlock && desc.parent && !/^T(R|BODY|HEAD|FOOT)$/.test(desc.dom.nodeName)) {
         if (!sawBlock && rect.left > coords.left || rect.top > coords.top) outsideBlock = desc.posBefore;else if (!sawBlock && rect.right < coords.left || rect.bottom < coords.top) outsideBlock = desc.posAfter;
         sawBlock = true;
       }
@@ -18770,6 +18890,11 @@ var ViewDesc = function () {
       return false;
     }
   }, {
+    key: "ignoreForSelection",
+    get: function get() {
+      return false;
+    }
+  }, {
     key: "isText",
     value: function isText(text) {
       return false;
@@ -18837,6 +18962,11 @@ var WidgetViewDesc = function (_ViewDesc) {
     key: "domAtom",
     get: function get() {
       return true;
+    }
+  }, {
+    key: "ignoreForSelection",
+    get: function get() {
+      return !!this.widget.type.spec.relaxedSide;
     }
   }, {
     key: "side",
@@ -20697,9 +20827,12 @@ editHandlers.keypress = function (view, _event) {
   var sel = view.state.selection;
   if (!(sel instanceof prosemirrorState.TextSelection) || !sel.$from.sameParent(sel.$to)) {
     var text = String.fromCharCode(event.charCode);
+    var deflt = function deflt() {
+      return view.state.tr.insertText(text).scrollIntoView();
+    };
     if (!/[\r\n]/.test(text) && !view.someProp("handleTextInput", function (f) {
-      return f(view, sel.$from.pos, sel.$to.pos, text);
-    })) view.dispatch(view.state.tr.insertText(text).scrollIntoView());
+      return f(view, sel.$from.pos, sel.$to.pos, text, deflt);
+    })) view.dispatch(deflt());
     event.preventDefault();
   }
 };
@@ -22293,7 +22426,7 @@ function ruleFromNode(dom) {
   }
   return null;
 }
-var isInline = /^(a|abbr|acronym|b|bd[io]|big|br|button|cite|code|data(list)?|del|dfn|em|i|ins|kbd|label|map|mark|meter|output|q|ruby|s|samp|small|span|strong|su[bp]|time|u|tt|var)$/i;
+var isInline = /^(a|abbr|acronym|b|bd[io]|big|br|button|cite|code|data(list)?|del|dfn|em|i|img|ins|kbd|label|map|mark|meter|output|q|ruby|s|samp|small|span|strong|su[bp]|time|u|tt|var)$/i;
 function readDOMChange(view, from, to, typeOver, addedNodes) {
   var compositionID = view.input.compositionPendingChanges || (view.composing ? view.input.compositionID : 0);
   view.input.compositionPendingChanges = 0;
@@ -22304,10 +22437,10 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
       if (chrome && android && view.input.lastKeyCode === 13 && Date.now() - 100 < view.input.lastKeyCodeTime && view.someProp("handleKeyDown", function (f) {
         return f(view, keyEvent(13, "Enter"));
       })) return;
-      var _tr = view.state.tr.setSelection(newSel);
-      if (origin == "pointer") _tr.setMeta("pointer", true);else if (origin == "key") _tr.scrollIntoView();
-      if (compositionID) _tr.setMeta("composition", compositionID);
-      view.dispatch(_tr);
+      var tr = view.state.tr.setSelection(newSel);
+      if (origin == "pointer") tr.setMeta("pointer", true);else if (origin == "key") tr.scrollIntoView();
+      if (compositionID) tr.setMeta("composition", compositionID);
+      view.dispatch(tr);
     }
     return;
   }
@@ -22349,9 +22482,9 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
       if (parse.sel) {
         var _sel2 = resolveSelection(view, view.state.doc, parse.sel);
         if (_sel2 && !_sel2.eq(view.state.selection)) {
-          var _tr2 = view.state.tr.setSelection(_sel2);
-          if (compositionID) _tr2.setMeta("composition", compositionID);
-          view.dispatch(_tr2);
+          var _tr = view.state.tr.setSelection(_sel2);
+          if (compositionID) _tr.setMeta("composition", compositionID);
+          view.dispatch(_tr);
         }
       }
       return;
@@ -22401,7 +22534,16 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
   }
   var chFrom = change.start,
     chTo = change.endA;
-  var tr, storedMarks, markChange;
+  var mkTr = function mkTr(base) {
+    var tr = base || view.state.tr.replace(chFrom, chTo, parse.doc.slice(change.start - parse.from, change.endB - parse.from));
+    if (parse.sel) {
+      var _sel3 = resolveSelection(view, tr.doc, parse.sel);
+      if (_sel3 && !(chrome && view.composing && _sel3.empty && (change.start != change.endB || view.input.lastChromeDelete < Date.now() - 100) && (_sel3.head == chFrom || _sel3.head == tr.mapping.map(chTo) - 1) || ie && _sel3.empty && _sel3.head == chFrom)) tr.setSelection(_sel3);
+    }
+    if (compositionID) tr.setMeta("composition", compositionID);
+    return tr.scrollIntoView();
+  };
+  var markChange;
   if (inlineChange) {
     if ($from.pos == $to.pos) {
       if (ie && ie_version <= 11 && $from.parentOffset == 0) {
@@ -22410,27 +22552,26 @@ function readDOMChange(view, from, to, typeOver, addedNodes) {
           return selectionToDOM(view);
         }, 20);
       }
-      tr = view.state.tr["delete"](chFrom, chTo);
-      storedMarks = doc.resolve(change.start).marksAcross(doc.resolve(change.endA));
+      var _tr2 = mkTr(view.state.tr["delete"](chFrom, chTo));
+      var marks = doc.resolve(change.start).marksAcross(doc.resolve(change.endA));
+      if (marks) _tr2.ensureMarks(marks);
+      view.dispatch(_tr2);
     } else if (change.endA == change.endB && (markChange = isMarkChange($from.parent.content.cut($from.parentOffset, $to.parentOffset), $fromA.parent.content.cut($fromA.parentOffset, change.endA - $fromA.start())))) {
-      tr = view.state.tr;
-      if (markChange.type == "add") tr.addMark(chFrom, chTo, markChange.mark);else tr.removeMark(chFrom, chTo, markChange.mark);
+      var _tr3 = mkTr(view.state.tr);
+      if (markChange.type == "add") _tr3.addMark(chFrom, chTo, markChange.mark);else _tr3.removeMark(chFrom, chTo, markChange.mark);
+      view.dispatch(_tr3);
     } else if ($from.parent.child($from.index()).isText && $from.index() == $to.index() - ($to.textOffset ? 0 : 1)) {
       var text = $from.parent.textBetween($from.parentOffset, $to.parentOffset);
-      if (view.someProp("handleTextInput", function (f) {
-        return f(view, chFrom, chTo, text);
-      })) return;
-      tr = view.state.tr.insertText(text, chFrom, chTo);
+      var deflt = function deflt() {
+        return mkTr(view.state.tr.insertText(text, chFrom, chTo));
+      };
+      if (!view.someProp("handleTextInput", function (f) {
+        return f(view, chFrom, chTo, text, deflt);
+      })) view.dispatch(deflt());
     }
+  } else {
+    view.dispatch(mkTr());
   }
-  if (!tr) tr = view.state.tr.replace(chFrom, chTo, parse.doc.slice(change.start - parse.from, change.endB - parse.from));
-  if (parse.sel) {
-    var _sel3 = resolveSelection(view, tr.doc, parse.sel);
-    if (_sel3 && !(chrome && view.composing && _sel3.empty && (change.start != change.endB || view.input.lastChromeDelete < Date.now() - 100) && (_sel3.head == chFrom || _sel3.head == tr.mapping.map(chTo) - 1) || ie && _sel3.empty && _sel3.head == chFrom)) tr.setSelection(_sel3);
-  }
-  if (storedMarks) tr.ensureMarks(storedMarks);
-  if (compositionID) tr.setMeta("composition", compositionID);
-  view.dispatch(tr.scrollIntoView());
 }
 function resolveSelection(view, doc, parsedSel) {
   if (Math.max(parsedSel.anchor, parsedSel.head) > doc.content.size) return null;
@@ -22875,12 +23016,6 @@ var EditorView = function () {
       return _dispatchEvent(this, event);
     }
   }, {
-    key: "dispatch",
-    value: function dispatch(tr) {
-      var dispatchTransaction = this._props.dispatchTransaction;
-      if (dispatchTransaction) dispatchTransaction.call(this, tr);else this.updateState(this.state.apply(tr));
-    }
-  }, {
     key: "domSelectionRange",
     value: function domSelectionRange() {
       var sel = this.domSelection();
@@ -22900,6 +23035,10 @@ var EditorView = function () {
   }]);
   return EditorView;
 }();
+EditorView.prototype.dispatch = function (tr) {
+  var dispatchTransaction = this._props.dispatchTransaction;
+  if (dispatchTransaction) dispatchTransaction.call(this, tr);else this.updateState(this.state.apply(tr));
+};
 function computeDocDeco(view) {
   var attrs = Object.create(null);
   attrs["class"] = "ProseMirror";
@@ -22967,7 +23106,7 @@ exports.EditorView = EditorView;
 exports.__endComposition = __endComposition;
 exports.__parseFromClipboard = __parseFromClipboard;
 
-},{"prosemirror-model":44,"prosemirror-state":46,"prosemirror-transform":47}],49:[function(require,module,exports){
+},{"prosemirror-model":45,"prosemirror-state":47,"prosemirror-transform":48}],50:[function(require,module,exports){
 'use strict';
 
 var GOOD_LEAF_SIZE = 200;
@@ -23178,7 +23317,7 @@ var Append = /*@__PURE__*/(function (RopeSequence) {
 
 module.exports = RopeSequence;
 
-},{}],50:[function(require,module,exports){
+},{}],51:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });

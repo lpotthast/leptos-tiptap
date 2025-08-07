@@ -115,6 +115,9 @@ pub fn TiptapInstance(
     /// If a paragraph is selected and the H1 message is sent, that selected paragraph will be made an H1.
     #[prop(into)]
     on_selection_change: Callback<(TiptapSelectionState,)>,
+
+    #[prop(into)]
+    placeholder: Signal<String>,
 ) -> impl IntoView {
     let instance = NodeRef::new();
 
@@ -152,7 +155,9 @@ pub fn TiptapInstance(
 
         // The tiptap instance must be initialized EXACTLY ONCE through the tiptap JS API.
         let (initialized, set_initialized) = signal(false);
+        let placeholder = placeholder.clone();
         Effect::new(move |_| {
+            let placeholder = placeholder.clone();
             if !initialized.get_untracked() && instance.get().is_some() {
                 js_tiptap::create(
                     id.get_untracked(),
@@ -160,6 +165,7 @@ pub fn TiptapInstance(
                     !disabled.get_untracked(),
                     &on_content_change_closure.read_value(),
                     &on_selection_change_closure.read_value(),
+                    placeholder.get_untracked(),
                 );
                 set_initialized.set(true);
             }

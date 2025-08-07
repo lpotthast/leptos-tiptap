@@ -15,6 +15,7 @@ mod js {
             editable: bool,
             onChange: &Closure<dyn Fn(String)>,
             onSelection: &Closure<dyn Fn(JsValue)>,
+            placeholder: String,
         );
         pub fn destroy(id: String);
         pub fn isEditable(id: String) -> bool;
@@ -57,15 +58,17 @@ pub fn create(
     editable: bool,
     on_change: &Closure<dyn Fn(String)>,
     on_selection: &Closure<dyn Fn(JsValue)>,
+    placeholder: String,
 ) {
     cfg_if! {if #[cfg(not(feature = "ssr"))] {
-        js::create(id, content, editable, on_change, on_selection);
+        js::create(id, content, editable, on_change, on_selection, placeholder);
     } else {
         let _id = id;
         let _content = content;
         let _editable = editable;
         let _on_change = on_change;
         let _on_selection = on_selection;
+        let _placeholder = placeholder;
     }}
 }
 
