@@ -1,14 +1,26 @@
 {
   "name": "tiptap",
-  "version": "2.12.0",
-  "main": "index.js",
+  "version": "2.27.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild adapter.ts --bundle --minify --format=esm --platform=browser --target=es2020 --outfile=../leptos-tiptap-build/dist/tiptap.js",
+    "test": "node --import tsx --test adapter.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
   "dependencies": {
-    "@tiptap/core": "^2.12.0",
-    "@tiptap/extension-highlight": "^2.12.0",
-    "@tiptap/extension-image": "^2.12.0",
-    "@tiptap/extension-link": "^2.12.0",
-    "@tiptap/extension-text-align": "^2.12.0",
-    "@tiptap/extension-youtube": "^2.12.0",
-    "@tiptap/starter-kit": "^2.12.0"
+    "@tiptap/core": "^2.27.2",
+    "@tiptap/extension-highlight": "^2.27.2",
+    "@tiptap/extension-image": "^2.27.2",
+    "@tiptap/extension-link": "^2.27.2",
+    "@tiptap/extension-text-align": "^2.27.2",
+    "@tiptap/extension-youtube": "^2.27.2",
+    "@tiptap/starter-kit": "^2.27.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.7.2",
+    "esbuild": "^0.28.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
   }
 }

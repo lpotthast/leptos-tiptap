@@ -5,7 +5,18 @@ Build dependencies for the [leptos-tiptap](https://crates.io/crates/leptos-tipta
 Check out the leptos-tiptap [repository](https://github.com/lpotthast/leptos-tiptap) for further instructions on how to
 use this dependency.
 
+This crate embeds the following assets:
+
+- `TIPTAP_JS`: the bundled and minified ESM browser module served as `/js/tiptap.js`. It contains the Tiptap runtime,
+  the bundled extensions, and this project's JS adapter layer used by the Rust bridge.
+
 ## Changelog
+
+0.3.0 - UNRELEASED
+
+- Changed the packaging strategy. Now, `tiptap.js` is not only our adapter code, but instead the Tiptap runtime and
+  adapter combined. You only need to include this file in your build.
+- Updated Tiptap and plugins from `2.12.0` to `2.27.2`.
 
 0.2.8
 

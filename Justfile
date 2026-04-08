@@ -4,32 +4,22 @@ list:
 
 # Perform a full build of the tiptap bundle.
 build:
-  just install-prerequisites
   just install-tiptap
-  just update-tiptap
   just bundle-tiptap
-  just minify-tiptap
 
-# Install dependencies
-install-prerequisites:
-  npm install -g browserify
-  npm install -g uglify-js
-
-# Run `npm install`
+# Install pinned tiptap and the required JS build tooling.
 install-tiptap:
-  cd tiptap && npm install
+  cd tiptap && npm ci
 
-# Run `npm update`
+# Explicitly upgrade the tiptap npm dependencies and refresh the bundle.
 update-tiptap:
   cd tiptap && npm update
+  just bundle-tiptap
 
-# Bundle tiptap into a single JS file -> leptos-tiptap-build/dist/tiptap-bundle.js
+# Bundle the Rust-facing Tiptap adapter into a minified ESM file -> leptos-tiptap-build/dist/tiptap.js
 bundle-tiptap:
-  browserify tiptap/main.js -o leptos-tiptap-build/dist/tiptap-bundle.js
-
-# Minify a previously created tiptap bundle -> leptos-tiptap-build/dist/tiptap-bundle.min.js
-minify-tiptap:
-  uglifyjs --compress --mangle --output leptos-tiptap-build/dist/tiptap-bundle.min.js -- leptos-tiptap-build/dist/tiptap-bundle.js
+  mkdir -p leptos-tiptap-build/dist
+  cd tiptap && npm run build
 
 # Find the minimum supported rust version
 msrv:

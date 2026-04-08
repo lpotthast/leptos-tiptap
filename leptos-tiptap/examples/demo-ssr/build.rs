@@ -8,12 +8,6 @@ pub fn main() {
     std::fs::create_dir_all(js_dir.clone()).unwrap();
     println!("cargo:warning=js dir created");
 
-    let _ = std::fs::File::create(js_dir.join("tiptap-bundle.min.js"))
-        .unwrap()
-        .write(leptos_tiptap_build::TIPTAP_BUNDLE_MIN_JS.as_bytes())
-        .unwrap();
-    println!("cargo:warning=tiptap-bundle.min.js written");
-
     let _ = std::fs::File::create(js_dir.join("tiptap.js"))
         .unwrap()
         .write(leptos_tiptap_build::TIPTAP_JS.as_bytes())
