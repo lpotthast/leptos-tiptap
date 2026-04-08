@@ -162,7 +162,7 @@ pub fn TiptapInstance(
         }));
 
         lifecycle.update_value(|state| *state = EditorLifecycle::Creating);
-        js_tiptap::create(
+        if let Err(err) = js_tiptap::create(
             editor_id.get_value(),
             initial_content.clone().into_payload(),
             !disabled.get_untracked(),
@@ -170,7 +170,12 @@ pub fn TiptapInstance(
             &on_content_change_closure,
             &on_selection_change_closure,
             &on_error_closure,
-        );
+        ) {
+            lifecycle.update_value(|state| *state = EditorLifecycle::Idle);
+            callbacks.update_value(|slot| *slot = None);
+            report_runtime_error(on_error, err);
+            return;
+        }
 
         if lifecycle.read_value() != EditorLifecycle::Idle {
             callbacks.update_value(|slot| {

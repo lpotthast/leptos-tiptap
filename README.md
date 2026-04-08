@@ -5,27 +5,22 @@ Enables the integration of [Tiptap](https://tiptap.dev/) instances into your [le
 Current repository versions:
 
 - `leptos-tiptap`: `0.10.0`
-- `leptos-tiptap-build`: `0.2.8`
 - `leptos`: `0.8.2`
 - Tiptap npm packages in `tiptap/package.json`: `2.27.2`
 
-Currently bundled Tiptap packages:
+Current shipped default extension set:
 
-- "@tiptap/core": "^2.27.2",
-- "@tiptap/extension-highlight": "^2.27.2",
-- "@tiptap/extension-image": "^2.27.2",
-- "@tiptap/extension-youtube": "^2.27.2",
-- "@tiptap/extension-link": "^2.27.2",
-- "@tiptap/extension-text-align": "^2.27.2",
-- "@tiptap/starter-kit": "^2.27.2"
+- blockquote, bold, bullet list, code, code block, document, dropcursor, gapcursor
+- hard break, heading, history, horizontal rule, italic, list item, ordered list, paragraph
+- strike, text, text-align, highlight, image, link, youtube
 
 This repository contains:
 
 | Dir                 | What is it for?                                                                                                                                                                                                                              |
 |---------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | leptos-tiptap       | The main dependency other leptos projects can depend on. It provides the `<TiptapInstance>` component through which a tiptap instance is managed automatically.                                                                              |
-| leptos-tiptap-build | This dependency can be used in `build.rs` scripts. It provides the generated Tiptap browser asset. `TIPTAP_JS` is the bundled `/js/tiptap.js` browser module containing Tiptap, the bundled extensions, and this project's JS adapter layer. |
-| tiptap              | Build process for the generated Tiptap browser assets. `just build` bundles the adapter with `esbuild`, writes the outputs into `leptos-tiptap-build/dist/`, and keeps the example apps in sync.                                             |
+| leptos-tiptap-build | Legacy helper crate for the old downstream `build.rs` asset-copy workflow. It is kept for compatibility, but it is no longer used by the demos or the main integration path.                                                                  |
+| tiptap              | Build process for the crate-local JS snippets. `just build` bundles the bridge runtime, separated Tiptap core runtime, and standalone extension modules into `leptos-tiptap/src/js/generated/`.                                             |
 
 ## Run the examples
 
@@ -51,6 +46,8 @@ just build
 
 ## Runtime notes
 
+- Consumers only depend on `leptos-tiptap`. They do not need a `build.rs`, copied `tiptap.js`, or a manual `<link rel="modulepreload">`.
+- The JS bridge is shipped as crate-local `wasm-bindgen` snippets. Those files end up in the final app build output automatically.
 - `TiptapInstance` takes `initial_content: TiptapContent` and applies it once when the editor is created. Use `TiptapContent::Html(...)` or `TiptapContent::Json(...)` to choose the initialization format.
 - `TiptapInstance` is not a controlled component. The editor keeps its own internal state after creation.
 - `TiptapInstance` notifies Rust through `on_ready` and `on_change`. Both callbacks receive a `TiptapEditorHandle`, which can be stored for the lifetime of that editor instance and can read the current editor content as HTML or JSON on demand.
@@ -59,4 +56,4 @@ just build
 - If an editor is destroyed and recreated with the same DOM id, older handles become stale and fail with `EditorUnavailable` instead of targeting the replacement editor.
 - A single editor instance can be read back in multiple formats. The current HTML/JSON distinction is no longer tied to the initial content format.
 - The `id` prop is a stable DOM id for the editor root and must stay unique across all live editor instances.
-- `/js/tiptap.js` is the authoritative JS module imported by the Rust bridge. It is the bundled browser module containing Tiptap, the bundled extensions, and this project's JS adapter layer.
+- The internal JS packaging is now split into one bridge runtime, one separated Tiptap core runtime, and standalone official extension modules. That split is internal for now; the default editor behavior remains unchanged.

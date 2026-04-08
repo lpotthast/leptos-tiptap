@@ -5,9 +5,8 @@ Enables the integration of [Tiptap](https://tiptap.dev/) instances into your [le
 ## Usage
 
 This is a rather low-level dependency. Use it if you want to create your own editor experience.
-You will need the generated Tiptap JS assets in your application.
-Check out `leptos-tiptap-build` as well as the `leptos-tiptap` examples ("demo-csr" and "demo-ssr"), all available in the [repository](https://github.com/lpotthast/leptos-tiptap),
-to get a grasp of how the JS files can be added to a build.
+You only need `leptos-tiptap`.
+The crate ships its JS bridge through crate-local `wasm-bindgen` snippets, so you do not need a downstream `build.rs`, copied browser assets, or a manual preload tag.
 
 `TiptapInstance` takes `initial_content: TiptapContent` and uses it once when the editor is created.
 Use `TiptapContent::Html(...)` for HTML input or `TiptapContent::Json(serde_json::Value)` for structured TipTap JSON input.
@@ -23,8 +22,6 @@ If the JS bridge can not create the editor, parse content, or apply a command, `
 reports that through the optional `on_error` callback.
 
 The `id` prop is a stable DOM id for the editor root and must be unique across all live editor instances.
-
-`/js/tiptap.js` is the browser module imported by the Rust bridge. It contains the bundled Tiptap runtime, the bundled extensions, and this project's JS adapter layer.
 
 ## Integrated
 

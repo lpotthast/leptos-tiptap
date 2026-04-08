@@ -11,5 +11,5 @@
     "types": ["node"],
     "skipLibCheck": true
   },
-  "include": ["adapter.ts", "adapter.test.ts"]
+  "include": ["src/**/*.ts"]
 }

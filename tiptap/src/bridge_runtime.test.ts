@@ -2,7 +2,87 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import type {Editor, EditorOptions} from "@tiptap/core"
 
-import {__testing, command, create, destroy, document} from "./adapter.ts"
+import type {CreateRequest} from "./bridge_api.ts"
+import {__testing, command, create, destroy, document} from "./bridge_runtime.ts"
+import {register_blockquote} from "./extensions/tiptap_blockquote.ts"
+import {register_bold} from "./extensions/tiptap_bold.ts"
+import {register_bullet_list} from "./extensions/tiptap_bullet_list.ts"
+import {register_code} from "./extensions/tiptap_code.ts"
+import {register_code_block} from "./extensions/tiptap_code_block.ts"
+import {register_document} from "./extensions/tiptap_document.ts"
+import {register_dropcursor} from "./extensions/tiptap_dropcursor.ts"
+import {register_gapcursor} from "./extensions/tiptap_gapcursor.ts"
+import {register_hard_break} from "./extensions/tiptap_hard_break.ts"
+import {register_heading} from "./extensions/tiptap_heading.ts"
+import {register_highlight} from "./extensions/tiptap_highlight.ts"
+import {register_history} from "./extensions/tiptap_history.ts"
+import {register_horizontal_rule} from "./extensions/tiptap_horizontal_rule.ts"
+import {register_image} from "./extensions/tiptap_image.ts"
+import {register_italic} from "./extensions/tiptap_italic.ts"
+import {register_link} from "./extensions/tiptap_link.ts"
+import {register_list_item} from "./extensions/tiptap_list_item.ts"
+import {register_ordered_list} from "./extensions/tiptap_ordered_list.ts"
+import {register_paragraph} from "./extensions/tiptap_paragraph.ts"
+import {register_strike} from "./extensions/tiptap_strike.ts"
+import {register_text} from "./extensions/tiptap_text.ts"
+import {register_text_align} from "./extensions/tiptap_text_align.ts"
+import {register_youtube} from "./extensions/tiptap_youtube.ts"
+
+const DEFAULT_EXTENSION_NAMES: string[] = [
+    "blockquote",
+    "bold",
+    "bullet_list",
+    "code",
+    "code_block",
+    "document",
+    "dropcursor",
+    "gapcursor",
+    "hard_break",
+    "heading",
+    "history",
+    "horizontal_rule",
+    "italic",
+    "list_item",
+    "ordered_list",
+    "paragraph",
+    "strike",
+    "text",
+    "text_align",
+    "highlight",
+    "image",
+    "link",
+    "youtube",
+]
+
+function registerDefaultExtensions(): void {
+    if (__testing.hasRegisteredExtension("blockquote")) {
+        return
+    }
+
+    register_blockquote()
+    register_bold()
+    register_bullet_list()
+    register_code()
+    register_code_block()
+    register_document()
+    register_dropcursor()
+    register_gapcursor()
+    register_hard_break()
+    register_heading()
+    register_history()
+    register_horizontal_rule()
+    register_italic()
+    register_list_item()
+    register_ordered_list()
+    register_paragraph()
+    register_strike()
+    register_text()
+    register_text_align()
+    register_highlight()
+    register_image()
+    register_link()
+    register_youtube()
+}
 
 class FakeEditor {
     destroyed = false
@@ -101,7 +181,7 @@ function createRequest(
     id = "id",
     value = "<p>hello</p>",
     format: "html" | "json" = "html",
-) {
+): CreateRequest {
     return {
         id,
         content: {
@@ -109,7 +189,8 @@ function createRequest(
             value,
         },
         editable: true,
-    } as const
+        extensions: [...DEFAULT_EXTENSION_NAMES],
+    }
 }
 
 function withSuppressedConsoleError<T>(run: () => T): T {
@@ -131,6 +212,7 @@ function setupAdapterTest(
     } = {},
 ): FakeEditor[] {
     __testing.reset()
+    registerDefaultExtensions()
     __testing.setDocument(createFakeDocument(options.elementsById ?? {id: {} as HTMLElement}))
 
     const createdEditors: FakeEditor[] = []
@@ -456,4 +538,77 @@ test("rejects stale generations for document and command calls", () => {
         throw new Error("stale command request should fail")
     }
     assert.equal(staleCommandResult.error.kind, "editor_unavailable")
+})
+
+test("rejects duplicate extension registration", () => {
+    __testing.reset()
+
+    __testing.registerExtension({
+        name: "duplicate",
+        create: () => {
+            throw new Error("should not be called")
+        },
+    })
+
+    assert.throws(() => __testing.registerExtension({
+        name: "duplicate",
+        create: () => {
+            throw new Error("should not be called")
+        },
+    }))
+})
+
+test("reports missing requested extensions during create", () => {
+    __testing.reset()
+    __testing.setDocument(createFakeDocument({id: {} as HTMLElement}))
+
+    const errors: Array<{ kind: string; message: string }> = []
+
+    withSuppressedConsoleError(() => {
+        create(
+            {
+                ...createRequest(),
+                extensions: ["missing"],
+            },
+            () => {
+                throw new Error("create should not succeed")
+            },
+            () => {
+            },
+            () => {
+            },
+            (error) => errors.push(error),
+        )
+    })
+
+    assert.equal(errors.length, 1)
+    assert.equal(errors[0]?.kind, "extension_unavailable")
+    assert.match(errors[0]?.message ?? "", /not registered/)
+})
+
+test("reports commands from inactive extensions as extension_unavailable", () => {
+    setupAdapterTest()
+
+    const generation = createAndGetGeneration({
+        ...createRequest(),
+        extensions: ["document", "paragraph", "text"],
+    })
+
+    const result = withSuppressedConsoleError(() =>
+        command({
+            id: "id",
+            generation,
+            command: {
+                kind: "toggle_bold",
+            },
+        }),
+    )
+
+    assert.equal(result.ok, false)
+    if (result.ok) {
+        throw new Error("toggle_bold should fail when bold is inactive")
+    }
+
+    assert.equal(result.error.kind, "extension_unavailable")
+    assert.equal(result.error.operation, "toggle_bold")
 })

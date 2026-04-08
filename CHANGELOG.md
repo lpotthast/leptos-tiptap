@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added browser-level SSR coverage in the `demo-ssr` example with Playwright, including hydration and HTML/JSON round-trip checks.
 - Added adapter-level JS unit tests covering create failures, invalid content handling, and editor registry cleanup.
 - Added adapter-level tests covering generation-aware stale-handle rejection and the initial selection callback emitted during editor startup.
+- Added zero-config crate-local JS snippet delivery for the bundled browser runtime, so `leptos-tiptap` can ship its generated Tiptap bridge directly through `wasm-bindgen`.
 - Added this root `CHANGELOG.md`.
 
 ### Changed
@@ -29,7 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed the runtime model so one editor instance can be read back as both HTML and JSON, regardless of which format was used for initial content.
 - Changed `TiptapInstance` so `id` is now a stable DOM id instead of a reactive reset mechanism.
 - Changed the JS bundle workflow to use `npm ci` for reproducible rebuilds and a separate `just update-tiptap` maintenance command for dependency upgrades.
-- Changed the JS packaging from the old Browserify-style setup to an esbuild-generated ESM adapter module. Consumer apps must adapt their preload/setup accordingly: serve `/js/tiptap.js` as an ES module for the wasm-bindgen import, preload it as a module if desired, and do not include `/js/tiptap.js` as a classic script. `tiptap-bundle.min.js` is no longer generated; consumers must switch to `/js/tiptap.js`.
+- Changed the JS packaging from the old external `/js/tiptap.js` asset contract to crate-local `wasm-bindgen` snippets. Consumer apps now depend only on `leptos-tiptap` and no longer need a downstream `build.rs`, copied browser assets, or a manual preload tag.
+- Changed the internal JS architecture from one monolithic adapter bundle to a bridge runtime, a separated Tiptap core runtime, and standalone official extension registration modules.
+- Changed the runtime preset to use explicit extension modules instead of `StarterKit` as the shipped integration unit.
+- Changed the example applications and README guidance to use the new zero-config integration path, while treating `leptos-tiptap-build` as a legacy compatibility crate instead of the primary setup.
 - Changed the CSR and SSR demos to show one editor with side-by-side HTML and JSON readbacks instead of treating them as separate editor modes.
 - Changed unit tests to use the `assertr` crate for assertions.
 - Changed bridge command handling to return structured statuses instead of booleans or missing values.
@@ -52,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed the SSR demo so it no longer implies that separate editors are required to inspect HTML and JSON representations of the same document.
 - Fixed stale and inconsistent version/build documentation in the repository README files.
 - Fixed repository hygiene so example `public/js` bundle copies are treated as generated artifacts instead of tracked source files.
+- Fixed the demos so they build directly against crate-local snippets without the old asset-copy setup.
 
 ### Removed
 
@@ -61,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed dead JS bridge declarations that only existed for the removed editor-state surface.
 - Removed the `set_value: Callback<(TiptapContent,)>` update path from `TiptapInstance`.
 - Removed the format-bound callback model where a live editor instance always pushed updates in the same representation it was created with.
+- Removed the example `build.rs` scripts, copied `public/js/tiptap.js` assets, and manual module-preload tags from the supported setup path.
 
 ## [leptos-tiptap-build 0.2.8] - 2025-06-01
 

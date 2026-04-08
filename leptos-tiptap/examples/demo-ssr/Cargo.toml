@@ -2,13 +2,9 @@
 name = "demo-ssr"
 version = "0.3.0"
 edition = "2021"
-build = "build.rs"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
-
-[build-dependencies]
-leptos-tiptap-build = { path = "../../../leptos-tiptap-build" }
 
 [dependencies]
 console_error_panic_hook = "0.1.7"

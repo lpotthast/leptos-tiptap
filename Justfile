@@ -16,9 +16,9 @@ update-tiptap:
   cd tiptap && npm update
   just bundle-tiptap
 
-# Bundle the Rust-facing Tiptap adapter into a minified ESM file -> leptos-tiptap-build/dist/tiptap.js
+# Bundle the Rust-facing Tiptap host runtime and standalone extension modules into
+# leptos-tiptap/src/js/generated/.
 bundle-tiptap:
-  mkdir -p leptos-tiptap-build/dist
   cd tiptap && npm run build
 
 # Find the minimum supported rust version
