@@ -25,4 +25,3 @@ bundle-tiptap:
 msrv:
     cargo install cargo-msrv
     cargo msrv find --path leptos-tiptap
-    cargo msrv find --path leptos-tiptap-build

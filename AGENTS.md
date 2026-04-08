@@ -5,14 +5,12 @@ Guidance for Codex when working in this repository.
 ## Repo Snapshot
 
 - `leptos-tiptap/` is the main library crate.
-- `leptos-tiptap-build/` is the build-time helper crate that embeds the generated JS assets.
 - `tiptap/` is the Node.js bundle source used to produce the browser-side Tiptap bundle.
 - The example apps live under `leptos-tiptap/examples/`, not at the repository root.
 
 Current versions in the repo:
 
 - `leptos-tiptap`: `0.10.0`
-- `leptos-tiptap-build`: `0.2.8`
 - `leptos`: `0.8.2`
 - Tiptap npm packages in `tiptap/package.json`: `2.27.2`
 
@@ -62,14 +60,12 @@ This repository wraps the [Tiptap](https://tiptap.dev/) editor for [Leptos](http
 
 - Use the `assertr` crate for Rust test assertions instead of the standard `assert!` / `assert_eq!` macros.
 
-There are three layers:
+There are two layers:
 
 1. `leptos-tiptap`
-   The runtime crate. It exposes the `TiptapInstance` component, `TiptapInstanceMsg`, content/resource types, and selection state types.
-2. `leptos-tiptap-build`
-   The build-time crate. It exposes `TIPTAP_JS` as an embedded string constant so downstream `build.rs` scripts can write the browser asset into `public/js/`.
-3. `tiptap/`
-   The Node.js adapter source. `tiptap/adapter.ts` imports the Tiptap npm packages directly, and `just build` bundles the adapter with `esbuild` into `leptos-tiptap-build/dist/`.
+   The runtime crate. It exposes the `TiptapInstance` component, `TiptapEditorHandle`, content/resource types, and selection state types.
+2. `tiptap/`
+   The Node.js source for the crate-local JS snippets. `just build` bundles the bridge runtime, the separated Tiptap core runtime, and standalone extension modules into `leptos-tiptap/src/js/generated/`.
 
 ## Important Files
 
@@ -79,13 +75,10 @@ There are three layers:
   The `TiptapInstance` component. This is the main Rust-side lifecycle and command dispatch code.
 - `leptos-tiptap/src/js_tiptap.rs`
   The `wasm_bindgen` FFI layer. All browser interaction goes through this file.
-- `leptos-tiptap-build/src/lib.rs`
-  Embeds the generated JS files with `include_str!`.
-- `tiptap/adapter.ts`
-  The TypeScript adapter module bundled and served as `/js/tiptap.js`. It imports Tiptap and exports the functions Rust calls.
-- `leptos-tiptap/examples/demo-csr/build.rs`
-- `leptos-tiptap/examples/demo-ssr/build.rs`
-  These show the expected asset flow: write `tiptap.js` into `public/js/`.
+- `tiptap/src/bridge_runtime.ts`
+  The bridge-owned JS runtime that manages editor lifecycle, commands, and selection state.
+- `tiptap/src/tiptap_core.ts`
+  The Tiptap/ProseMirror runtime bundle that is initialized before the bridge runtime.
 
 ## Runtime Model
 
@@ -93,8 +86,7 @@ There are three layers:
   The `initial_content` prop is treated as one-time editor initialization input. Callers should not continuously mirror user edits back into `initial_content`.
 - The `id` prop must be globally unique across all editor instances.
   It is a stable DOM id, not a reset mechanism.
-- Commands are driven through the `msg: Signal<TiptapInstanceMsg>` prop.
-  The component reacts to the latest enum variant and forwards it to the JS bridge.
+- Commands are driven through `TiptapEditorHandle` methods obtained from `on_ready` or `on_change`.
 - Selection updates come back through `on_selection_change`.
 - Content updates are lightweight notifications through `on_change`.
   Consumers use the `TiptapEditorHandle` from `on_ready` or `on_change` to pull the current HTML or JSON content on demand.
@@ -106,14 +98,14 @@ There are three layers:
 - JS interop in `leptos-tiptap/src/js_tiptap.rs` is wrapped in `cfg_if!`.
 - With the `ssr` feature enabled, all JS calls become no-ops.
 - `TiptapInstance` still renders its DOM node on the server and hydrates on the client.
-- The raw wasm-bindgen module path is `/js/tiptap.js`, so consuming apps must actually serve that file at that URL.
+- The runtime imports crate-local `wasm-bindgen` JS snippets, which are copied into the final app build output automatically.
 
 ## JS Integration Notes
 
-- The Rust bridge imports `/js/tiptap.js` directly via `#[wasm_bindgen(raw_module = "/js/tiptap.js")]`.
-- The editor registry lives inside the adapter module, not on `window`.
-- If you add or remove commands on the Rust side, update both `leptos-tiptap/src/js_tiptap.rs` and `tiptap/adapter.ts`.
-- If you add a new extension, update `tiptap/package.json` and the `extensions` array in `tiptap/adapter.ts`.
+- The Rust bridge imports generated crate-local JS snippets such as `bridge_runtime.js`, `tiptap_core.js`, and `tiptap_*.js`.
+- The editor registry lives inside the bridge runtime module.
+- If you add or remove commands on the Rust side, update both `leptos-tiptap/src/js_tiptap.rs` and the relevant `tiptap/src/bridge_*.ts` or `tiptap/src/extensions/tiptap_*.ts` modules.
+- If you add a new extension, update `tiptap/package.json`, `tiptap/build.mjs`, and add a new `tiptap/src/extensions/tiptap_*.ts` module.
 
 ## Compatibility
 

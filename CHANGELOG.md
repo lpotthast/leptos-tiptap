@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added adapter-level JS unit tests covering create failures, invalid content handling, and editor registry cleanup.
 - Added adapter-level tests covering generation-aware stale-handle rejection and the initial selection callback emitted during editor startup.
 - Added zero-config crate-local JS snippet delivery for the bundled browser runtime, so `leptos-tiptap` can ship its generated Tiptap bridge directly through `wasm-bindgen`.
+- Added the public `TiptapExtension` selection type and an `extensions` prop on `TiptapInstance` for explicit per-editor extension activation.
 - Added this root `CHANGELOG.md`.
 
 ### Changed
@@ -33,7 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed the JS packaging from the old external `/js/tiptap.js` asset contract to crate-local `wasm-bindgen` snippets. Consumer apps now depend only on `leptos-tiptap` and no longer need a downstream `build.rs`, copied browser assets, or a manual preload tag.
 - Changed the internal JS architecture from one monolithic adapter bundle to a bridge runtime, a separated Tiptap core runtime, and standalone official extension registration modules.
 - Changed the runtime preset to use explicit extension modules instead of `StarterKit` as the shipped integration unit.
-- Changed the example applications and README guidance to use the new zero-config integration path, while treating `leptos-tiptap-build` as a legacy compatibility crate instead of the primary setup.
+- Changed extension compilation and activation to be explicit: Cargo features decide which extensions are compiled and registered, and each editor instance now activates a chosen subset or defaults to all compiled extensions.
+- Changed the example applications and README guidance to use the new zero-config integration path.
 - Changed the CSR and SSR demos to show one editor with side-by-side HTML and JSON readbacks instead of treating them as separate editor modes.
 - Changed unit tests to use the `assertr` crate for assertions.
 - Changed bridge command handling to return structured statuses instead of booleans or missing values.
@@ -60,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Removed the legacy `leptos-tiptap-build` crate from this repository after publishing its final compatibility release.
 - Removed `TiptapInstanceMsg` and the `msg` signal prop from `TiptapInstance`. Use `TiptapEditorHandle` command methods instead.
 - Removed the internal `MessageBufferState` pre-ready command buffering. Commands are now sent directly through the handle after `on_ready` fires.
 - Removed the unusable public `TiptapEditorState` type from the `leptos-tiptap` API surface.
