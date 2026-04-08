@@ -2,10 +2,20 @@
 
 Build dependencies for the [leptos-tiptap](https://crates.io/crates/leptos-tiptap) crate.
 
+> **Legacy note:**
+> 
+> This crate exists only for the older downstream `build.rs` asset-copy workflow.
+> 
+> New integrations, depending on `leptos-tiptap` in version `0.10.0` and up, do not need this crate anymore.
+
 Check out the leptos-tiptap [repository](https://github.com/lpotthast/leptos-tiptap) for further instructions on how to
 use this dependency.
 
 ## Changelog
+
+0.2.9
+
+- Added a legacy note clarifying that new integrations should depend on `leptos-tiptap` directly.
 
 0.2.8
 

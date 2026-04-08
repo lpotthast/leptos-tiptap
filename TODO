@@ -1,0 +1,3 @@
+# TODO
+
+- Most commands `focus()` the editor as well as doing their actual thing. Should we really do that?

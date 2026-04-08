@@ -2,7 +2,6 @@
 name = "demo-csr"
 version = "0.5.0"
 edition = "2021"
-build = "build.rs"
 
 [profile.release]
 opt-level = "z"
@@ -13,6 +12,3 @@ debug = 0
 console_error_panic_hook = "0.1.7"
 leptos = { version = "0.8.2", features = ["csr"] }
 leptos-tiptap = { path = "../../../leptos-tiptap" }
-
-[build-dependencies]
-leptos-tiptap-build = { path = "../../../leptos-tiptap-build" }
