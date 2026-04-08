@@ -1,0 +1,7 @@
+{
+  "name": "demo-ssr-end2end",
+  "private": true,
+  "devDependencies": {
+    "@playwright/test": "^1.54.2"
+  }
+}
