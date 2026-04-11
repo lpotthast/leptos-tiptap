@@ -7,7 +7,9 @@ const descriptor: ExtensionDescriptor = {
     name: "italic",
     create: () => Italic,
     commands: {
+        set_italic: (editor) => editor.chain().focus().setItalic().run(),
         toggle_italic: (editor) => editor.chain().focus().toggleItalic().run(),
+        unset_italic: (editor) => editor.chain().focus().unsetItalic().run(),
     },
     selection_keys: ["italic"],
     selection_state: (editor) => ({

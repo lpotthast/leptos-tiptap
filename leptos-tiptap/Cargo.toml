@@ -1,7 +1,7 @@
 [package]
 name = "leptos-tiptap"
 version = "0.10.0"
-edition = "2021"
+edition = "2024"
 rust-version = "1.89.0"
 authors = ["Lukas Potthast <privat@lukas-potthast.de>"]
 license = "MIT OR Apache-2.0"
@@ -16,15 +16,74 @@ keywords = ["tiptap", "leptos", "components", "editor", "wysiwyg"]
 [dependencies]
 cfg-if = "1.0.0"
 leptos = "0.8.2"
+leptos-element-capture = "0.1.0"
 send_wrapper = "0.6.0"
 serde = { version = "1.0.189", features = ["derive"] }
 serde_json = "1.0.145"
 serde-wasm-bindgen = "0.6.0"
 tracing = "0.1.39"
-wasm-bindgen = "0.2.100"
+wasm-bindgen = "0.2.117"
 
 [dev-dependencies]
 assertr = "0.5.0"
 
 [features]
-ssr = []
+default = [
+    "component",
+    "document",
+    "paragraph",
+    "text",
+]
+component = []
+starter-kit = [
+    "blockquote",
+    "bold",
+    "bullet_list",
+    "code",
+    "code_block",
+    "document",
+    "dropcursor",
+    "gapcursor",
+    "hard_break",
+    "heading",
+    "history",
+    "horizontal_rule",
+    "italic",
+    "list_item",
+    "ordered_list",
+    "paragraph",
+    "strike",
+    "text",
+]
+full = [
+    "starter-kit",
+    "text_align",
+    "highlight",
+    "image",
+    "link",
+    "youtube",
+]
+ssr = ["leptos-element-capture/ssr"]
+blockquote = []
+bold = []
+bullet_list = ["list_item"]
+code = []
+code_block = []
+document = []
+dropcursor = []
+gapcursor = []
+hard_break = []
+heading = []
+history = []
+horizontal_rule = []
+italic = []
+list_item = []
+ordered_list = ["list_item"]
+paragraph = []
+strike = []
+text = []
+text_align = ["heading", "paragraph"]
+highlight = []
+image = []
+link = []
+youtube = []

@@ -1,0 +1,17 @@
+[package]
+name = "demo-app"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+leptos = { version = "0.8.2", default-features = false }
+leptos-tiptap = { path = "../..", default-features = false, features = ["component", "full"] }
+
+[features]
+default = []
+csr = ["leptos/csr"]
+hydrate = ["leptos/hydrate"]
+ssr = [
+    "leptos/ssr",
+    "leptos-tiptap/ssr",
+]

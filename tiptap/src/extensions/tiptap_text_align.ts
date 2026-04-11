@@ -3,6 +3,8 @@ import {TextAlign} from "@tiptap/extension-text-align"
 import type {ExtensionDescriptor} from "../bridge_api.ts"
 import {registerOfficialExtension} from "../bridge_extension_helpers.ts"
 
+const allowedAlignments = ["left", "center", "right", "justify"] as const
+
 const descriptor: ExtensionDescriptor = {
     name: "text_align",
     create: () =>
@@ -10,10 +12,17 @@ const descriptor: ExtensionDescriptor = {
             types: ["heading", "paragraph"],
         }),
     commands: {
-        set_text_align_left: (editor) => editor.chain().focus().setTextAlign("left").run(),
-        set_text_align_center: (editor) => editor.chain().focus().setTextAlign("center").run(),
-        set_text_align_right: (editor) => editor.chain().focus().setTextAlign("right").run(),
-        set_text_align_justify: (editor) => editor.chain().focus().setTextAlign("justify").run(),
+        set_text_align: (editor, command) =>
+            command.kind === "set_text_align"
+                && allowedAlignments.includes(command.alignment)
+                ? editor.chain().focus().setTextAlign(command.alignment).run()
+                : false,
+        toggle_text_align: (editor, command) =>
+            command.kind === "toggle_text_align"
+                && allowedAlignments.includes(command.alignment)
+                ? editor.chain().focus().toggleTextAlign(command.alignment).run()
+                : false,
+        unset_text_align: (editor) => editor.chain().focus().unsetTextAlign().run(),
     },
     selection_keys: ["align_left", "align_center", "align_right", "align_justify"],
     selection_state: (editor) => ({

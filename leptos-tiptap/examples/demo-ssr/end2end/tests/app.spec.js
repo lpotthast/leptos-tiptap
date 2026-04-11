@@ -54,3 +54,23 @@ test('hydrates and round-trips HTML and JSON content with a stable editor id', a
   await expect(page.locator('#html-content')).toContainText('Programmatic replacement');
   await expect(page.locator('#json-content')).toContainText('Programmatic replacement');
 });
+
+test('can re-enable the editor after disabling it', async ({ page }) => {
+  await page.goto('/');
+
+  const editor = page.locator(editorSelector);
+  const disabledToggle = page.getByRole('button', { name: /Disabled:/ });
+
+  await expect(editor).toBeVisible();
+  await expect(editor).toHaveAttribute('contenteditable', 'true');
+
+  await disabledToggle.click();
+  await expect(editor).toHaveAttribute('contenteditable', 'false');
+
+  await disabledToggle.click();
+  await expect(editor).toHaveAttribute('contenteditable', 'true');
+
+  await editor.click({ position: { x: 220, y: 12 } });
+  await page.keyboard.type(' re-enabled');
+  await expect(page.locator('#html-content')).toContainText('re-enabled');
+});

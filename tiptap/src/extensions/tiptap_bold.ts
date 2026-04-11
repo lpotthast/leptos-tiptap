@@ -7,7 +7,9 @@ const descriptor: ExtensionDescriptor = {
     name: "bold",
     create: () => Bold,
     commands: {
+        set_bold: (editor) => editor.chain().focus().setBold().run(),
         toggle_bold: (editor) => editor.chain().focus().toggleBold().run(),
+        unset_bold: (editor) => editor.chain().focus().unsetBold().run(),
     },
     selection_keys: ["bold"],
     selection_state: (editor) => ({

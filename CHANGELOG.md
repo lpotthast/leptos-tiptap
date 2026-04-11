@@ -9,67 +9,103 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added command methods to `TiptapEditorHandle` (`toggle_bold`, `toggle_italic`, `toggle_heading`, `set_paragraph`, `set_link`, etc.) so callers interact with the editor directly through the handle instead of a message signal.
-- Added `TiptapEditorHandle`, which can read the current editor content as HTML or JSON from the same live editor instance.
-- Added `TiptapEditorHandle::set_content`, `set_html`, and `set_json` for explicit full-document replacement on a live editor instance.
-- Added `on_ready` and `on_change` callbacks on `TiptapInstance` so callers can pull the current content on demand.
-- Added an optional `on_error` callback on `TiptapInstance` for JS bridge and runtime failures.
-- Added browser-level SSR coverage in the `demo-ssr` example with Playwright, including hydration and HTML/JSON round-trip checks.
+- Added command methods to `TiptapEditorHandle` (`toggle_bold`, `toggle_italic`, `toggle_heading`, `set_paragraph`,
+  `set_link`, etc.) so callers interact with the editor directly through the handle instead of a message signal.
+- Added `TiptapEditorHandle`, which can read the current editor content as HTML or JSON from the same live editor
+  instance.
+- Added `TiptapEditorHandle::set_content`, `set_html`, and `set_json` for explicit full-document replacement on a live
+  editor instance.
+- Added `on_ready` and `on_change` callbacks on `<TiptapEditor/>` so callers can pull the current content on demand.
+- Added an optional `on_error` callback on `<TiptapEditor/>` for JS bridge and runtime failures.
+- Added browser-level SSR coverage in the `demo-ssr` example with Playwright, including hydration and HTML/JSON
+  round-trip checks.
 - Added adapter-level JS unit tests covering create failures, invalid content handling, and editor registry cleanup.
-- Added adapter-level tests covering generation-aware stale-handle rejection and the initial selection callback emitted during editor startup.
-- Added zero-config crate-local JS snippet delivery for the bundled browser runtime, so `leptos-tiptap` can ship its generated Tiptap bridge directly through `wasm-bindgen`.
-- Added the public `TiptapExtension` selection type and an `extensions` prop on `TiptapInstance` for explicit per-editor extension activation.
+- Added adapter-level tests covering generation-aware stale-handle rejection and the initial selection callback emitted
+  during editor startup.
+- Added zero-config crate-local JS snippet delivery for the bundled browser runtime, so `leptos-tiptap` can ship its
+  generated Tiptap bridge directly through `wasm-bindgen`.
+- Added the public `TiptapExtension` selection type and an `extensions` prop on `<TiptapEditor/>` for explicit
+  per-editor extension activation.
 - Added this root `CHANGELOG.md`.
 
 ### Changed
 
-- Changed `TiptapInstance` to use `TiptapEditorHandle` command methods instead of the `msg: Signal<TiptapInstanceMsg>` prop. The `msg` prop has been removed.
-- Changed the editor readiness tracking to use a reactive signal internally, so the disabled state is automatically synced when the editor becomes ready without a manual call from the `on_ready` closure.
-- Changed the internal `TiptapEditorHandle` identity model to include a JS-side generation token so stale handles can no longer address a recreated editor instance that reused the same DOM id.
-- Changed `TiptapInstance` to take `initial_content: TiptapContent` instead of `value: Signal<TiptapContent>`.
-- Changed the content callback model from eager serialized payload pushes to lightweight change notifications plus explicit HTML/JSON readback through `TiptapEditorHandle`.
-- Changed the runtime model so one editor instance can be read back as both HTML and JSON, regardless of which format was used for initial content.
-- Changed `TiptapInstance` so `id` is now a stable DOM id instead of a reactive reset mechanism.
-- Changed the JS bundle workflow to use `npm ci` for reproducible rebuilds and a separate `just update-tiptap` maintenance command for dependency upgrades.
-- Changed the JS packaging from the old external `/js/tiptap.js` asset contract to crate-local `wasm-bindgen` snippets. Consumer apps now depend only on `leptos-tiptap` and no longer need a downstream `build.rs`, copied browser assets, or a manual preload tag.
-- Changed the internal JS architecture from one monolithic adapter bundle to a bridge runtime, a separated Tiptap core runtime, and standalone official extension registration modules.
+- Changed `<TiptapEditor/>` to use `TiptapEditorHandle` command methods instead of the `msg: Signal<TiptapInstanceMsg>`
+  prop. The `msg` prop has been removed.
+- Changed the editor readiness tracking to use a reactive signal internally, so the disabled state is automatically
+  synced when the editor becomes ready without a manual call from the `on_ready` closure.
+- Changed the internal `TiptapEditorHandle` identity model to include a JS-side generation token so stale handles can no
+  longer address a recreated editor instance that reused the same DOM id.
+- Changed the `split_list_item` Rust API to accept structured `TiptapAttributes` instead of arbitrary JSON values.
+- Changed `text_align` to pull in the required `heading` and `paragraph` schema features automatically.
+- Changed `<TiptapEditor/>` to take `initial_content: TiptapContent` instead of `value: Signal<TiptapContent>`.
+- Changed the content callback model from eager serialized payload pushes to lightweight change notifications plus
+  explicit HTML/JSON readback through `TiptapEditorHandle`.
+- Changed the runtime model so one editor instance can be read back as both HTML and JSON, regardless of which format
+  was used for initial content.
+- Changed `<TiptapEditor/>` so `id` is now a stable DOM id instead of a reactive reset mechanism.
+- Changed the JS bundle workflow to use `npm ci` for reproducible rebuilds and a separate `just update-tiptap`
+  maintenance command for dependency upgrades.
+- Changed the JS packaging from the old external `/js/tiptap.js` asset contract to crate-local `wasm-bindgen` snippets.
+  Consumer apps now depend only on `leptos-tiptap` and no longer need a downstream `build.rs`, copied browser assets, or
+  a manual preload tag.
+- Changed the internal JS architecture from one monolithic adapter bundle to a bridge runtime, a separated Tiptap core
+  runtime, and standalone official extension registration modules.
 - Changed the runtime preset to use explicit extension modules instead of `StarterKit` as the shipped integration unit.
-- Changed extension compilation and activation to be explicit: Cargo features decide which extensions are compiled and registered, and each editor instance now activates a chosen subset or defaults to all compiled extensions.
+- Changed extension compilation and activation to be explicit: Cargo features decide which extensions are compiled and
+  registered, and each editor instance now activates a chosen subset or defaults to all compiled extensions.
 - Changed the example applications and README guidance to use the new zero-config integration path.
-- Changed the CSR and SSR demos to show one editor with side-by-side HTML and JSON readbacks instead of treating them as separate editor modes.
+- Changed the CSR and SSR demos to show one editor with side-by-side HTML and JSON readbacks instead of treating them as
+  separate editor modes.
 - Changed unit tests to use the `assertr` crate for assertions.
 - Changed bridge command handling to return structured statuses instead of booleans or missing values.
-- Changed the link and YouTube resource payloads to use optional metadata fields instead of stringly-typed required values.
-- Changed the SSR Playwright test to reuse a single expected editor id constant instead of repeating the selector/id literal.
+- Changed the link and YouTube resource payloads to use optional metadata fields instead of stringly-typed required
+  values.
+- Changed the SSR Playwright test to reuse a single expected editor id constant instead of repeating the selector/id
+  literal.
 - Raised the `leptos-tiptap` MSRV to `1.89.0` to match the adopted `assertr` version.
 - Updated the demos and README files to reflect the new API, current versions, and stable editor ids.
 - Updated the bundled TipTap packages from `2.12.0` to `2.27.2`.
+- Renamed the public component from `<TiptapInstance/>` to `<TiptapEditor/>`.
 
 ### Fixed
 
-- Fixed leaked editor ids in the global JS registry by deleting entries instead of storing `undefined`.
-- Fixed the mismatch between the public `TiptapContent` API and the actual runtime behavior by separating initial content input from content readback.
+- Fixed leaked editor ids in the global JS registry by deleting slots instead of retaining tombstones after destroy.
+- Fixed the mismatch between the public `TiptapContent` API and the actual runtime behavior by separating initial
+  content input from content readback.
 - Fixed JS command handling to log clear errors when Rust sends commands before an editor instance exists.
+- Fixed stale-handle reads and commands so they return `EditorUnavailable` without emitting noisy JS console errors.
 - Fixed editor lifecycle tracking so a JS create failure does not leave Rust thinking an editor is active.
-- Fixed a synchronous create/ready race between the Rust component and JS adapter so startup callbacks no longer leave the component in an inconsistent lifecycle state.
+- Fixed a synchronous create/ready race between the Rust component and JS adapter so startup callbacks no longer leave
+  the component in an inconsistent lifecycle state.
 - Fixed `set_content` error reporting so invalid content is no longer collapsed into `EditorUnavailable`.
-- Fixed stale `TiptapEditorHandle` instances so they now fail with `EditorUnavailable` instead of accidentally targeting a newer editor registered under the same id.
-- Fixed invalid selection payload handling so deserialization failures are reported without emitting a fake default selection state.
-- Fixed the SSR demo so it no longer implies that separate editors are required to inspect HTML and JSON representations of the same document.
+- Fixed stale `TiptapEditorHandle` instances so they now fail with `EditorUnavailable` instead of accidentally targeting
+  a newer editor registered under the same id.
+- Fixed JSON bridge payload construction to surface serialization failures explicitly instead of silently falling back
+  to `null`.
+- Fixed invalid selection payload handling so deserialization failures are reported without emitting a fake default
+  selection state.
+- Fixed the SSR demo so it no longer implies that separate editors are required to inspect HTML and JSON representations
+  of the same document.
 - Fixed stale and inconsistent version/build documentation in the repository README files.
-- Fixed repository hygiene so example `public/js` bundle copies are treated as generated artifacts instead of tracked source files.
+- Fixed repository hygiene so example `public/js` bundle copies are treated as generated artifacts instead of tracked
+  source files.
 - Fixed the demos so they build directly against crate-local snippets without the old asset-copy setup.
 
 ### Removed
 
 - Removed the legacy `leptos-tiptap-build` crate from this repository after publishing its final compatibility release.
-- Removed `TiptapInstanceMsg` and the `msg` signal prop from `TiptapInstance`. Use `TiptapEditorHandle` command methods instead.
-- Removed the internal `MessageBufferState` pre-ready command buffering. Commands are now sent directly through the handle after `on_ready` fires.
+- Removed `TiptapInstanceMsg` and the `msg` signal prop from `<TiptapEditor/>`. Use `TiptapEditorHandle` command methods
+  instead.
+- Removed the internal `MessageBufferState` pre-ready command buffering. Commands are now sent directly through the
+  handle after `on_ready` fires.
 - Removed the unusable public `TiptapEditorState` type from the `leptos-tiptap` API surface.
 - Removed dead JS bridge declarations that only existed for the removed editor-state surface.
-- Removed the `set_value: Callback<(TiptapContent,)>` update path from `TiptapInstance`.
-- Removed the format-bound callback model where a live editor instance always pushed updates in the same representation it was created with.
-- Removed the example `build.rs` scripts, copied `public/js/tiptap.js` assets, and manual module-preload tags from the supported setup path.
+- Removed the `set_value: Callback<(TiptapContent,)>` update path from `<TiptapEditor/>`.
+- Removed the format-bound callback model where a live editor instance always pushed updates in the same representation
+  it was created with.
+- Removed the example `build.rs` scripts, copied `public/js/tiptap.js` assets, and manual module-preload tags from the
+  supported setup path.
 
 ## [leptos-tiptap-build 0.2.8] - 2025-06-01
 
@@ -219,7 +255,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Started the `0.2.x` build-crate line used to embed the generated TipTap browser assets for downstream `build.rs` scripts.
+- Started the `0.2.x` build-crate line used to embed the generated TipTap browser assets for downstream `build.rs`
+  scripts.
 
 ## [leptos-tiptap 0.2.0] - 2023-07-01
 
@@ -237,14 +274,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed selection-state reporting so updates are emitted immediately and after editor actions.
-- Fixed DOM/accessibility handling by rendering a custom element instead of a plain `div` and forwarding `aria-disabled`.
+- Fixed DOM/accessibility handling by rendering a custom element instead of a plain `div` and forwarding
+  `aria-disabled`.
 - Removed unused code from compilation and removed an unused runtime dependency.
 
 ## [leptos-tiptap-build 0.1.1] - 2023-07-01
 
 ### Changed
 
-- Bumped the build crate to `0.1.1` alongside the refreshed generated TipTap bundle and simplified example build integration.
+- Bumped the build crate to `0.1.1` alongside the refreshed generated TipTap bundle and simplified example build
+  integration.
 
 ## [leptos-tiptap 0.1.1] - 2023-06-25
 

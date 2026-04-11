@@ -1,27 +1,133 @@
 # leptos-tiptap
 
-Enables the integration of [Tiptap](https://tiptap.dev/) instances into your [leptos](https://leptos.dev/) projects.
+Use [Tiptap](https://tiptap.dev/) editors from [Leptos](https://leptos.dev/) applications.
+
+The crate gives you two entry points:
+
+- Use the `<TiptapEditor/>` component when you only need to mount an editor and drive it through the editor slot you pass in.
+- Use the `use_tiptap_editor` hook when you want to provide the host element yourself.
 
 ## Usage
 
-This is a rather low-level dependency. Use it if you want to create your own editor experience.
-You only need `leptos-tiptap`.
-The crate ships its JS bridge through crate-local `wasm-bindgen` snippets, so you do not need a downstream `build.rs`, copied browser assets, or a manual preload tag.
+Add the crate to your Leptos app. The default feature set includes the component and the minimal
+Tiptap schema (`document`, `paragraph`, and `text`).
 
-`TiptapInstance` takes `initial_content: TiptapContent` and uses it once when the editor is created.
-Use `TiptapContent::Html(...)` for HTML input or `TiptapContent::Json(serde_json::Value)` for structured TipTap JSON input.
+```toml
+[dependencies]
+leptos-tiptap = { version = "0.10", features = ["starter-kit"] }
+```
 
-When the editor becomes ready or changes, `TiptapInstance` gives you a `TiptapEditorHandle`.
-Use that handle to pull the current content as HTML or JSON from the same live editor instance,
-or to replace the full document content through `set_content`, `set_html`, or `set_json`.
-It is safe to store that handle for the lifetime of the current editor instance.
-If the editor is later destroyed and recreated with the same DOM id, the old handle becomes stale
-and returns `EditorUnavailable` instead of addressing the replacement editor.
+The crate ships its JavaScript bridge as crate-local `wasm-bindgen` snippets. You do not need a
+downstream `build.rs`, copied browser assets, or a manual preload tag.
 
-If the JS bridge can not create the editor, parse content, or apply a command, `TiptapInstance`
-reports that through the optional `on_error` callback.
+## Component
 
-The `id` prop is a stable DOM id for the editor root and must be unique across all live editor instances.
+Use the component when you are fine with the default editor host element.
+
+```rust
+use leptos::prelude::*;
+use leptos_tiptap::{TiptapContent, TiptapEditor};
+
+#[component]
+pub fn EditorWithComponent() -> impl IntoView {
+    let editor = TiptapEditor::new();
+    let (disabled, set_disabled) = signal(false);
+
+    view! {
+        <button on:click=move |_| set_disabled.update(|disabled| *disabled = !*disabled)>
+            "Toggle disabled"
+        </button>
+
+        <button
+            disabled=move || !editor.is_ready()
+            on:click=move |_| {
+                let _ = editor.toggle_bold();
+            }
+        >
+            "Bold"
+        </button>
+
+        <TiptapEditor
+            id="article-editor"
+            editor=editor
+            disabled=disabled
+            initial_content=TiptapContent::html("<p>Edit me.</p>")
+            on_change=move |_| {
+                let _current_html = editor.get_html();
+            }
+            attr:class="editor"
+        />
+    }
+}
+```
+
+The component populates the `editor` slot once the JavaScript editor is ready. Use that same slot
+to run commands, read HTML or JSON content, or replace the full document with `set_content`,
+`set_html`, or `set_json`.
+
+## Hook
+
+Use the hook when you want to choose the host element yourself or compose editor mounting into a
+larger component.
+
+```rust
+use leptos::prelude::*;
+use leptos_tiptap::{use_tiptap_editor, TiptapContent, UseTiptapEditorInput};
+
+#[component]
+pub fn EditorWithHook() -> impl IntoView {
+    let tiptap = use_tiptap_editor(UseTiptapEditorInput {
+        id: "article-editor".to_string(),
+        editor: None,
+        initial_content: TiptapContent::html("<p>Edit me.</p>"),
+        on_ready: None,
+        on_change: None,
+        on_selection_change: None,
+        on_error: None,
+        disabled: Signal::derive(|| false),
+        extensions: None,
+    });
+
+    let editor = tiptap.editor;
+    let is_ready = tiptap.is_ready;
+    let attrs = tiptap.props.into_attrs();
+
+    view! {
+        <button
+            disabled=move || !is_ready.get()
+            on:click=move |_| {
+                let _ = editor.toggle_bold();
+            }
+        >
+            "Bold"
+        </button>
+
+        <div {..attrs} class="editor"></div>
+    }
+}
+```
+
+Spread `tiptap.props.into_attrs()` onto exactly one rendered host element. The hook owns mount
+timing, cleanup, disabled-state synchronization, and the reactive editor slot.
+
+## Content, commands, and extensions
+
+`initial_content` is one-time initialization input. Use `TiptapContent::html(...)` for HTML or
+`TiptapContent::json(...)` / `TiptapContent::json_str(...)` for JSON. To replace content
+after mount, call `editor.set_content(...)`, `editor.set_html(...)`, or `editor.set_json(...)`.
+
+The editor `id` is a stable DOM id and must be unique across all live editor instances.
+
+Compiled extensions are selected through Cargo features. Use `starter-kit` for the StarterKit-like
+subset supported by this crate, or `full` for every currently supported extension. Per-instance
+extension subsets can be selected with the component `extensions` prop or the hook input
+`extensions` field; if omitted, all compiled extensions are active.
+
+Bridge errors are reported through `on_error`. Commands called before readiness return
+`TiptapEditorError::EditorUnavailable`.
+
+For SSR builds, enable the `ssr` feature in the app's server build. Server-side JavaScript interop
+is a no-op, while the DOM node still renders and hydrates on the client.
 
 ## Integrated
 

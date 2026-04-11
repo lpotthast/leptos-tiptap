@@ -7,7 +7,9 @@ const descriptor: ExtensionDescriptor = {
     name: "blockquote",
     create: () => Blockquote,
     commands: {
+        set_blockquote: (editor) => editor.chain().focus().setBlockquote().run(),
         toggle_blockquote: (editor) => editor.chain().focus().toggleBlockquote().run(),
+        unset_blockquote: (editor) => editor.chain().focus().unsetBlockquote().run(),
     },
     selection_keys: ["blockquote"],
     selection_state: (editor) => ({

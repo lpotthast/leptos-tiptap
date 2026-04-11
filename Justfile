@@ -21,6 +21,17 @@ update-tiptap:
 bundle-tiptap:
   cd tiptap && npm run build
 
+# Run the core validation suite, including generated-bundle drift checks.
+verify:
+  cd tiptap && npm test
+  cd tiptap && npm run typecheck
+  cd tiptap && npm run build:check
+  cd leptos-tiptap && cargo test
+  cd leptos-tiptap && cargo test --features full
+  cd leptos-tiptap && cargo build --features ssr
+  cd leptos-tiptap && cargo build --target wasm32-unknown-unknown --features full
+  cd leptos-tiptap && cargo clippy --all-targets --all-features -- -D warnings
+
 # Find the minimum supported rust version
 msrv:
     cargo install cargo-msrv

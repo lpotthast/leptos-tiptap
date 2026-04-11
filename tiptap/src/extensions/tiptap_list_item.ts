@@ -6,6 +6,14 @@ import {registerOfficialExtension} from "../bridge_extension_helpers.ts"
 const descriptor: ExtensionDescriptor = {
     name: "list_item",
     create: () => ListItem,
+    commands: {
+        split_list_item: (editor, command) =>
+            command.kind === "split_list_item"
+                ? editor.chain().focus().splitListItem("listItem", command.attributes ?? {}).run()
+                : false,
+        sink_list_item: (editor) => editor.chain().focus().sinkListItem("listItem").run(),
+        lift_list_item: (editor) => editor.chain().focus().liftListItem("listItem").run(),
+    },
 }
 
 export function register_list_item(): void {

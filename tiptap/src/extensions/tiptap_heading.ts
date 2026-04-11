@@ -7,6 +7,12 @@ const descriptor: ExtensionDescriptor = {
     name: "heading",
     create: () => Heading,
     commands: {
+        set_heading: (editor, command) =>
+            command.kind === "set_heading"
+                ? editor.chain().focus().setHeading({
+                    level: command.level as 1 | 2 | 3 | 4 | 5 | 6,
+                }).run()
+                : false,
         toggle_heading: (editor, command) =>
             command.kind === "toggle_heading"
                 ? editor.chain().focus().toggleHeading({

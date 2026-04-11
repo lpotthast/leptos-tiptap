@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
+    "build:check": "node check-build.mjs",
     "test": "node --import tsx --test src/bridge_runtime.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

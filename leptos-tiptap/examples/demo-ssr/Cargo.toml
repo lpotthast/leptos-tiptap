@@ -1,33 +1,32 @@
 [package]
 name = "demo-ssr"
 version = "0.3.0"
-edition = "2021"
+edition = "2024"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 console_error_panic_hook = "0.1.7"
-leptos-tiptap = { path = "../../../leptos-tiptap" }
-axum = { version = "0.8.4", optional = true }
-axum-server = { version = "0.7.1", features = ["tls-rustls"], optional = true }
-leptos = { version = "0.8.2", features = [] }
-leptos_axum = { version = "0.8.2", optional = true }
-leptos_meta = { version = "0.8.2", features = [] }
-leptos_router = { version = "0.8.2", features = [] }
-tokio = { version = "1.42.0", features = ["rt-multi-thread"], optional = true }
-tower = { version = "0.5.2", optional = true }
-tower-http = { version = "0.6.2", features = ["fs"], optional = true }
-tracing = "0.1.40"
-tracing-subscriber = "0.3.18"
-tracing-wasm = "0.2.1"
-wasm-bindgen = "0.2.99"
+demo-app = { path = "../demo-app" }
+axum = { version = "0.8.8", optional = true }
+axum-server = { version = "0.8.0", features = ["tls-rustls"], optional = true }
+leptos = { version = "0.8.17", features = [] }
+leptos_axum = { version = "0.8.8", optional = true }
+leptos_meta = { version = "0.8.6", features = [] }
+leptos_router = { version = "0.8.13", features = [] }
+tokio = { version = "1.51.1", features = ["rt-multi-thread"], optional = true }
+tower = { version = "0.5.3", optional = true }
+tower-http = { version = "0.6.8", features = ["fs"], optional = true }
+wasm-bindgen = "0.2.118"
 
 [features]
 hydrate = [
+    "demo-app/hydrate",
     "leptos/hydrate",
 ]
 ssr = [
+    "demo-app/ssr",
     "dep:axum",
     "dep:axum-server",
     "dep:tokio",
@@ -37,7 +36,6 @@ ssr = [
     "leptos/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",
-    "leptos-tiptap/ssr",
 ]
 
 # Defines a size-optimized profile for the WASM bundle in release mode

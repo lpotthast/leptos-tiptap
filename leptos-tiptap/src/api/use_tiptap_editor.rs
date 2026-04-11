@@ -1,0 +1,154 @@
+use super::{
+    TiptapContent, TiptapEditor, TiptapEditorError, TiptapExtension, TiptapSelectionState,
+};
+use crate::runtime::{EditorSession, EditorSessionMountOptions};
+use leptos::{attr, attr::Attr, prelude::*};
+use leptos_element_capture::{CapturedElement, ElementCaptureAttr};
+
+/// Input parameters for the `use_tiptap_editor` hook.
+#[derive(Clone)]
+pub struct UseTiptapEditorInput {
+    /// The ID for this Tiptap instance. Must be unique across all mounted instances.
+    pub id: String,
+
+    /// An optional editor slot to populate when the editor becomes ready.
+    ///
+    /// If omitted, the hook creates and returns its own [`struct@TiptapEditor`] slot.
+    pub editor: Option<TiptapEditor>,
+
+    /// Initial content of the editor.
+    pub initial_content: TiptapContent,
+
+    /// Called once the editor has been populated into `editor`.
+    pub on_ready: Option<Callback<()>>,
+
+    /// Called whenever the editor content changes.
+    pub on_change: Option<Callback<()>>,
+
+    /// Called whenever the current editor selection changes.
+    pub on_selection_change: Option<Callback<TiptapSelectionState>>,
+
+    /// Called whenever the JS bridge reports a runtime error.
+    pub on_error: Option<Callback<TiptapEditorError>>,
+
+    /// Whether editing should be disabled.
+    pub disabled: Signal<bool>,
+
+    /// The set of compiled extensions that should be active for this editor instance.
+    ///
+    /// If omitted, all extensions enabled through Cargo features are activated.
+    pub extensions: Option<Vec<TiptapExtension>>,
+}
+
+/// Mount props returned by [`use_tiptap_editor`].
+pub struct UseTiptapEditorProps {
+    /// The stable DOM id for this editor instance.
+    pub id: String,
+
+    /// Whether the mounted host node should expose `aria-disabled=true`.
+    pub aria_disabled: Signal<bool>,
+
+    /// Captures the rendered host element when these props are spread.
+    pub element_capture: ElementCaptureAttr,
+}
+
+impl UseTiptapEditorProps {
+    pub fn into_attrs(self) -> UseTiptapEditorAttrs {
+        (
+            Attr(attr::Id, self.id),
+            Attr(attr::AriaDisabled, self.aria_disabled),
+            self.element_capture,
+        )
+    }
+}
+
+pub type UseTiptapEditorAttrs = (
+    Attr<attr::Id, String>,
+    Attr<attr::AriaDisabled, Signal<bool>>,
+    ElementCaptureAttr,
+);
+
+/// The return value of the `use_tiptap_editor` hook.
+pub struct UseTiptapEditorReturn {
+    /// Mount props for the host DOM node.
+    pub props: UseTiptapEditorProps,
+
+    /// The reactive editor slot for issuing commands and reading content.
+    pub editor: TiptapEditor,
+
+    /// Reactive readiness state for the editor slot.
+    pub is_ready: Signal<bool>,
+
+    /// The captured host element for the mounted editor container.
+    pub element: CapturedElement,
+}
+
+/// Creates and manages a Tiptap editor instance from within a Leptos owner scope.
+///
+/// This hook owns the Leptos-specific orchestration around `EditorSession`:
+/// mount timing, disabled synchronization, cleanup, and exposing the editor slot.
+pub fn use_tiptap_editor(input: UseTiptapEditorInput) -> UseTiptapEditorReturn {
+    let UseTiptapEditorInput {
+        id,
+        editor,
+        initial_content,
+        on_ready,
+        on_change,
+        on_error,
+        disabled,
+        extensions,
+        on_selection_change,
+    } = input;
+
+    let editor = editor.unwrap_or_default();
+    let element = CapturedElement::new();
+    let session = EditorSession::new(id, editor);
+    let mount_options = EditorSessionMountOptions {
+        initial_content,
+        initial_editable: !disabled.get_untracked(),
+        extensions: extensions.unwrap_or_else(TiptapExtension::all_enabled),
+        on_ready,
+        on_change,
+        on_error,
+        on_selection_change,
+    };
+
+    Effect::new({
+        let mut mount_options = Some(mount_options);
+        move |_| {
+            if element.get().is_none() {
+                return;
+            }
+
+            if !session.is_idle() {
+                tracing::warn!("Unexpected TipTap editor reinitialization detected.");
+                return;
+            }
+
+            if let Some(mount_options) = mount_options.take() {
+                session.mount(mount_options);
+            } else {
+                unreachable!(
+                    "Tried to call mount() more than once. Runtime guards should have prevented this."
+                );
+            }
+        }
+    });
+
+    Effect::new(move |_| {
+        session.sync_editable(!disabled.get(), on_error);
+    });
+
+    on_cleanup(move || session.cleanup());
+
+    UseTiptapEditorReturn {
+        props: UseTiptapEditorProps {
+            id: session.id(),
+            aria_disabled: disabled,
+            element_capture: element.attr(),
+        },
+        editor,
+        is_ready: Signal::derive(move || editor.is_ready()),
+        element,
+    }
+}
