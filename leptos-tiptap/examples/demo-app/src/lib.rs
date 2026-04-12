@@ -79,6 +79,7 @@ pub fn DemoApp() -> impl IntoView {
                 id="id"
                 disabled=disabled
                 initial_content=initial_html_content()
+                placeholder="Start typing here..."
                 on_ready=move |_| sync_editor_outputs(&editor, set_html_output, set_json_output)
                 on_change=move |_| sync_editor_outputs(&editor, set_html_output, set_json_output)
                 on_selection_change=move |state| set_selection.set(state)

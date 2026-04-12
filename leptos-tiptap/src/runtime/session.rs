@@ -43,6 +43,7 @@ pub(crate) struct EditorSessionMountOptions {
     pub(crate) initial_content: TiptapContent,
     pub(crate) initial_editable: bool,
     pub(crate) extensions: Vec<TiptapExtension>,
+    pub(crate) placeholder: Option<String>,
     pub(crate) on_ready: Option<Callback<()>>,
     pub(crate) on_change: Option<Callback<()>>,
     pub(crate) on_error: Option<Callback<TiptapEditorError>>,
@@ -93,6 +94,7 @@ impl EditorSession {
                 initial_content,
                 initial_editable,
                 extensions,
+                placeholder,
                 on_ready,
                 on_change,
                 on_error,
@@ -118,7 +120,7 @@ impl EditorSession {
             let applied_editable = self.applied_editable;
             let editor = self.editor;
 
-            let on_error_for_ready = on_error.clone();
+            let on_error_for_ready = on_error;
             let on_ready_closure = SendWrapper::new(Closure::new(move |ready_as_js_value| {
                 let ready: ReadyPayload = match serde_wasm_bindgen::from_value(ready_as_js_value) {
                     Ok(ready) => ready,
@@ -153,7 +155,7 @@ impl EditorSession {
                 }
             }));
 
-            let on_error_for_selection = on_error.clone();
+            let on_error_for_selection = on_error;
             let on_selection_change_closure =
                 SendWrapper::new(Closure::new(move |selection_state_as_js_value| {
                     let selection_state: TiptapSelectionState =
@@ -202,6 +204,7 @@ impl EditorSession {
                     content: initial_content,
                     editable: initial_editable,
                     extensions,
+                    placeholder,
                 },
                 CreateCallbacks {
                     on_ready: &editor_callbacks._on_ready,

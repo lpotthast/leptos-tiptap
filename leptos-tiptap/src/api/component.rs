@@ -64,6 +64,20 @@ pub fn TiptapEditor(
     #[prop(into, optional)]
     extensions: Option<Vec<TiptapExtension>>,
 
+    /// Placeholder text used by the Tiptap placeholder extension during editor initialization.
+    ///
+    /// This is one-time initialization input and only has an effect when the placeholder extension
+    /// is enabled and active for this editor.
+    ///
+    /// The placeholder extension adds empty-node classes and `data-placeholder` attributes, but
+    /// visible placeholder text still requires app CSS, such as rendering
+    /// `content: attr(data-placeholder)` in a `::before` pseudo-element.
+    ///
+    /// See the official Tiptap Placeholder docs for CSS examples:
+    /// <https://tiptap.dev/docs/editor/extensions/functionality/placeholder>.
+    #[prop(into, optional)]
+    placeholder: Option<String>,
+
     /// Notifies you about a new selection. A selection changes, for example, if the cursor in the
     /// editor changes position, "selecting" a new element in the editor.
     #[prop(into, optional)]
@@ -79,6 +93,7 @@ pub fn TiptapEditor(
         on_error,
         disabled,
         extensions,
+        placeholder,
     });
 
     view! {

@@ -49,6 +49,8 @@ pub enum TiptapExtension {
     Image,
     #[cfg(feature = "link")]
     Link,
+    #[cfg(feature = "placeholder")]
+    Placeholder,
     #[cfg(feature = "youtube")]
     Youtube,
 }
@@ -100,6 +102,8 @@ impl TiptapExtension {
             Self::Image => "image",
             #[cfg(feature = "link")]
             Self::Link => "link",
+            #[cfg(feature = "placeholder")]
+            Self::Placeholder => "placeholder",
             #[cfg(feature = "youtube")]
             Self::Youtube => "youtube",
         }
@@ -151,6 +155,8 @@ impl TiptapExtension {
             Self::Image,
             #[cfg(feature = "link")]
             Self::Link,
+            #[cfg(feature = "placeholder")]
+            Self::Placeholder,
             #[cfg(feature = "youtube")]
             Self::Youtube,
         ]

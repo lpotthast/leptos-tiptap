@@ -164,6 +164,7 @@ pub(crate) struct CreateOptions {
     pub(crate) content: ContentPayload,
     pub(crate) editable: bool,
     pub(crate) extensions: Vec<TiptapExtension>,
+    pub(crate) placeholder: Option<String>,
 }
 
 #[cfg_attr(feature = "ssr", allow(dead_code))]
@@ -182,6 +183,7 @@ pub(crate) fn create(
                 .into_iter()
                 .map(TiptapExtension::js_name)
                 .collect(),
+            placeholder: request.placeholder,
         })?;
 
         ffi::create(

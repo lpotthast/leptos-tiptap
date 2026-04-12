@@ -72,6 +72,7 @@ export type CreateRequest = {
     content: ContentPayload
     editable: boolean
     extensions: string[]
+    placeholder?: string | null
 }
 
 export type ReadyPayload = {
@@ -253,9 +254,13 @@ export type DocumentCall = {
 
 export type TiptapExtension = NonNullable<EditorOptions["extensions"]>[number]
 
+export type ExtensionCreateContext = {
+    placeholder?: string | null
+}
+
 export type ExtensionDescriptor = {
     name: string
-    create: () => TiptapExtension | TiptapExtension[]
+    create: (context: ExtensionCreateContext) => TiptapExtension | TiptapExtension[]
     commands?: Partial<Record<ExtensionCommandKind, (editor: Editor, command: ExtensionCommand) => boolean | void>>
     selection_keys?: SelectionKey[]
     selection_state?: (editor: Editor) => Partial<SelectionState>

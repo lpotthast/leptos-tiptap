@@ -61,6 +61,7 @@ full = [
     "highlight",
     "image",
     "link",
+    "placeholder",
     "youtube",
 ]
 ssr = ["leptos-element-capture/ssr"]
@@ -86,4 +87,5 @@ text_align = ["heading", "paragraph"]
 highlight = []
 image = []
 link = []
+placeholder = []
 youtube = []

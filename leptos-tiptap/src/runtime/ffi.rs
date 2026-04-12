@@ -174,6 +174,13 @@ mod js {
         pub fn register_link() -> Result<(), JsValue>;
     }
 
+    #[cfg(feature = "placeholder")]
+    #[wasm_bindgen(module = "/src/js/generated/tiptap_placeholder.js")]
+    extern "C" {
+        #[wasm_bindgen(catch)]
+        pub fn register_placeholder() -> Result<(), JsValue>;
+    }
+
     #[cfg(feature = "youtube")]
     #[wasm_bindgen(module = "/src/js/generated/tiptap_youtube.js")]
     extern "C" {
@@ -223,6 +230,8 @@ pub(crate) use js::register_list_item;
 pub(crate) use js::register_ordered_list;
 #[cfg(all(not(feature = "ssr"), feature = "paragraph"))]
 pub(crate) use js::register_paragraph;
+#[cfg(all(not(feature = "ssr"), feature = "placeholder"))]
+pub(crate) use js::register_placeholder;
 #[cfg(all(not(feature = "ssr"), feature = "strike"))]
 pub(crate) use js::register_strike;
 #[cfg(all(not(feature = "ssr"), feature = "text"))]

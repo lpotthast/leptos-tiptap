@@ -49,6 +49,7 @@ pub(crate) struct CreateRequest {
     pub(crate) content: ContentPayload,
     pub(crate) editable: bool,
     pub(crate) extensions: Vec<&'static str>,
+    pub(crate) placeholder: Option<String>,
 }
 
 #[cfg(not(feature = "ssr"))]

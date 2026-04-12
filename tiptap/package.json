@@ -30,6 +30,7 @@
     "@tiptap/extension-list-item": "^2.27.2",
     "@tiptap/extension-ordered-list": "^2.27.2",
     "@tiptap/extension-paragraph": "^2.27.2",
+    "@tiptap/extension-placeholder": "^2.27.2",
     "@tiptap/extension-strike": "^2.27.2",
     "@tiptap/extension-text": "^2.27.2",
     "@tiptap/extension-text-align": "^2.27.2",

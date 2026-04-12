@@ -38,6 +38,16 @@ pub struct UseTiptapEditorInput {
     ///
     /// If omitted, all extensions enabled through Cargo features are activated.
     pub extensions: Option<Vec<TiptapExtension>>,
+
+    /// Placeholder text used by the Tiptap placeholder extension during editor initialization.
+    ///
+    /// The placeholder extension adds empty-node classes and `data-placeholder` attributes, but
+    /// visible placeholder text still requires app CSS, such as rendering
+    /// `content: attr(data-placeholder)` in a `::before` pseudo-element.
+    ///
+    /// See the official Tiptap Placeholder docs for CSS examples:
+    /// <https://tiptap.dev/docs/editor/extensions/functionality/placeholder>.
+    pub placeholder: Option<String>,
 }
 
 /// Mount props returned by [`use_tiptap_editor`].
@@ -97,6 +107,7 @@ pub fn use_tiptap_editor(input: UseTiptapEditorInput) -> UseTiptapEditorReturn {
         on_error,
         disabled,
         extensions,
+        placeholder,
         on_selection_change,
     } = input;
 
@@ -107,6 +118,7 @@ pub fn use_tiptap_editor(input: UseTiptapEditorInput) -> UseTiptapEditorReturn {
         initial_content,
         initial_editable: !disabled.get_untracked(),
         extensions: extensions.unwrap_or_else(TiptapExtension::all_enabled),
+        placeholder,
         on_ready,
         on_change,
         on_error,

@@ -7,6 +7,7 @@ import {
     type BridgeResult,
     type ContentFormat,
     type ContentPayload,
+    type ExtensionCreateContext,
     type ExtensionCommand,
     type ExtensionCommandKind,
     type FocusOptions,
@@ -534,7 +535,10 @@ function resolveDescriptors(extensionNames: string[]): BridgeResult<RuntimeDescr
     return okResult(descriptors)
 }
 
-function buildRuntimeConfiguration(extensionNames: string[]): BridgeResult<RuntimeConfiguration> {
+function buildRuntimeConfiguration(
+    extensionNames: string[],
+    context: ExtensionCreateContext,
+): BridgeResult<RuntimeConfiguration> {
     const resolvedDescriptors = resolveDescriptors(extensionNames)
     if (!resolvedDescriptors.ok) {
         return resolvedDescriptors
@@ -548,7 +552,7 @@ function buildRuntimeConfiguration(extensionNames: string[]): BridgeResult<Runti
     for (const {descriptor, selectionKeys} of resolvedDescriptors.value) {
         let created: ReturnType<ExtensionDescriptor["create"]>
         try {
-            created = descriptor.create()
+            created = descriptor.create(context)
         } catch (error) {
             const message = `Can not create Tiptap instance, as extension "${descriptor.name}" failed to initialize.`
             console.error(message, error)
@@ -624,7 +628,9 @@ export function create(
         return
     }
 
-    const runtimeConfig = buildRuntimeConfiguration(request.extensions)
+    const runtimeConfig = buildRuntimeConfiguration(request.extensions, {
+        placeholder: request.placeholder,
+    })
     if (!runtimeConfig.ok) {
         onError(runtimeConfig.error)
         return

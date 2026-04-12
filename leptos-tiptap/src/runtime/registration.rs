@@ -93,6 +93,8 @@ fn register_compiled_extensions() -> Result<(), TiptapEditorError> {
     register_extension("image", ffi::register_image)?;
     #[cfg(feature = "link")]
     register_extension("link", ffi::register_link)?;
+    #[cfg(feature = "placeholder")]
+    register_extension("placeholder", ffi::register_placeholder)?;
     #[cfg(feature = "youtube")]
     register_extension("youtube", ffi::register_youtube)?;
 

@@ -17,7 +17,7 @@ Optional feature bundles:
 - `starter-kit`: blockquote, bold, bullet list, code, code block, document, dropcursor, gapcursor,
   hard break, heading, history, horizontal rule, italic, list item, ordered list, paragraph,
   strike, text
-- `full`: `starter-kit` plus text-align, highlight, image, link, youtube
+- `full`: `starter-kit` plus text-align, highlight, image, link, placeholder, youtube
 
 This repository contains:
 
@@ -64,6 +64,10 @@ checked-in bundle artifacts.
 - Cargo features control which extensions are compiled into the runtime. The `extensions` prop on `<TiptapEditor/>`
   controls which of those compiled extensions are active for a specific editor instance.
 - If `extensions` is omitted, `<TiptapEditor/>` activates all extensions compiled into the current build.
+- The `placeholder` feature and `<TiptapEditor placeholder=.../>` configure Tiptap's placeholder extension, but visible
+  placeholder text still requires app CSS for the generated empty-node classes and `data-placeholder` attribute. See
+  the official Tiptap Placeholder docs for copy-paste CSS:
+  <https://tiptap.dev/docs/editor/extensions/functionality/placeholder>.
 - Per-instance extension subsets are validated before mount. If an extension needs another extension, such as
   list support needing `list_item`, the editor reports a clear runtime error instead of passing an invalid schema to
   Tiptap.

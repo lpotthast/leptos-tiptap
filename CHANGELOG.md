@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generated Tiptap bridge directly through `wasm-bindgen`.
 - Added the public `TiptapExtension` selection type and an `extensions` prop on `<TiptapEditor/>` for explicit
   per-editor extension activation.
+- Added support for the Tiptap placeholder extension through the `placeholder` feature and `<TiptapEditor/>`
+  `placeholder` initialization prop.
 - Added this root `CHANGELOG.md`.
 
 ### Changed

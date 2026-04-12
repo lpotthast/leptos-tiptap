@@ -86,6 +86,7 @@ pub fn EditorWithHook() -> impl IntoView {
         on_error: None,
         disabled: Signal::derive(|| false),
         extensions: None,
+        placeholder: None,
     });
 
     let editor = tiptap.editor;
@@ -122,6 +123,24 @@ Compiled extensions are selected through Cargo features. Use `starter-kit` for t
 subset supported by this crate, or `full` for every currently supported extension. Per-instance
 extension subsets can be selected with the component `extensions` prop or the hook input
 `extensions` field; if omitted, all compiled extensions are active.
+
+When the `placeholder` feature is enabled and active for an editor, set the component or hook
+`placeholder` option to initialize its placeholder text. The extension adds placeholder classes
+and `data-placeholder`; your app stylesheet must render them, for example:
+
+```css
+.tiptap p.is-editor-empty:first-child::before,
+.tiptap p.is-empty::before {
+  color: #6b7280;
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+```
+
+The official Tiptap Placeholder docs also include ready-to-copy CSS examples:
+<https://tiptap.dev/docs/editor/extensions/functionality/placeholder>.
 
 Bridge errors are reported through `on_error`. Commands called before readiness return
 `TiptapEditorError::EditorUnavailable`.

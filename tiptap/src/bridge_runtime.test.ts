@@ -23,6 +23,7 @@ import {register_link} from "./extensions/tiptap_link.ts"
 import {register_list_item} from "./extensions/tiptap_list_item.ts"
 import {register_ordered_list} from "./extensions/tiptap_ordered_list.ts"
 import {register_paragraph} from "./extensions/tiptap_paragraph.ts"
+import {register_placeholder} from "./extensions/tiptap_placeholder.ts"
 import {register_strike} from "./extensions/tiptap_strike.ts"
 import {register_text} from "./extensions/tiptap_text.ts"
 import {register_text_align} from "./extensions/tiptap_text_align.ts"
@@ -45,6 +46,7 @@ const DEFAULT_EXTENSION_NAMES: string[] = [
     "list_item",
     "ordered_list",
     "paragraph",
+    "placeholder",
     "strike",
     "text",
     "text_align",
@@ -75,6 +77,7 @@ function registerDefaultExtensions(): void {
     register_list_item()
     register_ordered_list()
     register_paragraph()
+    register_placeholder()
     register_strike()
     register_text()
     register_text_align()
@@ -582,6 +585,32 @@ test("supports base schema extensions when they are requested explicitly", () =>
     })
 
     assert.equal(result.ok, true)
+})
+
+test("configures placeholder extension from create request", () => {
+    const createdEditors = setupAdapterTest()
+
+    create(
+        {
+            ...createRequest(),
+            extensions: ["document", "paragraph", "text", "placeholder"],
+            placeholder: "Start typing here...",
+        },
+        () => {
+        },
+        () => {
+        },
+        () => {
+        },
+        () => {
+        },
+    )
+
+    const placeholderExtension = createdEditors[0]?.extensions?.find(
+        (extension) => (extension as { name?: string }).name === "placeholder",
+    ) as { options?: { placeholder?: unknown } } | undefined
+
+    assert.equal(placeholderExtension?.options?.placeholder, "Start typing here...")
 })
 
 test("dispatches parity commands to the expected chained editor methods", () => {
