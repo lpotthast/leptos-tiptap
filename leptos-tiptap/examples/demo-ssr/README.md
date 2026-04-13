@@ -8,10 +8,6 @@ And run the demo with
 
     cargo leptos watch
 
-End-to-end tests live in `end2end/`. Install the test dependencies with
+Browser integration tests are run from the library crate with
 
-    cd end2end && npm install && npx playwright install chromium
-
-And run them with
-
-    cargo leptos test
+    cd ../.. && cargo test --test browser_test -- --nocapture

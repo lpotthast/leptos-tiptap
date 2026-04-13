@@ -22,10 +22,16 @@ serde = { version = "1.0.189", features = ["derive"] }
 serde_json = "1.0.145"
 serde-wasm-bindgen = "0.6.0"
 tracing = "0.1.39"
-wasm-bindgen = "0.2.117"
+wasm-bindgen = "0.2.118"
 
 [dev-dependencies]
 assertr = "0.5.0"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+leptos-browser-test = { path = "../../leptos-browser-test" }
+thirtyfour = { version = "0.36.1", default-features = false, features = ["component", "reqwest", "rustls-tls"] }
+tokio = { version = "1.50.0", default-features = false, features = ["macros", "rt-multi-thread", "time"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["ansi", "fmt", "registry"] }
 
 [features]
 default = [
@@ -89,3 +95,9 @@ image = []
 link = []
 placeholder = []
 youtube = []
+
+[lints.rust]
+missing_docs = "warn"
+
+[lints.clippy]
+pedantic = "warn"

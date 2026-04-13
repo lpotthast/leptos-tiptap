@@ -1,13 +1,13 @@
 use leptos::prelude::*;
 use leptos::serde_json;
 use leptos_tiptap::{
-    TiptapContent, TiptapEditor, TiptapExtension, TiptapHeadingLevel, TiptapLinkResource,
-    TiptapSelectionState, TiptapTextAlign, TiptapYoutubeVideoResource,
+    TiptapContent, TiptapEditor, TiptapEditorHandle, TiptapExtension, TiptapHeadingLevel,
+    TiptapLinkResource, TiptapSelectionState, TiptapTextAlign, TiptapYoutubeVideoResource,
 };
 
 #[component]
 pub fn DemoApp() -> impl IntoView {
-    let editor = TiptapEditor::new();
+    let editor = TiptapEditorHandle::new();
     let (selection, set_selection) = signal(TiptapSelectionState::default());
     let (disabled, set_disabled) = signal(false);
     let (html_output, set_html_output) = signal(String::new());
@@ -230,7 +230,7 @@ fn replacement_html_content() -> TiptapContent {
 }
 
 fn replace_editor_content(
-    editor: &TiptapEditor,
+    editor: &TiptapEditorHandle,
     set_html_output: WriteSignal<String>,
     set_json_output: WriteSignal<String>,
 ) {
@@ -244,7 +244,7 @@ fn replace_editor_content(
 }
 
 fn sync_editor_outputs(
-    editor: &TiptapEditor,
+    editor: &TiptapEditorHandle,
     set_html_output: WriteSignal<String>,
     set_json_output: WriteSignal<String>,
 ) {

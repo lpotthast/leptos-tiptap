@@ -6,4 +6,4 @@ mod session;
 #[cfg(not(feature = "ssr"))]
 pub(crate) use bridge::{CreateCallbacks, CreateOptions, create, error_from_js_value};
 pub(crate) use bridge::{command, destroy, document};
-pub(crate) use session::{EditorSession, EditorSessionMountOptions};
+pub(crate) use session::{TiptapRuntimeMountOptions, TiptapRuntimeSession};

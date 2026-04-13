@@ -7,7 +7,7 @@ mod extensions;
 mod types;
 mod use_tiptap_editor;
 
-pub use editor::{TiptapEditor, TiptapEditorHandle};
+pub use editor::{TiptapEditorHandle, TiptapEditorInstance};
 pub use extensions::TiptapExtension;
 pub use types::{
     TiptapAttributes, TiptapCodeBlockAttributes, TiptapContent, TiptapEditorError,

@@ -11,8 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added command methods to `TiptapEditorHandle` (`toggle_bold`, `toggle_italic`, `toggle_heading`, `set_paragraph`,
   `set_link`, etc.) so callers interact with the editor directly through the handle instead of a message signal.
-- Added `TiptapEditorHandle`, which can read the current editor content as HTML or JSON from the same live editor
-  instance.
+- Added `TiptapEditorHandle`, which can read the current editor content as HTML or JSON from the same live editor.
+- Added `TiptapEditorInstance` for advanced access to the concrete mounted editor id and generation-bound instance.
 - Added `TiptapEditorHandle::set_content`, `set_html`, and `set_json` for explicit full-document replacement on a live
   editor instance.
 - Added `on_ready` and `on_change` callbacks on `<TiptapEditor/>` so callers can pull the current content on demand.
@@ -34,10 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Changed `<TiptapEditor/>` to use `TiptapEditorHandle` command methods instead of the `msg: Signal<TiptapInstanceMsg>`
   prop. The `msg` prop has been removed.
+- Changed the public editor type names so the user-held reactive command object is `TiptapEditorHandle` and the
+  concrete mounted editor object is `TiptapEditorInstance`.
 - Changed the editor readiness tracking to use a reactive signal internally, so the disabled state is automatically
   synced when the editor becomes ready without a manual call from the `on_ready` closure.
-- Changed the internal `TiptapEditorHandle` identity model to include a JS-side generation token so stale handles can no
-  longer address a recreated editor instance that reused the same DOM id.
+- Changed the internal `TiptapEditorInstance` identity model to include a JS-side generation token so stale instances
+  can no longer address a recreated editor instance that reused the same DOM id.
 - Changed the `split_list_item` Rust API to accept structured `TiptapAttributes` instead of arbitrary JSON values.
 - Changed `text_align` to pull in the required `heading` and `paragraph` schema features automatically.
 - Changed `<TiptapEditor/>` to take `initial_content: TiptapContent` instead of `value: Signal<TiptapContent>`.
@@ -76,12 +78,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed the mismatch between the public `TiptapContent` API and the actual runtime behavior by separating initial
   content input from content readback.
 - Fixed JS command handling to log clear errors when Rust sends commands before an editor instance exists.
-- Fixed stale-handle reads and commands so they return `EditorUnavailable` without emitting noisy JS console errors.
+- Fixed stale-instance reads and commands so they return `EditorUnavailable` without emitting noisy JS console errors.
 - Fixed editor lifecycle tracking so a JS create failure does not leave Rust thinking an editor is active.
 - Fixed a synchronous create/ready race between the Rust component and JS adapter so startup callbacks no longer leave
   the component in an inconsistent lifecycle state.
 - Fixed `set_content` error reporting so invalid content is no longer collapsed into `EditorUnavailable`.
-- Fixed stale `TiptapEditorHandle` instances so they now fail with `EditorUnavailable` instead of accidentally targeting
+- Fixed stale `TiptapEditorInstance` values so they now fail with `EditorUnavailable` instead of accidentally targeting
   a newer editor registered under the same id.
 - Fixed JSON bridge payload construction to surface serialization failures explicitly instead of silently falling back
   to `null`.

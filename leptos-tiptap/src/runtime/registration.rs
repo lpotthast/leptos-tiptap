@@ -14,14 +14,14 @@ static RUNTIME_INITIALIZED: OnceLock<Result<(), TiptapEditorError>> = OnceLock::
 static COMPILED_EXTENSIONS_REGISTERED: OnceLock<Result<(), TiptapEditorError>> = OnceLock::new();
 
 #[cfg(not(feature = "ssr"))]
-fn format_js_value(value: JsValue) -> String {
+fn format_js_value(value: &JsValue) -> String {
     value.as_string().unwrap_or_else(|| format!("{value:?}"))
 }
 
 #[cfg(not(feature = "ssr"))]
-fn map_registration_error(name: &str, value: JsValue) -> TiptapEditorError {
+fn map_registration_error(name: &str, value: &JsValue) -> TiptapEditorError {
     TiptapEditorError::BridgeError(format!(
-        "could not register Tiptap extension '{name}': {}",
+        "Could not register Tiptap extension '{name}': {}",
         format_js_value(value),
     ))
 }
@@ -32,7 +32,7 @@ fn register_extension(
     name: &str,
     register: impl FnOnce() -> Result<(), JsValue>,
 ) -> Result<(), TiptapEditorError> {
-    register().map_err(|value| map_registration_error(name, value))
+    register().map_err(|value| map_registration_error(name, &value))
 }
 
 #[cfg(not(feature = "ssr"))]
@@ -40,7 +40,7 @@ fn ensure_runtime_initialized() -> Result<(), TiptapEditorError> {
     RUNTIME_INITIALIZED
         .get_or_init(|| {
             ffi::init_bridge_runtime()
-                .map_err(|value| map_registration_error("bridge_runtime", value))
+                .map_err(|value| map_registration_error("bridge_runtime", &value))
         })
         .clone()
 }
@@ -109,7 +109,7 @@ pub(crate) fn ensure_compiled_extensions_registered() -> Result<(), TiptapEditor
 }
 
 #[cfg(feature = "ssr")]
-#[allow(dead_code)]
+#[allow(dead_code, clippy::unnecessary_wraps)]
 pub(crate) fn ensure_compiled_extensions_registered() -> Result<(), TiptapEditorError> {
     Ok(())
 }

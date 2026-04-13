@@ -78,11 +78,11 @@ checked-in bundle artifacts.
 - `<TiptapEditor/>` notifies Rust through `on_ready`, `on_change`, and `on_selection_change`. `on_ready` runs before
   the initial selection-state notification, so the `editor` prop is ready when selection callbacks run.
 - `<TiptapEditor/>` can also report bridge/runtime failures through `on_error`.
-- `TiptapEditorHandle` remains available through `TiptapEditor::handle()` for advanced use and can replace the full
-  document content explicitly through `set_content`, `set_html`, or `set_json`. `handle()` is a tracked reactive read;
-  use `handle_untracked()` in event handlers when you do not want to subscribe to readiness changes.
-- If an editor is destroyed and recreated with the same DOM id, older handles become stale and fail with
-  `EditorUnavailable` instead of targeting the replacement editor. That stale-handle path is treated as expected
+- `TiptapEditorHandle` is the user-held reactive handle for commands and content reads. `TiptapEditorInstance` remains
+  available through `TiptapEditorHandle::instance()` for advanced use. `instance()` is a tracked reactive read; use
+  `instance_untracked()` in event handlers when you do not want to subscribe to readiness changes.
+- If an editor is destroyed and recreated with the same DOM id, older live instances become stale and fail with
+  `EditorUnavailable` instead of targeting the replacement editor. That stale-instance path is treated as expected
   control flow and no longer logs a JS runtime error.
 - Mounting two live editors with the same DOM id is rejected instead of replacing the existing editor.
 - A single editor instance can be read back in multiple formats. The current HTML/JSON distinction is no longer tied to

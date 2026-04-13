@@ -131,7 +131,7 @@ where
 }
 
 #[cfg(not(feature = "ssr"))]
-fn format_js_value(value: JsValue) -> String {
+fn format_js_value(value: &JsValue) -> String {
     value.as_string().unwrap_or_else(|| format!("{value:?}"))
 }
 
@@ -151,11 +151,12 @@ pub(crate) fn error_from_js_value(value: JsValue) -> TiptapEditorError {
 }
 
 #[cfg_attr(feature = "ssr", allow(dead_code))]
+#[derive(Clone, Copy)]
 pub(crate) struct CreateCallbacks<'a> {
-    pub(crate) on_ready: &'a ScopedClosure<'static, dyn Fn(JsValue)>,
-    pub(crate) on_change: &'a ScopedClosure<'static, dyn Fn()>,
-    pub(crate) on_selection: &'a ScopedClosure<'static, dyn Fn(JsValue)>,
-    pub(crate) on_error: &'a ScopedClosure<'static, dyn Fn(JsValue)>,
+    pub(crate) ready: &'a ScopedClosure<'static, dyn Fn(JsValue)>,
+    pub(crate) change: &'a ScopedClosure<'static, dyn Fn()>,
+    pub(crate) selection: &'a ScopedClosure<'static, dyn Fn(JsValue)>,
+    pub(crate) error: &'a ScopedClosure<'static, dyn Fn(JsValue)>,
 }
 
 #[cfg_attr(feature = "ssr", allow(dead_code))]
@@ -168,6 +169,7 @@ pub(crate) struct CreateOptions {
 }
 
 #[cfg_attr(feature = "ssr", allow(dead_code))]
+#[cfg_attr(feature = "ssr", allow(clippy::unnecessary_wraps))]
 pub(crate) fn create(
     request: CreateOptions,
     callbacks: CreateCallbacks<'_>,
@@ -188,21 +190,20 @@ pub(crate) fn create(
 
         ffi::create(
             request,
-            callbacks.on_ready,
-            callbacks.on_change,
-            callbacks.on_selection,
-            callbacks.on_error,
+            callbacks.ready,
+            callbacks.change,
+            callbacks.selection,
+            callbacks.error,
         )
         .map_err(|value| {
             TiptapEditorError::BridgeError(format!(
                 "JS bridge create threw an exception: {}",
-                format_js_value(value),
+                format_js_value(&value),
             ))
         })?;
         Ok(())
     } else {
-        let _request = request;
-        let _callbacks = callbacks;
+        drop((request, callbacks));
         Ok(())
     }}
 }
@@ -211,10 +212,11 @@ pub(crate) fn destroy(id: String) {
     cfg_if! {if #[cfg(not(feature = "ssr"))] {
         ffi::destroy(id);
     } else {
-        let _id = id;
+        drop(id);
     }}
 }
 
+#[cfg_attr(feature = "ssr", allow(clippy::unnecessary_wraps))]
 pub(crate) fn command(
     id: String,
     generation: u32,
@@ -232,9 +234,7 @@ pub(crate) fn command(
         )
         .map(|_| ())
     } else {
-        let _id = id;
-        let _generation = generation;
-        let _command = command;
+        drop((id, generation, command));
         Ok(())
     }}
 }
@@ -255,9 +255,7 @@ pub(crate) fn document(
             ffi::document,
         )
     } else {
-        let _id = id;
-        let _generation = generation;
-        let _request = request;
+        drop((id, generation, request));
         Err(TiptapEditorError::EditorUnavailable)
     }}
 }

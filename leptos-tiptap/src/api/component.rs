@@ -1,6 +1,5 @@
 use super::{
-    TiptapContent, TiptapEditor as TiptapEditorSlot, TiptapEditorError, TiptapExtension,
-    TiptapSelectionState,
+    TiptapContent, TiptapEditorError, TiptapEditorHandle, TiptapExtension, TiptapSelectionState,
     use_tiptap_editor::{UseTiptapEditorInput, use_tiptap_editor},
 };
 use leptos::prelude::*;
@@ -13,15 +12,15 @@ pub fn TiptapEditor(
     #[prop(into)]
     id: String,
 
-    /// A reactive editor slot. The component populates this with a live handle when the
+    /// A reactive editor handle. The component populates this with a live instance when the
     /// editor is ready, and clears it on error or cleanup.
     ///
-    /// Use methods on the `TiptapEditor` slot to send commands or read content.
-    /// Use `TiptapEditor::is_ready()` to reactively gate UI.
+    /// Use methods on the `TiptapEditorHandle` to send commands or read content.
+    /// Use `TiptapEditorHandle::is_ready()` to reactively gate UI.
     ///
     /// Commands executed before the editor initialization finishes are answered with an
     /// `EditorUnavailable` error.
-    editor: TiptapEditorSlot,
+    editor: TiptapEditorHandle,
 
     /// Initial content of the editor.
     ///
@@ -32,7 +31,7 @@ pub fn TiptapEditor(
     /// using your `editor` handle or if you just want to mark the editor content as dirty to be
     /// fetched later, when needed.
     ///
-    /// If you need to replace the visible content later, use `TiptapEditor::set_content`.
+    /// If you need to replace the visible content later, use `TiptapEditorHandle::set_content`.
     #[prop(into)]
     initial_content: TiptapContent,
 

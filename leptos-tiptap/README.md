@@ -4,7 +4,7 @@ Use [Tiptap](https://tiptap.dev/) editors from [Leptos](https://leptos.dev/) app
 
 The crate gives you two entry points:
 
-- Use the `<TiptapEditor/>` component when you only need to mount an editor and drive it through the editor slot you pass in.
+- Use the `<TiptapEditor/>` component when you only need to mount an editor and drive it through the editor handle you pass in.
 - Use the `use_tiptap_editor` hook when you want to provide the host element yourself.
 
 ## Usage
@@ -26,11 +26,11 @@ Use the component when you are fine with the default editor host element.
 
 ```rust
 use leptos::prelude::*;
-use leptos_tiptap::{TiptapContent, TiptapEditor};
+use leptos_tiptap::{TiptapContent, TiptapEditor, TiptapEditorHandle};
 
 #[component]
 pub fn EditorWithComponent() -> impl IntoView {
-    let editor = TiptapEditor::new();
+    let editor = TiptapEditorHandle::new();
     let (disabled, set_disabled) = signal(false);
 
     view! {
@@ -61,9 +61,13 @@ pub fn EditorWithComponent() -> impl IntoView {
 }
 ```
 
-The component populates the `editor` slot once the JavaScript editor is ready. Use that same slot
+The component populates the `editor` handle once the JavaScript editor is ready. Use that same handle
 to run commands, read HTML or JSON content, or replace the full document with `set_content`,
 `set_html`, or `set_json`.
+
+For advanced cases, `editor.instance()` returns the current `TiptapEditorInstance`. That value is
+bound to a concrete mounted editor id and generation, so older instances become stale after destroy
+and recreate cycles.
 
 ## Hook
 
@@ -109,7 +113,7 @@ pub fn EditorWithHook() -> impl IntoView {
 ```
 
 Spread `tiptap.props.into_attrs()` onto exactly one rendered host element. The hook owns mount
-timing, cleanup, disabled-state synchronization, and the reactive editor slot.
+timing, cleanup, disabled-state synchronization, and the reactive editor handle.
 
 ## Content, commands, and extensions
 

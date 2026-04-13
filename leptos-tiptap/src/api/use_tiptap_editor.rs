@@ -1,7 +1,7 @@
 use super::{
-    TiptapContent, TiptapEditor, TiptapEditorError, TiptapExtension, TiptapSelectionState,
+    TiptapContent, TiptapEditorError, TiptapEditorHandle, TiptapExtension, TiptapSelectionState,
 };
-use crate::runtime::{EditorSession, EditorSessionMountOptions};
+use crate::runtime::{TiptapRuntimeMountOptions, TiptapRuntimeSession};
 use leptos::{attr, attr::Attr, prelude::*};
 use leptos_element_capture::{CapturedElement, ElementCaptureAttr};
 
@@ -11,10 +11,10 @@ pub struct UseTiptapEditorInput {
     /// The ID for this Tiptap instance. Must be unique across all mounted instances.
     pub id: String,
 
-    /// An optional editor slot to populate when the editor becomes ready.
+    /// An optional editor handle to populate when the editor becomes ready.
     ///
-    /// If omitted, the hook creates and returns its own [`struct@TiptapEditor`] slot.
-    pub editor: Option<TiptapEditor>,
+    /// If omitted, the hook creates and returns its own [`struct@TiptapEditorHandle`].
+    pub editor: Option<TiptapEditorHandle>,
 
     /// Initial content of the editor.
     pub initial_content: TiptapContent,
@@ -63,6 +63,8 @@ pub struct UseTiptapEditorProps {
 }
 
 impl UseTiptapEditorProps {
+    /// Converts the props into attributes that can be spread onto the host node.
+    #[must_use]
     pub fn into_attrs(self) -> UseTiptapEditorAttrs {
         (
             Attr(attr::Id, self.id),
@@ -72,6 +74,7 @@ impl UseTiptapEditorProps {
     }
 }
 
+/// Attribute tuple returned by [`UseTiptapEditorProps::into_attrs`].
 pub type UseTiptapEditorAttrs = (
     Attr<attr::Id, String>,
     Attr<attr::AriaDisabled, Signal<bool>>,
@@ -83,10 +86,10 @@ pub struct UseTiptapEditorReturn {
     /// Mount props for the host DOM node.
     pub props: UseTiptapEditorProps,
 
-    /// The reactive editor slot for issuing commands and reading content.
-    pub editor: TiptapEditor,
+    /// The reactive editor handle for issuing commands and reading content.
+    pub editor: TiptapEditorHandle,
 
-    /// Reactive readiness state for the editor slot.
+    /// Reactive readiness state for the editor handle.
     pub is_ready: Signal<bool>,
 
     /// The captured host element for the mounted editor container.
@@ -95,8 +98,8 @@ pub struct UseTiptapEditorReturn {
 
 /// Creates and manages a Tiptap editor instance from within a Leptos owner scope.
 ///
-/// This hook owns the Leptos-specific orchestration around `EditorSession`:
-/// mount timing, disabled synchronization, cleanup, and exposing the editor slot.
+/// This hook owns the Leptos-specific orchestration around `TiptapRuntimeSession`:
+/// mount timing, disabled synchronization, cleanup, and exposing the editor handle.
 pub fn use_tiptap_editor(input: UseTiptapEditorInput) -> UseTiptapEditorReturn {
     let UseTiptapEditorInput {
         id,
@@ -112,9 +115,8 @@ pub fn use_tiptap_editor(input: UseTiptapEditorInput) -> UseTiptapEditorReturn {
     } = input;
 
     let editor = editor.unwrap_or_default();
-    let element = CapturedElement::new();
-    let session = EditorSession::new(id, editor);
-    let mount_options = EditorSessionMountOptions {
+    let session = TiptapRuntimeSession::new(id, editor);
+    let mount_options = TiptapRuntimeMountOptions {
         initial_content,
         initial_editable: !disabled.get_untracked(),
         extensions: extensions.unwrap_or_else(TiptapExtension::all_enabled),
@@ -125,6 +127,7 @@ pub fn use_tiptap_editor(input: UseTiptapEditorInput) -> UseTiptapEditorReturn {
         on_selection_change,
     };
 
+    let element = CapturedElement::new();
     Effect::new({
         let mut mount_options = Some(mount_options);
         move |_| {

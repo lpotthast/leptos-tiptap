@@ -13,7 +13,7 @@ use super::TiptapTextAlign;
 #[cfg(feature = "youtube")]
 use super::TiptapYoutubeVideoResource;
 use super::{
-    TiptapAttributes, TiptapContent, TiptapEditor, TiptapEditorError, TiptapEditorHandle,
+    TiptapAttributes, TiptapContent, TiptapEditorError, TiptapEditorHandle, TiptapEditorInstance,
     TiptapFocusOptions, TiptapFocusTarget, TiptapInsertContentOptions, TiptapListKind,
     TiptapMarkName, TiptapMarkOptions, TiptapNodeName, TiptapPositionOrRange, TiptapRange,
     TiptapSchemaTarget, TiptapSplitBlockOptions, TiptapToggleListOptions,
@@ -36,13 +36,14 @@ macro_rules! delegate_no_arg_methods {
         $(
             $(#[$meta])*
             pub fn $method_name(&self) -> Result<(), TiptapEditorError> {
-                self.with_handle(TiptapEditorHandle::$method_name)
+                self.with_instance(TiptapEditorInstance::$method_name)
             }
         )*
     };
 }
 
-impl TiptapEditorHandle {
+#[allow(missing_docs, clippy::missing_errors_doc)]
+impl TiptapEditorInstance {
     dispatch_no_arg_methods!(
         blur => Blur,
         clear_nodes => ClearNodes,
@@ -298,7 +299,7 @@ impl TiptapEditorHandle {
 
         self.dispatch(EditorCommand::ToggleList {
             list_type_or_name: list.list_name().to_owned(),
-            item_type_or_name: list.item_name().to_owned(),
+            item_type_or_name: TiptapListKind::item_name().to_owned(),
             keep_marks,
             attributes,
         })
@@ -492,7 +493,8 @@ impl TiptapEditorHandle {
     }
 }
 
-impl TiptapEditor {
+#[allow(missing_docs, clippy::missing_errors_doc)]
+impl TiptapEditorHandle {
     delegate_no_arg_methods!(
         blur,
         clear_nodes,
@@ -578,19 +580,19 @@ impl TiptapEditor {
     );
 
     pub fn clear_content(&self, emit_update: bool) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.clear_content(emit_update))
+        self.with_instance(|instance| instance.clear_content(emit_update))
     }
 
     pub fn cut(&self, range: TiptapRange, target_pos: u32) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.cut(range, target_pos))
+        self.with_instance(|instance| instance.cut(range, target_pos))
     }
 
     pub fn delete_node(&self, node: TiptapNodeName) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.delete_node(node))
+        self.with_instance(|instance| instance.delete_node(node))
     }
 
     pub fn delete_range(&self, range: TiptapRange) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.delete_range(range))
+        self.with_instance(|instance| instance.delete_range(range))
     }
 
     pub fn extend_mark_range(
@@ -598,7 +600,7 @@ impl TiptapEditor {
         mark: TiptapMarkName,
         attributes: Option<TiptapAttributes>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.extend_mark_range(mark, attributes))
+        self.with_instance(|instance| instance.extend_mark_range(mark, attributes))
     }
 
     pub fn focus_with(
@@ -606,7 +608,7 @@ impl TiptapEditor {
         target: TiptapFocusTarget,
         options: Option<TiptapFocusOptions>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.focus_with(target, options))
+        self.with_instance(|instance| instance.focus_with(target, options))
     }
 
     pub fn insert_content(
@@ -614,7 +616,7 @@ impl TiptapEditor {
         content: TiptapContent,
         options: Option<TiptapInsertContentOptions>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.insert_content(content, options))
+        self.with_instance(|instance| instance.insert_content(content, options))
     }
 
     pub fn insert_content_at(
@@ -624,12 +626,12 @@ impl TiptapEditor {
         options: Option<TiptapInsertContentOptions>,
     ) -> Result<(), TiptapEditorError> {
         let position = position.into();
-        self.with_handle(|handle| handle.insert_content_at(position, content, options))
+        self.with_instance(|instance| instance.insert_content_at(position, content, options))
     }
 
     pub fn keyboard_shortcut(&self, name: impl Into<String>) -> Result<(), TiptapEditorError> {
         let name = name.into();
-        self.with_handle(|handle| handle.keyboard_shortcut(name.clone()))
+        self.with_instance(|instance| instance.keyboard_shortcut(name.clone()))
     }
 
     pub fn lift(
@@ -637,7 +639,7 @@ impl TiptapEditor {
         node: TiptapNodeName,
         attributes: Option<TiptapAttributes>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.lift(node, attributes))
+        self.with_instance(|instance| instance.lift(node, attributes))
     }
 
     pub fn reset_attributes<I, S>(
@@ -650,7 +652,7 @@ impl TiptapEditor {
         S: Into<String>,
     {
         let names: Vec<String> = attribute_names.into_iter().map(Into::into).collect();
-        self.with_handle(|handle| handle.reset_attributes(target, names.clone()))
+        self.with_instance(|instance| instance.reset_attributes(target, names.clone()))
     }
 
     pub fn set_mark(
@@ -658,7 +660,7 @@ impl TiptapEditor {
         mark: TiptapMarkName,
         attributes: Option<TiptapAttributes>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.set_mark(mark, attributes))
+        self.with_instance(|instance| instance.set_mark(mark, attributes))
     }
 
     pub fn set_meta(
@@ -668,7 +670,7 @@ impl TiptapEditor {
     ) -> Result<(), TiptapEditorError> {
         let key = key.into();
         let value = value.into();
-        self.with_handle(|handle| handle.set_meta(key.clone(), value.clone()))
+        self.with_instance(|instance| instance.set_meta(key.clone(), value.clone()))
     }
 
     pub fn set_node(
@@ -676,11 +678,11 @@ impl TiptapEditor {
         node: TiptapNodeName,
         attributes: Option<TiptapAttributes>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.set_node(node, attributes))
+        self.with_instance(|instance| instance.set_node(node, attributes))
     }
 
     pub fn set_node_selection(&self, position: u32) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.set_node_selection(position))
+        self.with_instance(|instance| instance.set_node_selection(position))
     }
 
     pub fn set_text_selection(
@@ -688,14 +690,14 @@ impl TiptapEditor {
         position: impl Into<TiptapPositionOrRange>,
     ) -> Result<(), TiptapEditorError> {
         let position = position.into();
-        self.with_handle(|handle| handle.set_text_selection(position))
+        self.with_instance(|instance| instance.set_text_selection(position))
     }
 
     pub fn split_block(
         &self,
         options: Option<TiptapSplitBlockOptions>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.split_block(options))
+        self.with_instance(|instance| instance.split_block(options))
     }
 
     pub fn toggle_list(
@@ -703,7 +705,7 @@ impl TiptapEditor {
         list: TiptapListKind,
         options: Option<TiptapToggleListOptions>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.toggle_list(list, options))
+        self.with_instance(|instance| instance.toggle_list(list, options))
     }
 
     pub fn toggle_mark(
@@ -712,7 +714,7 @@ impl TiptapEditor {
         attributes: Option<TiptapAttributes>,
         options: Option<TiptapMarkOptions>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.toggle_mark(mark, attributes, options))
+        self.with_instance(|instance| instance.toggle_mark(mark, attributes, options))
     }
 
     pub fn toggle_node(
@@ -721,7 +723,7 @@ impl TiptapEditor {
         toggle_node: TiptapNodeName,
         attributes: Option<TiptapAttributes>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.toggle_node(node, toggle_node, attributes))
+        self.with_instance(|instance| instance.toggle_node(node, toggle_node, attributes))
     }
 
     pub fn toggle_wrap(
@@ -729,7 +731,7 @@ impl TiptapEditor {
         node: TiptapNodeName,
         attributes: Option<TiptapAttributes>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.toggle_wrap(node, attributes))
+        self.with_instance(|instance| instance.toggle_wrap(node, attributes))
     }
 
     pub fn unset_mark(
@@ -737,7 +739,7 @@ impl TiptapEditor {
         mark: TiptapMarkName,
         options: Option<TiptapMarkOptions>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.unset_mark(mark, options))
+        self.with_instance(|instance| instance.unset_mark(mark, options))
     }
 
     pub fn update_attributes(
@@ -745,7 +747,7 @@ impl TiptapEditor {
         target: TiptapSchemaTarget,
         attributes: TiptapAttributes,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.update_attributes(target, attributes))
+        self.with_instance(|instance| instance.update_attributes(target, attributes))
     }
 
     pub fn wrap_in(
@@ -753,7 +755,7 @@ impl TiptapEditor {
         node: TiptapNodeName,
         attributes: Option<TiptapAttributes>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.wrap_in(node, attributes))
+        self.with_instance(|instance| instance.wrap_in(node, attributes))
     }
 
     pub fn wrap_in_list(
@@ -761,7 +763,7 @@ impl TiptapEditor {
         list: TiptapListKind,
         attributes: Option<TiptapAttributes>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.wrap_in_list(list, attributes))
+        self.with_instance(|instance| instance.wrap_in_list(list, attributes))
     }
 
     #[cfg(feature = "code_block")]
@@ -769,7 +771,7 @@ impl TiptapEditor {
         &self,
         attributes: Option<TiptapCodeBlockAttributes>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.set_code_block(attributes))
+        self.with_instance(|instance| instance.set_code_block(attributes))
     }
 
     #[cfg(feature = "code_block")]
@@ -777,17 +779,17 @@ impl TiptapEditor {
         &self,
         attributes: Option<TiptapCodeBlockAttributes>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.toggle_code_block(attributes))
+        self.with_instance(|instance| instance.toggle_code_block(attributes))
     }
 
     #[cfg(feature = "heading")]
     pub fn set_heading(&self, level: TiptapHeadingLevel) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.set_heading(level))
+        self.with_instance(|instance| instance.set_heading(level))
     }
 
     #[cfg(feature = "heading")]
     pub fn toggle_heading(&self, level: TiptapHeadingLevel) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.toggle_heading(level))
+        self.with_instance(|instance| instance.toggle_heading(level))
     }
 
     #[cfg(feature = "highlight")]
@@ -795,7 +797,7 @@ impl TiptapEditor {
         &self,
         attributes: Option<TiptapHighlightAttributes>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.set_highlight(attributes))
+        self.with_instance(|instance| instance.set_highlight(attributes))
     }
 
     #[cfg(feature = "highlight")]
@@ -803,7 +805,7 @@ impl TiptapEditor {
         &self,
         attributes: Option<TiptapHighlightAttributes>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.toggle_highlight(attributes))
+        self.with_instance(|instance| instance.toggle_highlight(attributes))
     }
 
     #[cfg(feature = "list_item")]
@@ -811,32 +813,32 @@ impl TiptapEditor {
         &self,
         attributes: Option<TiptapAttributes>,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.split_list_item(attributes))
+        self.with_instance(|instance| instance.split_list_item(attributes))
     }
 
     #[cfg(feature = "text_align")]
     pub fn set_text_align(&self, alignment: TiptapTextAlign) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.set_text_align(alignment))
+        self.with_instance(|instance| instance.set_text_align(alignment))
     }
 
     #[cfg(feature = "text_align")]
     pub fn toggle_text_align(&self, alignment: TiptapTextAlign) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.toggle_text_align(alignment))
+        self.with_instance(|instance| instance.toggle_text_align(alignment))
     }
 
     #[cfg(feature = "image")]
     pub fn set_image(&self, image: TiptapImageResource) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.set_image(image))
+        self.with_instance(|instance| instance.set_image(image))
     }
 
     #[cfg(feature = "link")]
     pub fn set_link(&self, link: TiptapLinkResource) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.set_link(link))
+        self.with_instance(|instance| instance.set_link(link))
     }
 
     #[cfg(feature = "link")]
     pub fn toggle_link(&self, link: TiptapLinkResource) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.toggle_link(link))
+        self.with_instance(|instance| instance.toggle_link(link))
     }
 
     #[cfg(feature = "youtube")]
@@ -844,6 +846,6 @@ impl TiptapEditor {
         &self,
         video: TiptapYoutubeVideoResource,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.set_youtube_video(video))
+        self.with_instance(|instance| instance.set_youtube_video(video))
     }
 }

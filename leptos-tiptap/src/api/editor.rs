@@ -1,27 +1,28 @@
 use super::TiptapEditorError;
 use leptos::prelude::*;
 
-/// A reactive editor slot that the `<TiptapEditor/>` component populates with a live
-/// [`TiptapEditorHandle`] when the editor is ready, and clears on error or cleanup.
+/// A reactive editor handle that the `<TiptapEditor/>` component populates with a live
+/// [`TiptapEditorInstance`] when the editor is ready, and clears on error or cleanup.
 ///
-/// Create one with [`TiptapEditor::new()`] and pass it to `<TiptapEditor/>` via the `editor`
-/// prop. All command and content methods delegate to the inner handle, returning
+/// Create one with [`TiptapEditorHandle::new()`] and pass it to `<TiptapEditor/>` via the `editor`
+/// prop. All command and content methods delegate to the inner instance, returning
 /// [`TiptapEditorError::EditorUnavailable`] when the editor is not yet ready.
 ///
-/// `TiptapEditor` is [`Copy`], so it can be freely captured in closures without cloning.
+/// `TiptapEditorHandle` is [`Copy`], so it can be freely captured in closures without cloning.
 #[derive(Clone, Copy)]
-pub struct TiptapEditor(RwSignal<Option<TiptapEditorHandle>>);
+pub struct TiptapEditorHandle(RwSignal<Option<TiptapEditorInstance>>);
 
-impl Default for TiptapEditor {
+impl Default for TiptapEditorHandle {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl TiptapEditor {
-    /// Creates a new, empty editor slot.
+impl TiptapEditorHandle {
+    /// Creates a new, empty editor handle.
     ///
     /// Must be called within a reactive owner scope (e.g. inside a component body).
+    #[must_use]
     pub fn new() -> Self {
         Self(RwSignal::new(None))
     }
@@ -30,68 +31,74 @@ impl TiptapEditor {
     ///
     /// This is a reactive read; calling it inside an `Effect` or a derived signal
     /// will re-run when readiness changes.
+    #[must_use]
     pub fn is_ready(&self) -> bool {
-        self.0.with(|h| h.is_some())
+        self.0.with(std::option::Option::is_some)
     }
 
-    /// Returns the current handle, if the editor is ready.
+    /// Returns the current live instance, if the editor is ready.
     ///
     /// This is a reactive read; calling it inside an `Effect` or a derived signal
     /// will re-run when readiness changes.
-    pub fn handle(&self) -> Option<TiptapEditorHandle> {
+    #[must_use]
+    pub fn instance(&self) -> Option<TiptapEditorInstance> {
         self.0.get()
     }
 
-    /// Returns the current handle without tracking the read reactively.
-    pub fn handle_untracked(&self) -> Option<TiptapEditorHandle> {
+    /// Returns the current live instance without tracking the read reactively.
+    #[must_use]
+    pub fn instance_untracked(&self) -> Option<TiptapEditorInstance> {
         self.0.get_untracked()
     }
 
     #[cfg(not(feature = "ssr"))]
-    pub(crate) fn set_handle(&self, handle: TiptapEditorHandle) {
-        self.0.set(Some(handle));
+    pub(crate) fn set_instance(&self, instance: TiptapEditorInstance) {
+        self.0.set(Some(instance));
     }
 
-    pub(crate) fn clear_handle(&self) {
+    pub(crate) fn clear_instance(&self) {
         self.0.set(None);
     }
 
-    pub(super) fn with_handle<T>(
+    pub(super) fn with_instance<T>(
         &self,
-        f: impl FnOnce(&TiptapEditorHandle) -> Result<T, TiptapEditorError>,
+        f: impl FnOnce(&TiptapEditorInstance) -> Result<T, TiptapEditorError>,
     ) -> Result<T, TiptapEditorError> {
         self.0
             .get_untracked()
             .ok_or(TiptapEditorError::EditorUnavailable)
-            .and_then(|handle| f(&handle))
+            .and_then(|instance| f(&instance))
     }
 }
 
-/// A handle to a live Tiptap editor instance.
+/// A live Tiptap editor instance.
 ///
-/// The handle can be used to pull the current editor content in different formats or replace the
-/// full document content.
+/// The instance can be used to pull the current editor content in different formats or replace the
+/// full document content. Most callers should store and use [`TiptapEditorHandle`] instead, and
+/// only work with this concrete instance when they need its stable editor id.
 ///
-/// It is safe to store this handle for as long as that concrete editor instance remains alive.
-/// A handle becomes stale if the underlying editor is destroyed.
+/// It is safe to store this instance for as long as that concrete editor instance remains alive.
+/// It becomes stale if the underlying editor is destroyed.
 ///
-/// Internally, a handle is bound not only to the editor's public `id`, but also to a private
+/// Internally, an instance is bound not only to the editor's public `id`, but also to a private
 /// generation token assigned by the JS adapter when that concrete editor instance is created.
-/// This prevents an old handle from accidentally talking to a newer editor that was later created
+/// This prevents an old instance from accidentally talking to a newer editor that was later created
 /// with the same DOM id after a destroy/recreate cycle.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TiptapEditorHandle {
+pub struct TiptapEditorInstance {
     pub(crate) id: String,
-    /// Private instance generation used to reject stale handles after editor recreation.
+    /// Private instance generation used to reject stale instances after editor recreation.
     pub(crate) generation: u32,
 }
 
-impl TiptapEditorHandle {
+impl TiptapEditorInstance {
     #[cfg(not(feature = "ssr"))]
     pub(crate) fn new(id: String, generation: u32) -> Self {
         Self { id, generation }
     }
 
+    /// Returns the stable public editor id.
+    #[must_use]
     pub fn id(&self) -> &str {
         &self.id
     }

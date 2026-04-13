@@ -1,3 +1,5 @@
 # TODO
 
 - Most commands `focus()` the editor as well as doing their actual thing. Should we really do that?
+- Switch component from rendering <leptos-tiptap-instance> to <div class="leptos-tiptap-instance">. Use leptos-classes and leptos-styles.
+- Check if extensions depend on one-another. If so, force dependent on through cargo features.

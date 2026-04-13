@@ -1,10 +1,12 @@
 #[cfg(not(feature = "ssr"))]
+use crate::TiptapEditorInstance;
+#[cfg(not(feature = "ssr"))]
 use crate::protocol::ReadyPayload;
 use crate::runtime::{self};
 #[cfg(not(feature = "ssr"))]
 use crate::runtime::{CreateCallbacks, CreateOptions};
 use crate::{
-    TiptapContent, TiptapEditor, TiptapEditorError, TiptapExtension, TiptapSelectionState,
+    TiptapContent, TiptapEditorError, TiptapEditorHandle, TiptapExtension, TiptapSelectionState,
 };
 use leptos::prelude::*;
 use send_wrapper::SendWrapper;
@@ -13,33 +15,34 @@ use wasm_bindgen::closure::ScopedClosure;
 #[cfg(not(feature = "ssr"))]
 use wasm_bindgen::prelude::Closure;
 
-/// Stored closures, called by the TipTap JS runtime.
-struct EditorCallbacks {
-    _on_ready: SendWrapper<ScopedClosure<'static, dyn Fn(JsValue)>>,
-    _on_content_change: SendWrapper<ScopedClosure<'static, dyn Fn()>>,
-    _on_selection_change: SendWrapper<ScopedClosure<'static, dyn Fn(JsValue)>>,
-    _on_error: SendWrapper<ScopedClosure<'static, dyn Fn(JsValue)>>,
+/// Stored closures, called by the `TipTap` JS runtime.
+#[allow(dead_code)]
+struct TiptapRuntimeCallbacks {
+    ready: SendWrapper<ScopedClosure<'static, dyn Fn(JsValue)>>,
+    content_change: SendWrapper<ScopedClosure<'static, dyn Fn()>>,
+    selection_change: SendWrapper<ScopedClosure<'static, dyn Fn(JsValue)>>,
+    error: SendWrapper<ScopedClosure<'static, dyn Fn(JsValue)>>,
 }
 
 #[cfg_attr(feature = "ssr", allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EditorLifecycle {
+enum TiptapRuntimeLifecycle {
     Idle,
     Creating,
     Ready { generation: u32 },
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct EditorSession {
+pub(crate) struct TiptapRuntimeSession {
     editor_id: StoredValue<String>,
-    lifecycle: StoredValue<EditorLifecycle>,
-    callbacks: StoredValue<Option<EditorCallbacks>>,
+    lifecycle: StoredValue<TiptapRuntimeLifecycle>,
+    callbacks: StoredValue<Option<TiptapRuntimeCallbacks>>,
     applied_editable: StoredValue<Option<bool>>,
-    editor: TiptapEditor,
+    editor: TiptapEditorHandle,
 }
 
 #[cfg_attr(feature = "ssr", allow(dead_code))]
-pub(crate) struct EditorSessionMountOptions {
+pub(crate) struct TiptapRuntimeMountOptions {
     pub(crate) initial_content: TiptapContent,
     pub(crate) initial_editable: bool,
     pub(crate) extensions: Vec<TiptapExtension>,
@@ -52,15 +55,15 @@ pub(crate) struct EditorSessionMountOptions {
 
 #[cfg_attr(feature = "ssr", allow(dead_code))]
 fn reset_local_editor_state(
-    lifecycle: StoredValue<EditorLifecycle>,
-    callbacks: StoredValue<Option<EditorCallbacks>>,
+    lifecycle: StoredValue<TiptapRuntimeLifecycle>,
+    callbacks: StoredValue<Option<TiptapRuntimeCallbacks>>,
     applied_editable: StoredValue<Option<bool>>,
-    editor: TiptapEditor,
+    editor: TiptapEditorHandle,
 ) {
-    lifecycle.update_value(|state| *state = EditorLifecycle::Idle);
+    lifecycle.update_value(|state| *state = TiptapRuntimeLifecycle::Idle);
     callbacks.update_value(|slot| *slot = None);
     applied_editable.update_value(|value| *value = None);
-    editor.clear_handle();
+    editor.clear_instance();
 }
 
 fn report_runtime_error(on_error: Option<Callback<TiptapEditorError>>, err: TiptapEditorError) {
@@ -68,12 +71,12 @@ fn report_runtime_error(on_error: Option<Callback<TiptapEditorError>>, err: Tipt
     on_error.inspect(move |cb| cb.run(err));
 }
 
-impl EditorSession {
-    pub(crate) fn new(id: String, editor: TiptapEditor) -> Self {
+impl TiptapRuntimeSession {
+    pub(crate) fn new(id: String, editor: TiptapEditorHandle) -> Self {
         Self {
             editor_id: StoredValue::new(id),
-            lifecycle: StoredValue::new(EditorLifecycle::Idle),
-            callbacks: StoredValue::new(Option::<EditorCallbacks>::None),
+            lifecycle: StoredValue::new(TiptapRuntimeLifecycle::Idle),
+            callbacks: StoredValue::new(Option::<TiptapRuntimeCallbacks>::None),
             applied_editable: StoredValue::new(Option::<bool>::None),
             editor,
         }
@@ -84,13 +87,18 @@ impl EditorSession {
     }
 
     pub(crate) fn is_idle(self) -> bool {
-        self.lifecycle.read_value() == EditorLifecycle::Idle
+        self.lifecycle.read_value() == TiptapRuntimeLifecycle::Idle
     }
 
-    pub(crate) fn mount(self, options: EditorSessionMountOptions) {
+    #[allow(
+        clippy::needless_pass_by_value,
+        clippy::too_many_lines,
+        clippy::unused_self
+    )]
+    pub(crate) fn mount(self, options: TiptapRuntimeMountOptions) {
         #[cfg(not(feature = "ssr"))]
         {
-            let EditorSessionMountOptions {
+            let TiptapRuntimeMountOptions {
                 initial_content,
                 initial_editable,
                 extensions,
@@ -138,11 +146,11 @@ impl EditorSession {
                 };
 
                 lifecycle.update_value(|state| {
-                    *state = EditorLifecycle::Ready {
+                    *state = TiptapRuntimeLifecycle::Ready {
                         generation: ready.generation,
                     };
                 });
-                editor.set_handle(crate::TiptapEditorHandle::new(
+                editor.set_instance(TiptapEditorInstance::new(
                     editor_id.get_value(),
                     ready.generation,
                 ));
@@ -150,7 +158,10 @@ impl EditorSession {
             }));
 
             let on_content_change_closure = SendWrapper::new(Closure::new(move || {
-                if matches!(*lifecycle.read_value(), EditorLifecycle::Ready { .. }) {
+                if matches!(
+                    *lifecycle.read_value(),
+                    TiptapRuntimeLifecycle::Ready { .. }
+                ) {
                     on_change.inspect(|cb| cb.run(()));
                 }
             }));
@@ -181,14 +192,14 @@ impl EditorSession {
                 report_runtime_error(on_error, err);
             }));
 
-            lifecycle.update_value(|state| *state = EditorLifecycle::Creating);
+            lifecycle.update_value(|state| *state = TiptapRuntimeLifecycle::Creating);
             applied_editable.update_value(|value| *value = Some(initial_editable));
             callbacks.update_value(|slot| {
-                *slot = Some(EditorCallbacks {
-                    _on_ready: on_ready_closure,
-                    _on_content_change: on_content_change_closure,
-                    _on_selection_change: on_selection_change_closure,
-                    _on_error: on_error_closure,
+                *slot = Some(TiptapRuntimeCallbacks {
+                    ready: on_ready_closure,
+                    content_change: on_content_change_closure,
+                    selection_change: on_selection_change_closure,
+                    error: on_error_closure,
                 });
             });
 
@@ -207,10 +218,10 @@ impl EditorSession {
                     placeholder,
                 },
                 CreateCallbacks {
-                    on_ready: &editor_callbacks._on_ready,
-                    on_change: &editor_callbacks._on_content_change,
-                    on_selection: &editor_callbacks._on_selection_change,
-                    on_error: &editor_callbacks._on_error,
+                    ready: &editor_callbacks.ready,
+                    change: &editor_callbacks.content_change,
+                    selection: &editor_callbacks.selection_change,
+                    error: &editor_callbacks.error,
                 },
             ) {
                 reset_local_editor_state(lifecycle, callbacks, applied_editable, editor);
@@ -230,7 +241,7 @@ impl EditorSession {
         on_error: Option<Callback<TiptapEditorError>>,
     ) {
         if self.editor.is_ready()
-            && let EditorLifecycle::Ready { generation } = *self.lifecycle.read_value()
+            && let TiptapRuntimeLifecycle::Ready { generation } = *self.lifecycle.read_value()
             && self.applied_editable.read_value() != Some(desired_editable)
         {
             if let Err(err) = runtime::command(
@@ -249,7 +260,7 @@ impl EditorSession {
     }
 
     pub(crate) fn cleanup(self) {
-        if self.lifecycle.read_value() != EditorLifecycle::Idle {
+        if self.lifecycle.read_value() != TiptapRuntimeLifecycle::Idle {
             runtime::destroy(self.editor_id.get_value());
         }
 

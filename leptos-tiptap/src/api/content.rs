@@ -2,10 +2,17 @@ use crate::protocol::{ContentFormat, ContentPayload, DocumentRequest, DocumentRe
 use crate::runtime;
 
 use super::{
-    TiptapContent, TiptapEditor, TiptapEditorError, TiptapEditorHandle, TiptapSetContentOptions,
+    TiptapContent, TiptapEditorError, TiptapEditorHandle, TiptapEditorInstance,
+    TiptapSetContentOptions,
 };
 
-impl TiptapEditorHandle {
+impl TiptapEditorInstance {
+    /// Returns the current editor document serialized as HTML.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the JS bridge rejects the document request or
+    /// returns a response in an unexpected format.
     pub fn get_html(&self) -> Result<String, TiptapEditorError> {
         extract_html_content(runtime::document(
             self.id.clone(),
@@ -16,6 +23,12 @@ impl TiptapEditorHandle {
         )?)
     }
 
+    /// Returns the current editor document serialized as `ProseMirror` JSON.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the JS bridge rejects the document request or
+    /// returns a response in an unexpected format.
     pub fn get_json(&self) -> Result<serde_json::Value, TiptapEditorError> {
         extract_json_content(runtime::document(
             self.id.clone(),
@@ -26,10 +39,22 @@ impl TiptapEditorHandle {
         )?)
     }
 
+    /// Replaces the current editor document content.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the content cannot be converted for the bridge or
+    /// when the JS bridge rejects the document replacement.
     pub fn set_content(&self, content: TiptapContent) -> Result<(), TiptapEditorError> {
         self.set_content_with_options(content, TiptapSetContentOptions::default())
     }
 
+    /// Replaces the current editor document content with explicit Tiptap options.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the content cannot be converted for the bridge or
+    /// when the JS bridge rejects the document replacement.
     pub fn set_content_with_options(
         &self,
         content: TiptapContent,
@@ -46,44 +71,90 @@ impl TiptapEditorHandle {
         )?)
     }
 
+    /// Replaces the current editor document with HTML content.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the JS bridge rejects the document replacement.
     pub fn set_html(&self, content: impl Into<String>) -> Result<(), TiptapEditorError> {
         self.set_content(TiptapContent::html(content))
     }
 
+    /// Replaces the current editor document with `ProseMirror` JSON content.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the JS bridge rejects the document replacement.
     pub fn set_json(&self, content: impl Into<serde_json::Value>) -> Result<(), TiptapEditorError> {
         self.set_content(TiptapContent::json(content))
     }
 }
 
-impl TiptapEditor {
+impl TiptapEditorHandle {
+    /// Returns the current editor document serialized as HTML.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the handle has no ready editor instance or when
+    /// the underlying instance request fails.
     pub fn get_html(&self) -> Result<String, TiptapEditorError> {
-        self.with_handle(TiptapEditorHandle::get_html)
+        self.with_instance(TiptapEditorInstance::get_html)
     }
 
+    /// Returns the current editor document serialized as `ProseMirror` JSON.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the handle has no ready editor instance or when
+    /// the underlying instance request fails.
     pub fn get_json(&self) -> Result<serde_json::Value, TiptapEditorError> {
-        self.with_handle(TiptapEditorHandle::get_json)
+        self.with_instance(TiptapEditorInstance::get_json)
     }
 
+    /// Replaces the current editor document content.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the handle has no ready editor instance or when
+    /// the underlying instance request fails.
     pub fn set_content(&self, content: TiptapContent) -> Result<(), TiptapEditorError> {
         self.set_content_with_options(content, TiptapSetContentOptions::default())
     }
 
+    /// Replaces the current editor document content with explicit Tiptap options.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the handle has no ready editor instance or when
+    /// the underlying instance request fails.
     pub fn set_content_with_options(
         &self,
         content: TiptapContent,
         options: TiptapSetContentOptions,
     ) -> Result<(), TiptapEditorError> {
-        self.with_handle(|handle| handle.set_content_with_options(content, options))
+        self.with_instance(|instance| instance.set_content_with_options(content, options))
     }
 
+    /// Replaces the current editor document with HTML content.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the handle has no ready editor instance or when
+    /// the underlying instance request fails.
     pub fn set_html(&self, content: impl Into<String>) -> Result<(), TiptapEditorError> {
         let content = content.into();
-        self.with_handle(|handle| handle.set_html(content.clone()))
+        self.with_instance(|instance| instance.set_html(content.clone()))
     }
 
+    /// Replaces the current editor document with `ProseMirror` JSON content.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the handle has no ready editor instance or when
+    /// the underlying instance request fails.
     pub fn set_json(&self, content: impl Into<serde_json::Value>) -> Result<(), TiptapEditorError> {
         let content = content.into();
-        self.with_handle(|handle| handle.set_json(content.clone()))
+        self.with_instance(|instance| instance.set_json(content.clone()))
     }
 }
 
@@ -127,8 +198,7 @@ fn expect_empty_document_response(response: DocumentResponse) -> Result<(), Tipt
             };
 
             Err(TiptapEditorError::BridgeError(format!(
-                "received {:?} content for a set_content document request",
-                format
+                "received {format:?} content for a set_content document request"
             )))
         }
     }

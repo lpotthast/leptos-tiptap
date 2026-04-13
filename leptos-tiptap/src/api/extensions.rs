@@ -6,56 +6,82 @@ use super::TiptapEditorError;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TiptapExtension {
     #[cfg(feature = "blockquote")]
+    /// The Tiptap blockquote extension.
     Blockquote,
     #[cfg(feature = "bold")]
+    /// The Tiptap bold extension.
     Bold,
     #[cfg(feature = "bullet_list")]
+    /// The Tiptap bullet list extension.
     BulletList,
     #[cfg(feature = "code")]
+    /// The Tiptap code mark extension.
     Code,
     #[cfg(feature = "code_block")]
+    /// The Tiptap code block extension.
     CodeBlock,
     #[cfg(feature = "document")]
+    /// The Tiptap document node extension.
     Document,
     #[cfg(feature = "dropcursor")]
+    /// The Tiptap dropcursor extension.
     Dropcursor,
     #[cfg(feature = "gapcursor")]
+    /// The Tiptap gapcursor extension.
     Gapcursor,
     #[cfg(feature = "hard_break")]
+    /// The Tiptap hard break extension.
     HardBreak,
     #[cfg(feature = "heading")]
+    /// The Tiptap heading extension.
     Heading,
     #[cfg(feature = "history")]
+    /// The Tiptap history extension.
     History,
     #[cfg(feature = "horizontal_rule")]
+    /// The Tiptap horizontal rule extension.
     HorizontalRule,
     #[cfg(feature = "italic")]
+    /// The Tiptap italic extension.
     Italic,
     #[cfg(feature = "list_item")]
+    /// The Tiptap list item extension.
     ListItem,
     #[cfg(feature = "ordered_list")]
+    /// The Tiptap ordered list extension.
     OrderedList,
     #[cfg(feature = "paragraph")]
+    /// The Tiptap paragraph extension.
     Paragraph,
     #[cfg(feature = "strike")]
+    /// The Tiptap strike extension.
     Strike,
     #[cfg(feature = "text")]
+    /// The Tiptap text node extension.
     Text,
     #[cfg(feature = "text_align")]
+    /// The Tiptap text align extension.
     TextAlign,
     #[cfg(feature = "highlight")]
+    /// The Tiptap highlight extension.
     Highlight,
     #[cfg(feature = "image")]
+    /// The Tiptap image extension.
     Image,
     #[cfg(feature = "link")]
+    /// The Tiptap link extension.
     Link,
     #[cfg(feature = "placeholder")]
+    /// The Tiptap placeholder extension.
     Placeholder,
     #[cfg(feature = "youtube")]
+    /// The Tiptap `YouTube` extension.
     Youtube,
 }
 
 impl TiptapExtension {
+    /// Returns the feature-style name used by the Rust API.
+    #[must_use]
     pub fn name(self) -> &'static str {
         match self {
             #[cfg(feature = "blockquote")]
@@ -109,6 +135,8 @@ impl TiptapExtension {
         }
     }
 
+    /// Returns every extension compiled into the crate by enabled Cargo features.
+    #[must_use]
     pub fn all_enabled() -> Vec<Self> {
         vec![
             #[cfg(feature = "blockquote")]
@@ -169,27 +197,57 @@ impl TiptapExtension {
     }
 
     #[cfg_attr(feature = "ssr", allow(dead_code))]
+    #[cfg_attr(
+        not(any(
+            feature = "bullet_list",
+            feature = "ordered_list",
+            feature = "text_align"
+        )),
+        allow(clippy::unnecessary_wraps)
+    )]
     pub(crate) fn validate_extension_set(extensions: &[Self]) -> Result<(), TiptapEditorError> {
-        let mut missing = Vec::new();
+        #[cfg(any(
+            feature = "bullet_list",
+            feature = "ordered_list",
+            feature = "text_align"
+        ))]
+        {
+            let mut missing = Vec::new();
 
-        for &extension in extensions {
-            extension.collect_missing_dependencies(extensions, &mut missing);
+            for &extension in extensions {
+                extension.collect_missing_dependencies(extensions, &mut missing);
+            }
+
+            missing.sort_unstable();
+            missing.dedup();
+
+            if missing.is_empty() {
+                return Ok(());
+            }
+
+            Err(TiptapEditorError::BridgeError(format!(
+                "invalid Tiptap extension set: missing required extension(s): {}",
+                missing.join(", ")
+            )))
         }
 
-        missing.sort_unstable();
-        missing.dedup();
-
-        if missing.is_empty() {
-            return Ok(());
+        #[cfg(not(any(
+            feature = "bullet_list",
+            feature = "ordered_list",
+            feature = "text_align"
+        )))]
+        {
+            let _ = extensions;
+            Ok(())
         }
-
-        Err(TiptapEditorError::BridgeError(format!(
-            "invalid Tiptap extension set: missing required extension(s): {}",
-            missing.join(", ")
-        )))
     }
 
     #[allow(unused_macros, unused_variables)]
+    #[cfg(any(
+        feature = "bullet_list",
+        feature = "ordered_list",
+        feature = "text_align"
+    ))]
     #[cfg_attr(feature = "ssr", allow(dead_code))]
     fn collect_missing_dependencies(self, selected: &[Self], missing: &mut Vec<&'static str>) {
         macro_rules! require {
