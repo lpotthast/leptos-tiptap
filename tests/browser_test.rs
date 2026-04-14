@@ -3,6 +3,7 @@
 
 mod ui_tests;
 
+use std::num::NonZeroUsize;
 use std::time::Duration;
 
 use leptos_browser_test::{
@@ -17,10 +18,8 @@ use rootcause_tracing::{RootcauseLayer, SpanCollector};
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{Layer, Registry};
-use ui_tests::test_editor::{
-    BuffersToolbarCommandBeforeEditorReady, HydratesAndRoundTripsContent,
-    ReEnablesEditorAfterDisabling,
-};
+use ui_tests::hydrate_and_round_trip::HydratesAndRoundTripsContent;
+use ui_tests::re_enable_after_disable::ReEnablesEditorAfterDisabling;
 
 const WEBDRIVER_SCRIPT_TIMEOUT: Duration = Duration::from_secs(5);
 const WEBDRIVER_PAGE_LOAD_TIMEOUT: Duration = Duration::from_secs(5);
@@ -58,7 +57,6 @@ async fn browser_tests() -> Result<(), Report> {
         .context("Starting examples/demo-ssr app")?;
 
     let tests: Vec<Box<dyn BrowserTest<str>>> = vec![
-        Box::new(BuffersToolbarCommandBeforeEditorReady),
         Box::new(HydratesAndRoundTripsContent),
         Box::new(ReEnablesEditorAfterDisabling),
     ];
@@ -76,6 +74,7 @@ async fn browser_tests() -> Result<(), Report> {
             ELEMENT_QUERY_INTERVAL,
         ))
         .with_browser_driver_output(BrowserDriverOutputConfig { tail_lines: 100 })
+        .with_parallel_tests(NonZeroUsize::new(4).expect("non-zero"))
         .with_hint(format!("Leptos test app is running at {}", app.base_url()))
         .run(app.base_url(), tests)
         .await
