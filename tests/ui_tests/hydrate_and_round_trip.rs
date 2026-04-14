@@ -2,7 +2,7 @@ use crate::ui_tests::{
     EDITOR_SELECTOR, HTML_CONTENT_SELECTOR, JSON_CONTENT_SELECTOR, click_button, click_css,
     wait_for_single, wait_for_text_contains, wait_for_visible,
 };
-use leptos_browser_test::{BrowserTest, async_trait};
+use browser_test::{BrowserTest, async_trait};
 use rootcause::Report;
 use std::borrow::Cow;
 use thirtyfour::WebDriver;

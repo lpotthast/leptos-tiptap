@@ -6,10 +6,11 @@ mod ui_tests;
 use std::num::NonZeroUsize;
 use std::time::Duration;
 
-use leptos_browser_test::{
-    BrowserDriverOutputConfig, BrowserTest, BrowserTestRunner, ElementQueryWaitConfig,
-    LeptosTestAppConfig, TimeoutConfiguration,
+use browser_test::{
+    BrowserDriverOutputConfig, BrowserTest, BrowserTestParallelism, BrowserTestRunner,
+    BrowserTestVisibility, ElementQueryWaitConfig, PauseConfig, TimeoutConfiguration,
 };
+use leptos_browser_test::LeptosTestAppConfig;
 use rootcause::Report;
 use rootcause::hooks::Hooks;
 use rootcause::prelude::ResultExt;
@@ -62,8 +63,11 @@ async fn browser_tests() -> Result<(), Report> {
     ];
 
     BrowserTestRunner::new()
-        .with_default_visible_env()
-        .with_default_pause_env()
+        .with_visibility(BrowserTestVisibility::from_env())
+        .with_pause(PauseConfig::from_env())
+        .with_test_parallelism(BrowserTestParallelism::Parallel(
+            NonZeroUsize::new(4).expect("non-zero"),
+        ))
         .with_webdriver_timeouts(TimeoutConfiguration::new(
             Some(WEBDRIVER_SCRIPT_TIMEOUT),
             Some(WEBDRIVER_PAGE_LOAD_TIMEOUT),
@@ -73,8 +77,7 @@ async fn browser_tests() -> Result<(), Report> {
             ELEMENT_QUERY_TIMEOUT,
             ELEMENT_QUERY_INTERVAL,
         ))
-        .with_browser_driver_output(BrowserDriverOutputConfig { tail_lines: 100 })
-        .with_parallel_tests(NonZeroUsize::new(4).expect("non-zero"))
+        .with_browser_driver_output(BrowserDriverOutputConfig::tail_lines(100))
         .with_hint(format!("Leptos test app is running at {}", app.base_url()))
         .run(app.base_url(), tests)
         .await

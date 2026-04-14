@@ -1,5 +1,5 @@
 use super::{
-    TiptapContent, TiptapEditorError, TiptapEditorHandle, TiptapExtension, TiptapSelectionState,
+    TiptapContent, TiptapEditorHandle, TiptapEditorReport, TiptapExtension, TiptapSelectionState,
     use_tiptap_editor::{UseTiptapEditorInput, use_tiptap_editor},
 };
 use leptos::prelude::*;
@@ -49,7 +49,7 @@ pub fn TiptapEditor(
 
     /// Called whenever the JS bridge reports a runtime error.
     #[prop(into, optional)]
-    on_error: Option<Callback<TiptapEditorError>>,
+    on_error: Option<Callback<TiptapEditorReport>>,
 
     /// If set to true, the tiptap instance becomes un-editable.
     /// The instance reacts to changes of this signal's value.

@@ -6,7 +6,8 @@ use crate::runtime::{self};
 #[cfg(not(feature = "ssr"))]
 use crate::runtime::{CreateCallbacks, CreateOptions};
 use crate::{
-    TiptapContent, TiptapEditorError, TiptapEditorHandle, TiptapExtension, TiptapSelectionState,
+    TiptapContent, TiptapEditorError, TiptapEditorHandle, TiptapEditorReport, TiptapExtension,
+    TiptapSelectionState,
 };
 use leptos::prelude::*;
 use send_wrapper::SendWrapper;
@@ -50,7 +51,7 @@ pub(crate) struct TiptapRuntimeMountOptions {
     pub(crate) placeholder: Option<String>,
     pub(crate) on_ready: Option<Callback<()>>,
     pub(crate) on_change: Option<Callback<()>>,
-    pub(crate) on_error: Option<Callback<TiptapEditorError>>,
+    pub(crate) on_error: Option<Callback<TiptapEditorReport>>,
     pub(crate) on_selection_change: Option<Callback<TiptapSelectionState>>,
 }
 
@@ -80,9 +81,9 @@ fn mark_local_editor_failed(
     editor.clear_instance();
 }
 
-fn report_runtime_error(on_error: Option<Callback<TiptapEditorError>>, err: TiptapEditorError) {
+fn report_runtime_error(on_error: Option<Callback<TiptapEditorReport>>, err: TiptapEditorError) {
     tracing::error!(?err, "TipTap runtime error.");
-    on_error.inspect(move |cb| cb.run(err));
+    on_error.inspect(move |cb| cb.run(err.into()));
 }
 
 impl TiptapRuntimeSession {
@@ -264,7 +265,7 @@ impl TiptapRuntimeSession {
     pub(crate) fn sync_editable(
         self,
         desired_editable: bool,
-        on_error: Option<Callback<TiptapEditorError>>,
+        on_error: Option<Callback<TiptapEditorReport>>,
     ) {
         if self.editor.is_ready()
             && let TiptapRuntimeLifecycle::Ready { generation } = *self.lifecycle.read_value()

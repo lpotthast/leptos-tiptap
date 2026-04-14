@@ -1,4 +1,4 @@
-use super::TiptapEditorError;
+use super::{TiptapEditorError, TiptapEditorResult};
 use leptos::prelude::*;
 
 /// A reactive editor handle that the `<TiptapEditor/>` component populates with a live
@@ -69,12 +69,14 @@ impl TiptapEditorHandle {
 
     pub(super) fn with_instance<T>(
         &self,
-        f: impl FnOnce(&TiptapEditorInstance) -> Result<T, TiptapEditorError>,
-    ) -> Result<T, TiptapEditorError> {
-        self.0
+        f: impl FnOnce(&TiptapEditorInstance) -> TiptapEditorResult<T>,
+    ) -> TiptapEditorResult<T> {
+        let instance = self
+            .0
             .get_untracked()
-            .ok_or(TiptapEditorError::EditorUnavailable)
-            .and_then(|instance| f(&instance))
+            .ok_or(TiptapEditorError::EditorUnavailable)?;
+
+        f(&instance)
     }
 }
 
@@ -113,7 +115,11 @@ impl TiptapEditorInstance {
     pub(super) fn dispatch(
         &self,
         command: crate::protocol::EditorCommand,
-    ) -> Result<(), TiptapEditorError> {
-        crate::runtime::command(self.id.clone(), self.generation, command)
+    ) -> TiptapEditorResult<()> {
+        Ok(crate::runtime::command(
+            self.id.clone(),
+            self.generation,
+            command,
+        )?)
     }
 }

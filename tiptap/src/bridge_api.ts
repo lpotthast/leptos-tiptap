@@ -32,30 +32,29 @@ export type BridgeResult<T> =
 
 export type EmptyResponse = { kind: "empty" }
 
-export type SelectionState = {
-    h1: boolean
-    h2: boolean
-    h3: boolean
-    h4: boolean
-    h5: boolean
-    h6: boolean
-    paragraph: boolean
-    bold: boolean
-    italic: boolean
-    strike: boolean
-    blockquote: boolean
-    highlight: boolean
-    bullet_list: boolean
-    ordered_list: boolean
-    align_left: boolean
-    align_center: boolean
-    align_right: boolean
-    align_justify: boolean
-    link: boolean
-    youtube: boolean
-}
+export type SelectionKey =
+    | "h1"
+    | "h2"
+    | "h3"
+    | "h4"
+    | "h5"
+    | "h6"
+    | "paragraph"
+    | "bold"
+    | "italic"
+    | "strike"
+    | "blockquote"
+    | "highlight"
+    | "bullet_list"
+    | "ordered_list"
+    | "align_left"
+    | "align_center"
+    | "align_right"
+    | "align_justify"
+    | "link"
+    | "youtube"
 
-export type SelectionKey = keyof SelectionState
+export type SelectionState = Partial<Record<SelectionKey, boolean>>
 
 export type ContentPayload =
     | {
@@ -276,28 +275,7 @@ type BridgeGlobal = typeof globalThis & {
 }
 
 export function emptySelectionState(): SelectionState {
-    return {
-        h1: false,
-        h2: false,
-        h3: false,
-        h4: false,
-        h5: false,
-        h6: false,
-        paragraph: false,
-        bold: false,
-        italic: false,
-        strike: false,
-        blockquote: false,
-        highlight: false,
-        bullet_list: false,
-        ordered_list: false,
-        align_left: false,
-        align_center: false,
-        align_right: false,
-        align_justify: false,
-        link: false,
-        youtube: false,
-    }
+    return {}
 }
 
 export function getOrCreateBridgeBindings(): BridgeBindings {

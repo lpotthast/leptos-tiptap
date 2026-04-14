@@ -157,8 +157,10 @@ and `data-placeholder`; your app stylesheet must render them, for example:
 The official Tiptap Placeholder docs also include ready-to-copy CSS examples:
 <https://tiptap.dev/docs/editor/extensions/functionality/placeholder>.
 
-Bridge errors are reported through `on_error`. Commands called before readiness return
-`TiptapEditorError::EditorUnavailable`.
+Bridge errors are reported through `on_error` as `TiptapEditorReport` values. Public editor
+operations return `TiptapEditorResult<T>`, a `rootcause::Report` whose typed context is
+`TiptapEditorError`. Commands called before readiness use
+`TiptapEditorError::EditorUnavailable` as that context.
 
 For SSR builds, enable the `ssr` feature in the app's server build. Server-side JavaScript interop
 is a no-op, while the DOM node still renders and hydrates on the client.

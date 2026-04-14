@@ -2,7 +2,7 @@ use crate::protocol::{ContentFormat, ContentPayload, DocumentRequest, DocumentRe
 use crate::runtime;
 
 use super::{
-    TiptapContent, TiptapEditorError, TiptapEditorHandle, TiptapEditorInstance,
+    TiptapContent, TiptapEditorError, TiptapEditorHandle, TiptapEditorInstance, TiptapEditorResult,
     TiptapSetContentOptions,
 };
 
@@ -13,7 +13,7 @@ impl TiptapEditorInstance {
     ///
     /// Returns an error when the JS bridge rejects the document request or
     /// returns a response in an unexpected format.
-    pub fn get_html(&self) -> Result<String, TiptapEditorError> {
+    pub fn get_html(&self) -> TiptapEditorResult<String> {
         extract_html_content(runtime::document(
             self.id.clone(),
             self.generation,
@@ -29,7 +29,7 @@ impl TiptapEditorInstance {
     ///
     /// Returns an error when the JS bridge rejects the document request or
     /// returns a response in an unexpected format.
-    pub fn get_json(&self) -> Result<serde_json::Value, TiptapEditorError> {
+    pub fn get_json(&self) -> TiptapEditorResult<serde_json::Value> {
         extract_json_content(runtime::document(
             self.id.clone(),
             self.generation,
@@ -45,7 +45,7 @@ impl TiptapEditorInstance {
     ///
     /// Returns an error when the content cannot be converted for the bridge or
     /// when the JS bridge rejects the document replacement.
-    pub fn set_content(&self, content: TiptapContent) -> Result<(), TiptapEditorError> {
+    pub fn set_content(&self, content: TiptapContent) -> TiptapEditorResult<()> {
         self.set_content_with_options(content, TiptapSetContentOptions::default())
     }
 
@@ -59,7 +59,7 @@ impl TiptapEditorInstance {
         &self,
         content: TiptapContent,
         options: TiptapSetContentOptions,
-    ) -> Result<(), TiptapEditorError> {
+    ) -> TiptapEditorResult<()> {
         let content = ContentPayload::try_from(content)?;
         expect_empty_document_response(runtime::document(
             self.id.clone(),
@@ -76,7 +76,7 @@ impl TiptapEditorInstance {
     /// # Errors
     ///
     /// Returns an error when the JS bridge rejects the document replacement.
-    pub fn set_html(&self, content: impl Into<String>) -> Result<(), TiptapEditorError> {
+    pub fn set_html(&self, content: impl Into<String>) -> TiptapEditorResult<()> {
         self.set_content(TiptapContent::html(content))
     }
 
@@ -85,7 +85,7 @@ impl TiptapEditorInstance {
     /// # Errors
     ///
     /// Returns an error when the JS bridge rejects the document replacement.
-    pub fn set_json(&self, content: impl Into<serde_json::Value>) -> Result<(), TiptapEditorError> {
+    pub fn set_json(&self, content: impl Into<serde_json::Value>) -> TiptapEditorResult<()> {
         self.set_content(TiptapContent::json(content))
     }
 }
@@ -97,7 +97,7 @@ impl TiptapEditorHandle {
     ///
     /// Returns an error when the handle has no ready editor instance or when
     /// the underlying instance request fails.
-    pub fn get_html(&self) -> Result<String, TiptapEditorError> {
+    pub fn get_html(&self) -> TiptapEditorResult<String> {
         self.with_instance(TiptapEditorInstance::get_html)
     }
 
@@ -107,7 +107,7 @@ impl TiptapEditorHandle {
     ///
     /// Returns an error when the handle has no ready editor instance or when
     /// the underlying instance request fails.
-    pub fn get_json(&self) -> Result<serde_json::Value, TiptapEditorError> {
+    pub fn get_json(&self) -> TiptapEditorResult<serde_json::Value> {
         self.with_instance(TiptapEditorInstance::get_json)
     }
 
@@ -117,7 +117,7 @@ impl TiptapEditorHandle {
     ///
     /// Returns an error when the handle has no ready editor instance or when
     /// the underlying instance request fails.
-    pub fn set_content(&self, content: TiptapContent) -> Result<(), TiptapEditorError> {
+    pub fn set_content(&self, content: TiptapContent) -> TiptapEditorResult<()> {
         self.set_content_with_options(content, TiptapSetContentOptions::default())
     }
 
@@ -131,7 +131,7 @@ impl TiptapEditorHandle {
         &self,
         content: TiptapContent,
         options: TiptapSetContentOptions,
-    ) -> Result<(), TiptapEditorError> {
+    ) -> TiptapEditorResult<()> {
         self.with_instance(|instance| instance.set_content_with_options(content, options))
     }
 
@@ -141,7 +141,7 @@ impl TiptapEditorHandle {
     ///
     /// Returns an error when the handle has no ready editor instance or when
     /// the underlying instance request fails.
-    pub fn set_html(&self, content: impl Into<String>) -> Result<(), TiptapEditorError> {
+    pub fn set_html(&self, content: impl Into<String>) -> TiptapEditorResult<()> {
         let content = content.into();
         self.with_instance(|instance| instance.set_html(content.clone()))
     }
@@ -152,43 +152,45 @@ impl TiptapEditorHandle {
     ///
     /// Returns an error when the handle has no ready editor instance or when
     /// the underlying instance request fails.
-    pub fn set_json(&self, content: impl Into<serde_json::Value>) -> Result<(), TiptapEditorError> {
+    pub fn set_json(&self, content: impl Into<serde_json::Value>) -> TiptapEditorResult<()> {
         let content = content.into();
         self.with_instance(|instance| instance.set_json(content.clone()))
     }
 }
 
-fn extract_html_content(response: DocumentResponse) -> Result<String, TiptapEditorError> {
+fn extract_html_content(response: DocumentResponse) -> TiptapEditorResult<String> {
     match response {
         DocumentResponse::Content { content } => match content {
             ContentPayload::Html(content) => Ok(content),
             ContentPayload::Json(_) => Err(TiptapEditorError::BridgeError(
                 "received JSON content for an HTML document request".to_owned(),
-            )),
+            )
+            .into()),
         },
         DocumentResponse::Empty => Err(TiptapEditorError::BridgeError(
             "received an empty document response for an HTML document request".to_owned(),
-        )),
+        )
+        .into()),
     }
 }
 
-fn extract_json_content(
-    response: DocumentResponse,
-) -> Result<serde_json::Value, TiptapEditorError> {
+fn extract_json_content(response: DocumentResponse) -> TiptapEditorResult<serde_json::Value> {
     match response {
         DocumentResponse::Content { content } => match content {
             ContentPayload::Json(content) => Ok(content),
             ContentPayload::Html(_) => Err(TiptapEditorError::BridgeError(
                 "received HTML content for a JSON document request".to_owned(),
-            )),
+            )
+            .into()),
         },
         DocumentResponse::Empty => Err(TiptapEditorError::BridgeError(
             "received an empty document response for a JSON document request".to_owned(),
-        )),
+        )
+        .into()),
     }
 }
 
-fn expect_empty_document_response(response: DocumentResponse) -> Result<(), TiptapEditorError> {
+fn expect_empty_document_response(response: DocumentResponse) -> TiptapEditorResult<()> {
     match response {
         DocumentResponse::Empty => Ok(()),
         DocumentResponse::Content { content } => {
@@ -199,7 +201,8 @@ fn expect_empty_document_response(response: DocumentResponse) -> Result<(), Tipt
 
             Err(TiptapEditorError::BridgeError(format!(
                 "received {format:?} content for a set_content document request"
-            )))
+            ))
+            .into())
         }
     }
 }
@@ -217,7 +220,7 @@ mod tests {
         })
         .unwrap_err();
 
-        assert_that!(error).is_equal_to(TiptapEditorError::BridgeError(
+        assert_that!(error.into_current_context()).is_equal_to(TiptapEditorError::BridgeError(
             "received JSON content for an HTML document request".to_owned(),
         ));
     }

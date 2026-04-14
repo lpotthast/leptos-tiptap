@@ -2,7 +2,8 @@ use crate::ui_tests::{
     EDITOR_SELECTOR, HTML_CONTENT_SELECTOR, click_button_starting_with, goto, wait_for_attribute,
     wait_for_text_contains, wait_for_visible,
 };
-use leptos_browser_test::{BrowserTest, Report, WebDriver, async_trait};
+use browser_test::{BrowserTest, WebDriver, async_trait};
+use rootcause::Report;
 use std::borrow::Cow;
 
 pub struct ReEnablesEditorAfterDisabling;

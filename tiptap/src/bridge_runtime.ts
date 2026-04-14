@@ -278,8 +278,13 @@ function getSelectionState(editorEntry: EditorEntry): SelectionState {
 }
 
 function selectionStatesEqual(left: SelectionState, right: SelectionState): boolean {
-    for (const key of Object.keys(left) as Array<keyof SelectionState>) {
-        if (left[key] !== right[key]) {
+    const keys = new Set<SelectionKey>([
+        ...(Object.keys(left) as SelectionKey[]),
+        ...(Object.keys(right) as SelectionKey[]),
+    ])
+
+    for (const key of keys) {
+        if ((left[key] ?? false) !== (right[key] ?? false)) {
             return false
         }
     }

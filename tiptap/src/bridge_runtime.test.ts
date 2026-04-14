@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import type {Editor, EditorOptions} from "@tiptap/core"
 
-import type {CreateRequest, EditorCommand} from "./bridge_api.ts"
+import type {CreateRequest, EditorCommand, SelectionState} from "./bridge_api.ts"
 import {__testing, command, create, destroy, document} from "./bridge_runtime.ts"
 import {register_blockquote} from "./extensions/tiptap_blockquote.ts"
 import {register_bold} from "./extensions/tiptap_bold.ts"
@@ -585,6 +585,30 @@ test("supports base schema extensions when they are requested explicitly", () =>
     })
 
     assert.equal(result.ok, true)
+})
+
+test("emits sparse selection state for extensions without contributors", () => {
+    setupAdapterTest()
+
+    let latestSelection: SelectionState | undefined
+
+    create(
+        {
+            ...createRequest(),
+            extensions: ["document", "text"],
+        },
+        () => {
+        },
+        () => {
+        },
+        (selectionState) => {
+            latestSelection = selectionState
+        },
+        () => {
+        },
+    )
+
+    assert.deepEqual(latestSelection, {})
 })
 
 test("configures placeholder extension from create request", () => {
@@ -1449,7 +1473,7 @@ test("emits selection state when a transaction changes active mark state", () =>
         () => {
         },
         (selectionState) => {
-            latestSelection = selectionState.bold
+            latestSelection = selectionState.bold ?? false
             selectionCount += 1
         },
         () => {
@@ -1473,6 +1497,64 @@ test("emits selection state when a transaction changes active mark state", () =>
     editor.emitTransaction()
 
     assert.equal(selectionCount, 2)
+})
+
+test("treats missing selection keys as false when comparing sparse states", () => {
+    const createdEditors = setupAdapterTest()
+    let contributedSelection: SelectionState = {}
+
+    __testing.registerExtension({
+        name: "conditional_selection",
+        create: () => ({name: "conditional_selection"} as never),
+        selection_keys: ["bold"],
+        selection_state: () => contributedSelection,
+    })
+
+    let latestSelection: SelectionState | undefined
+    let selectionCount = 0
+
+    create(
+        {
+            ...createRequest(),
+            extensions: ["conditional_selection"],
+        },
+        () => {
+        },
+        () => {
+        },
+        (selectionState) => {
+            latestSelection = selectionState
+            selectionCount += 1
+        },
+        () => {
+        },
+    )
+
+    const editor = createdEditors[0]
+    if (editor == null) {
+        throw new Error("editor should have been created")
+    }
+
+    assert.equal(selectionCount, 1)
+    assert.deepEqual(latestSelection, {})
+
+    contributedSelection = {bold: false}
+    editor.emitTransaction()
+    assert.equal(selectionCount, 1)
+
+    contributedSelection = {bold: true}
+    editor.emitTransaction()
+    assert.equal(selectionCount, 2)
+    assert.deepEqual(latestSelection, {bold: true})
+
+    contributedSelection = {}
+    editor.emitTransaction()
+    assert.equal(selectionCount, 3)
+    assert.deepEqual(latestSelection, {})
+
+    contributedSelection = {bold: false}
+    editor.emitTransaction()
+    assert.equal(selectionCount, 3)
 })
 
 test("rejects stale generations for document and command calls", () => {

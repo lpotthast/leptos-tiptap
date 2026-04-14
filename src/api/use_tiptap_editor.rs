@@ -1,5 +1,5 @@
 use super::{
-    TiptapContent, TiptapEditorError, TiptapEditorHandle, TiptapExtension, TiptapSelectionState,
+    TiptapContent, TiptapEditorHandle, TiptapEditorReport, TiptapExtension, TiptapSelectionState,
 };
 use crate::runtime::{TiptapRuntimeMountOptions, TiptapRuntimeSession};
 use leptos::{attr, attr::Attr, prelude::*};
@@ -29,7 +29,7 @@ pub struct UseTiptapEditorInput {
     pub on_selection_change: Option<Callback<TiptapSelectionState>>,
 
     /// Called whenever the JS bridge reports a runtime error.
-    pub on_error: Option<Callback<TiptapEditorError>>,
+    pub on_error: Option<Callback<TiptapEditorReport>>,
 
     /// Whether editing should be disabled.
     pub disabled: Signal<bool>,
@@ -59,7 +59,7 @@ pub struct UseTiptapEditorProps {
     pub aria_disabled: Signal<bool>,
 
     /// Captures the rendered host element when these props are spread.
-    pub element_capture: ElementCaptureAttr,
+    pub element_capture: CapturedElement,
 }
 
 impl UseTiptapEditorProps {
@@ -69,7 +69,7 @@ impl UseTiptapEditorProps {
         (
             Attr(attr::Id, self.id),
             Attr(attr::AriaDisabled, self.aria_disabled),
-            self.element_capture,
+            self.element_capture.attr(),
         )
     }
 }
@@ -161,7 +161,7 @@ pub fn use_tiptap_editor(input: UseTiptapEditorInput) -> UseTiptapEditorReturn {
         props: UseTiptapEditorProps {
             id: session.id(),
             aria_disabled: disabled,
-            element_capture: element.attr(),
+            element_capture: element,
         },
         editor,
         is_ready: Signal::derive(move || editor.is_ready()),
