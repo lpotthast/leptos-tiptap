@@ -1,4 +1,5 @@
 use leptos_browser_test::{BrowserTest, Report, WebDriver, async_trait};
+use std::borrow::Cow;
 use thirtyfour::{By, WebElement, prelude::ElementQueryable};
 
 const EDITOR_SELECTOR: &str = "#id .ProseMirror";
@@ -9,8 +10,8 @@ pub struct BuffersToolbarCommandBeforeEditorReady;
 
 #[async_trait]
 impl BrowserTest<str> for BuffersToolbarCommandBeforeEditorReady {
-    fn name(&self) -> &'static str {
-        "buffers_toolbar_command_before_editor_ready"
+    fn name(&self) -> Cow<'_, str> {
+        "buffers_toolbar_command_before_editor_ready".into()
     }
 
     async fn run(&self, driver: &WebDriver, base_url: &str) -> Result<(), Report> {
@@ -30,8 +31,8 @@ pub struct HydratesAndRoundTripsContent;
 
 #[async_trait]
 impl BrowserTest<str> for HydratesAndRoundTripsContent {
-    fn name(&self) -> &'static str {
-        "hydrates_and_round_trips_content"
+    fn name(&self) -> Cow<'_, str> {
+        "hydrates_and_round_trips_content".into()
     }
 
     async fn run(&self, driver: &WebDriver, base_url: &str) -> Result<(), Report> {
@@ -61,8 +62,8 @@ pub struct ReEnablesEditorAfterDisabling;
 
 #[async_trait]
 impl BrowserTest<str> for ReEnablesEditorAfterDisabling {
-    fn name(&self) -> &'static str {
-        "re_enables_editor_after_disabling"
+    fn name(&self) -> Cow<'_, str> {
+        "re_enables_editor_after_disabling".into()
     }
 
     async fn run(&self, driver: &WebDriver, base_url: &str) -> Result<(), Report> {

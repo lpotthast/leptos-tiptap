@@ -34,10 +34,10 @@ async fn browser_tests() -> Result<(), Report> {
     let subscriber = Registry::default().with(RootcauseLayer).with(
         tracing_subscriber::fmt::layer()
             .with_test_writer()
-            .with_filter(LevelFilter::TRACE),
+            .with_filter(LevelFilter::INFO),
     );
-
-    tracing::subscriber::set_global_default(subscriber).expect("failed to set subscriber");
+    tracing::subscriber::set_global_default(subscriber)
+        .context("Setting global tracing subscriber")?;
 
     // Capture spans and backtraces for all errors.
     Hooks::new()
@@ -49,7 +49,7 @@ async fn browser_tests() -> Result<(), Report> {
             ..BacktraceCollector::new_from_env()
         })
         .install()
-        .expect("failed to install hooks");
+        .context("Installing rootcause hooks")?;
 
     let app = LeptosTestAppConfig::new("examples/demo-ssr")
         .with_app_name("leptos-tiptap demo ssr")
