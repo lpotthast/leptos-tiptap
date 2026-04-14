@@ -18,7 +18,7 @@ Bundle the bridge runtime and official extension snippets with esbuild
 
 The generated JS files
 
-    ../leptos-tiptap/src/js/generated/
+    ../src/js/generated/
 
 contain:
 

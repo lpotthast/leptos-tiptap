@@ -57,11 +57,59 @@ impl TiptapAttributes {
     ) -> Option<serde_json::Value> {
         self.0.insert(key.into(), value.into())
     }
+
+    /// Returns an attribute value by key.
+    #[must_use]
+    pub fn get(&self, key: impl AsRef<str>) -> Option<&serde_json::Value> {
+        self.0.get(key.as_ref())
+    }
+
+    /// Returns the underlying attribute map.
+    #[must_use]
+    pub fn as_map(&self) -> &Map<String, serde_json::Value> {
+        &self.0
+    }
+
+    /// Returns the underlying attribute map mutably.
+    pub fn as_mut_map(&mut self) -> &mut Map<String, serde_json::Value> {
+        &mut self.0
+    }
+
+    /// Consumes the attributes and returns the underlying map.
+    #[must_use]
+    pub fn into_map(self) -> Map<String, serde_json::Value> {
+        self.0
+    }
 }
 
 impl From<Map<String, serde_json::Value>> for TiptapAttributes {
     fn from(value: Map<String, serde_json::Value>) -> Self {
         Self(value)
+    }
+}
+
+impl<K, V> FromIterator<(K, V)> for TiptapAttributes
+where
+    K: Into<String>,
+    V: Into<serde_json::Value>,
+{
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
+        let mut attributes = Self::new();
+        attributes.extend(iter);
+        attributes
+    }
+}
+
+impl<K, V> Extend<(K, V)> for TiptapAttributes
+where
+    K: Into<String>,
+    V: Into<serde_json::Value>,
+{
+    fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
+        self.0.extend(
+            iter.into_iter()
+                .map(|(key, value)| (key.into(), value.into())),
+        );
     }
 }
 
@@ -383,6 +431,8 @@ pub enum TiptapEditorError {
     InvalidContent(String),
     /// A JSON payload could not be parsed.
     InvalidJson(String),
+    /// A bridge payload could not be parsed.
+    InvalidBridgePayload(String),
     /// A command was rejected by the editor.
     CommandRejected {
         /// The rejected operation name.
@@ -413,6 +463,9 @@ impl fmt::Display for TiptapEditorError {
             Self::MountFailed(err) => write!(f, "could not mount the Tiptap editor: {err}"),
             Self::InvalidContent(err) => write!(f, "invalid editor content: {err}"),
             Self::InvalidJson(err) => write!(f, "could not deserialize Tiptap JSON: {err}"),
+            Self::InvalidBridgePayload(err) => {
+                write!(f, "could not deserialize Tiptap bridge payload: {err}")
+            }
             Self::CommandRejected { operation, message } => {
                 write!(f, "editor command '{operation}' was rejected: {message}")
             }
@@ -580,6 +633,14 @@ mod tests {
     }
 
     #[test]
+    fn display_invalid_bridge_payload_error() {
+        assert_that!(
+            TiptapEditorError::InvalidBridgePayload("bad selection".to_owned()).to_string()
+        )
+        .is_equal_to("could not deserialize Tiptap bridge payload: bad selection".to_owned());
+    }
+
+    #[test]
     fn display_command_rejected_error() {
         assert_that!(
             TiptapEditorError::CommandRejected {
@@ -601,6 +662,25 @@ mod tests {
             .to_string()
         )
         .is_equal_to("editor operation 'read_html' failed: editor crashed".to_owned());
+    }
+
+    #[test]
+    fn attributes_support_map_accessors_and_collect() {
+        let mut attributes = [
+            ("href", serde_json::json!("https://example.com")),
+            ("rel", serde_json::json!("noopener")),
+        ]
+        .into_iter()
+        .collect::<TiptapAttributes>();
+
+        assert_that!(attributes.get("href")).is_some();
+
+        attributes
+            .as_mut_map()
+            .insert("target".to_owned(), serde_json::json!("_blank"));
+
+        assert_that!(attributes.as_map().contains_key("target")).is_true();
+        assert_that!(attributes.into_map().contains_key("rel")).is_true();
     }
 
     #[cfg(feature = "document")]

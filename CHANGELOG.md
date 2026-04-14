@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-editor extension activation.
 - Added support for the Tiptap placeholder extension through the `placeholder` feature and `<TiptapEditor/>`
   `placeholder` initialization prop.
+- Added `TiptapAttributes` map helpers for lookup, borrowed map access, mutable map access, consuming map access, and
+  collection from key/value pairs.
+- Added a `TiptapEditor` compatibility type alias for the user-held handle to ease migration to `TiptapEditorHandle`.
 - Added this root `CHANGELOG.md`.
 
 ### Changed
@@ -89,6 +92,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to `null`.
 - Fixed invalid selection payload handling so deserialization failures are reported without emitting a fake default
   selection state.
+- Fixed invalid selection payload errors so they report as bridge payload failures instead of misleading Tiptap document
+  JSON errors.
+- Fixed the one-shot mount lifecycle so a failed mount can not later re-enter the hook's consumed mount-options path and
+  panic.
 - Fixed the SSR demo so it no longer implies that separate editors are required to inspect HTML and JSON representations
   of the same document.
 - Fixed stale and inconsistent version/build documentation in the repository README files.

@@ -30,6 +30,7 @@ enum TiptapRuntimeLifecycle {
     Idle,
     Creating,
     Ready { generation: u32 },
+    Failed,
 }
 
 #[derive(Clone, Copy)]
@@ -61,6 +62,19 @@ fn reset_local_editor_state(
     editor: TiptapEditorHandle,
 ) {
     lifecycle.update_value(|state| *state = TiptapRuntimeLifecycle::Idle);
+    callbacks.update_value(|slot| *slot = None);
+    applied_editable.update_value(|value| *value = None);
+    editor.clear_instance();
+}
+
+#[cfg_attr(feature = "ssr", allow(dead_code))]
+fn mark_local_editor_failed(
+    lifecycle: StoredValue<TiptapRuntimeLifecycle>,
+    callbacks: StoredValue<Option<TiptapRuntimeCallbacks>>,
+    applied_editable: StoredValue<Option<bool>>,
+    editor: TiptapEditorHandle,
+) {
+    lifecycle.update_value(|state| *state = TiptapRuntimeLifecycle::Failed);
     callbacks.update_value(|slot| *slot = None);
     applied_editable.update_value(|value| *value = None);
     editor.clear_instance();
@@ -112,12 +126,24 @@ impl TiptapRuntimeSession {
             let initial_content = match crate::protocol::ContentPayload::try_from(initial_content) {
                 Ok(initial_content) => initial_content,
                 Err(err) => {
+                    mark_local_editor_failed(
+                        self.lifecycle,
+                        self.callbacks,
+                        self.applied_editable,
+                        self.editor,
+                    );
                     report_runtime_error(on_error, err);
                     return;
                 }
             };
 
             if let Err(err) = TiptapExtension::validate_extension_set(&extensions) {
+                mark_local_editor_failed(
+                    self.lifecycle,
+                    self.callbacks,
+                    self.applied_editable,
+                    self.editor,
+                );
                 report_runtime_error(on_error, err);
                 return;
             }
@@ -134,7 +160,7 @@ impl TiptapRuntimeSession {
                     Ok(ready) => ready,
                     Err(err) => {
                         runtime::destroy(editor_id.get_value());
-                        reset_local_editor_state(lifecycle, callbacks, applied_editable, editor);
+                        mark_local_editor_failed(lifecycle, callbacks, applied_editable, editor);
                         report_runtime_error(
                             on_error_for_ready,
                             TiptapEditorError::BridgeError(format!(
@@ -175,7 +201,7 @@ impl TiptapRuntimeSession {
                             Err(err) => {
                                 report_runtime_error(
                                     on_error_for_selection,
-                                    TiptapEditorError::InvalidJson(format!(
+                                    TiptapEditorError::InvalidBridgePayload(format!(
                                         "could not parse selection state from JS: {err}"
                                     )),
                                 );
@@ -188,7 +214,7 @@ impl TiptapRuntimeSession {
 
             let on_error_closure = SendWrapper::new(Closure::new(move |error_as_js_value| {
                 let err = runtime::error_from_js_value(error_as_js_value);
-                reset_local_editor_state(lifecycle, callbacks, applied_editable, editor);
+                mark_local_editor_failed(lifecycle, callbacks, applied_editable, editor);
                 report_runtime_error(on_error, err);
             }));
 
@@ -205,7 +231,7 @@ impl TiptapRuntimeSession {
 
             let stored_callbacks = callbacks.read_value();
             let Some(editor_callbacks) = stored_callbacks.as_ref() else {
-                reset_local_editor_state(lifecycle, callbacks, applied_editable, editor);
+                mark_local_editor_failed(lifecycle, callbacks, applied_editable, editor);
                 return;
             };
 
@@ -224,7 +250,7 @@ impl TiptapRuntimeSession {
                     error: &editor_callbacks.error,
                 },
             ) {
-                reset_local_editor_state(lifecycle, callbacks, applied_editable, editor);
+                mark_local_editor_failed(lifecycle, callbacks, applied_editable, editor);
                 report_runtime_error(on_error, err);
             }
         }
@@ -260,7 +286,10 @@ impl TiptapRuntimeSession {
     }
 
     pub(crate) fn cleanup(self) {
-        if self.lifecycle.read_value() != TiptapRuntimeLifecycle::Idle {
+        if matches!(
+            *self.lifecycle.read_value(),
+            TiptapRuntimeLifecycle::Creating | TiptapRuntimeLifecycle::Ready { .. }
+        ) {
             runtime::destroy(self.editor_id.get_value());
         }
 

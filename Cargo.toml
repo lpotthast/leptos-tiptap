@@ -12,6 +12,12 @@ Tiptap integration for leptos projects.
 """
 categories = ["gui"]
 keywords = ["tiptap", "leptos", "components", "editor", "wysiwyg"]
+exclude = [
+    "AGENTS.md",
+    "Justfile",
+    "TODO",
+    "tiptap/**",
+]
 
 [dependencies]
 cfg-if = "1.0.0"
@@ -25,10 +31,13 @@ tracing = "0.1.39"
 wasm-bindgen = "0.2.118"
 
 [dev-dependencies]
-assertr = "0.5.0"
+assertr = "0.5.2"
+rootcause = "0.12.1"
+rootcause-backtrace = "0.12.1"
+rootcause-tracing = "0.12.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-leptos-browser-test = { path = "../../leptos-browser-test" }
+leptos-browser-test = { path = "../leptos-browser-test" }
 thirtyfour = { version = "0.36.1", default-features = false, features = ["component", "reqwest", "rustls-tls"] }
 tokio = { version = "1.50.0", default-features = false, features = ["macros", "rt-multi-thread", "time"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["ansi", "fmt", "registry"] }

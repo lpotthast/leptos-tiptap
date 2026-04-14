@@ -2,7 +2,7 @@ import {spawnSync} from "node:child_process"
 import {promises as fs} from "node:fs"
 import path from "node:path"
 
-const generatedDir = path.resolve("../leptos-tiptap/src/js/generated")
+const generatedDir = path.resolve("../src/js/generated")
 const hostedModulesPath = path.resolve("./src/generated/hosted_modules.ts")
 
 async function snapshotDirectory(directory, root = directory) {

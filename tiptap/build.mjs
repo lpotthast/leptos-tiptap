@@ -2,7 +2,7 @@ import {build} from "esbuild"
 import {promises as fs} from "node:fs"
 import path from "node:path"
 
-const outputDir = path.resolve("../leptos-tiptap/src/js/generated")
+const outputDir = path.resolve("../src/js/generated")
 const extensionsDir = path.resolve("./src/extensions")
 const bridgeGlobalKey = "__LEPTOS_TIPTAP_BRIDGE__"
 const hostedModulesSourcePath = path.resolve("./src/generated/hosted_modules.ts")

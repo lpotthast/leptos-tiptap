@@ -1,7 +1,2 @@
-.idea
+/target
 .DS_Store
-Cargo.lock
-target
-node_modules
-playwright-report
-test-results

@@ -86,11 +86,21 @@ impl BrowserTest<str> for ReEnablesEditorAfterDisabling {
     }
 }
 
+#[tracing::instrument(
+    name = "browser_test_step",
+    skip_all,
+    fields(helper = "goto", base_url = %base_url),
+)]
 async fn goto(driver: &WebDriver, base_url: &str) -> Result<(), Report> {
     driver.goto(base_url).await?;
     Ok(())
 }
 
+#[tracing::instrument(
+    name = "browser_test_step",
+    skip_all,
+    fields(helper = "click_button", text = %text),
+)]
 async fn click_button(driver: &WebDriver, text: &str) -> Result<(), Report> {
     let selector = format!("//button[normalize-space(.)={text:?}]");
     let button = wait_for_clickable(driver, By::XPath(&selector)).await?;
@@ -98,6 +108,11 @@ async fn click_button(driver: &WebDriver, text: &str) -> Result<(), Report> {
     click_with_script(driver, &button).await
 }
 
+#[tracing::instrument(
+    name = "browser_test_step",
+    skip_all,
+    fields(helper = "click_button_starting_with", text = %text),
+)]
 async fn click_button_starting_with(driver: &WebDriver, text: &str) -> Result<(), Report> {
     let selector = format!("//button[starts-with(normalize-space(.), {text:?})]");
     let button = wait_for_clickable(driver, By::XPath(&selector)).await?;
@@ -105,6 +120,11 @@ async fn click_button_starting_with(driver: &WebDriver, text: &str) -> Result<()
     click_with_script(driver, &button).await
 }
 
+#[tracing::instrument(
+    name = "browser_test_step",
+    skip_all,
+    fields(helper = "click_css", selector = %selector),
+)]
 async fn click_css(driver: &WebDriver, selector: &str) -> Result<(), Report> {
     let element = wait_for_clickable(driver, By::Css(selector)).await?;
     scroll_into_view(driver, &element).await?;
@@ -136,6 +156,11 @@ async fn wait_for_clickable(driver: &WebDriver, by: By) -> Result<WebElement, Re
     Ok(element)
 }
 
+#[tracing::instrument(
+    name = "browser_test_step",
+    skip_all,
+    fields(helper = "wait_for_visible", selector = %selector),
+)]
 async fn wait_for_visible(driver: &WebDriver, selector: &str) -> Result<WebElement, Report> {
     let element = driver
         .query(By::Css(selector))
@@ -145,11 +170,21 @@ async fn wait_for_visible(driver: &WebDriver, selector: &str) -> Result<WebEleme
     Ok(element)
 }
 
+#[tracing::instrument(
+    name = "browser_test_step",
+    skip_all,
+    fields(helper = "wait_for_single", selector = %selector),
+)]
 async fn wait_for_single(driver: &WebDriver, selector: &str) -> Result<(), Report> {
     driver.query(By::Css(selector)).single().await?;
     Ok(())
 }
 
+#[tracing::instrument(
+    name = "browser_test_step",
+    skip_all,
+    fields(helper = "wait_for_text_contains", selector = %selector, expected = %expected),
+)]
 async fn wait_for_text_contains(
     driver: &WebDriver,
     selector: &str,
@@ -164,6 +199,16 @@ async fn wait_for_text_contains(
     Ok(())
 }
 
+#[tracing::instrument(
+    name = "browser_test_step",
+    skip_all,
+    fields(
+        helper = "wait_for_attribute",
+        selector = %selector,
+        attribute = %name,
+        expected = %expected,
+    ),
+)]
 async fn wait_for_attribute(
     driver: &WebDriver,
     selector: &str,

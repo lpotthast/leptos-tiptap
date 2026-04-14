@@ -140,13 +140,14 @@ pub fn use_tiptap_editor(input: UseTiptapEditorInput) -> UseTiptapEditorReturn {
                 return;
             }
 
-            if let Some(mount_options) = mount_options.take() {
-                session.mount(mount_options);
-            } else {
-                unreachable!(
-                    "Tried to call mount() more than once. Runtime guards should have prevented this."
+            let Some(mount_options) = mount_options.take() else {
+                tracing::warn!(
+                    "Ignored duplicate TipTap editor mount request after mount options were consumed."
                 );
-            }
+                return;
+            };
+
+            session.mount(mount_options);
         }
     });
 

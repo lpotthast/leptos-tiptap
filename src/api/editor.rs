@@ -12,6 +12,13 @@ use leptos::prelude::*;
 #[derive(Clone, Copy)]
 pub struct TiptapEditorHandle(RwSignal<Option<TiptapEditorInstance>>);
 
+/// Compatibility alias for the user-held reactive editor handle.
+///
+/// Use [`TiptapEditorHandle`] in new code. The alias is kept so old type annotations such as
+/// `TiptapEditor::new()` can migrate independently from component call sites that also use the
+/// `TiptapEditor` name.
+pub type TiptapEditor = TiptapEditorHandle;
+
 impl Default for TiptapEditorHandle {
     fn default() -> Self {
         Self::new()

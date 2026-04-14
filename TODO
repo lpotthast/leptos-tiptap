@@ -1,5 +1,6 @@
 # TODO
 
-- Most commands `focus()` the editor as well as doing their actual thing. Should we really do that?
+- Decide whether to add non-focusing variants/options for extension convenience commands that currently call `focus()`.
 - Switch component from rendering <leptos-tiptap-instance> to <div class="leptos-tiptap-instance">. Use leptos-classes and leptos-styles.
-- Check if extensions depend on one-another. If so, force dependent on through cargo features.
+- Generate or centralize extension metadata so Cargo features, Rust registration, Rust command protocol, and TypeScript command registration can not drift.
+- Revisit whether `TiptapSelectionState` should stay a flat bool struct or move to an extensible keyed model before adding many more extensions.
