@@ -7,8 +7,8 @@ use std::num::NonZeroUsize;
 use std::time::Duration;
 
 use browser_test::{
-    BrowserDriverOutputConfig, BrowserTest, BrowserTestParallelism, BrowserTestRunner,
-    BrowserTestVisibility, ElementQueryWaitConfig, PauseConfig, TimeoutConfiguration,
+    BrowserTestParallelism, BrowserTestRunner, BrowserTestVisibility, BrowserTests,
+    BrowserTimeouts, DriverOutputConfig, ElementQueryWaitConfig, PauseConfig,
 };
 use leptos_browser_test::LeptosTestAppConfig;
 use rootcause::Report;
@@ -22,11 +22,10 @@ use tracing_subscriber::{Layer, Registry};
 use ui_tests::hydrate_and_round_trip::HydratesAndRoundTripsContent;
 use ui_tests::re_enable_after_disable::ReEnablesEditorAfterDisabling;
 
-const WEBDRIVER_SCRIPT_TIMEOUT: Duration = Duration::from_secs(5);
-const WEBDRIVER_PAGE_LOAD_TIMEOUT: Duration = Duration::from_secs(5);
-const WEBDRIVER_IMPLICIT_WAIT_TIMEOUT: Duration = Duration::from_secs(0);
-const ELEMENT_QUERY_TIMEOUT: Duration = Duration::from_secs(5);
-const ELEMENT_QUERY_INTERVAL: Duration = Duration::from_millis(500);
+#[derive(Debug)]
+struct Context {
+    base_url: String,
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn browser_tests() -> Result<(), Report> {
@@ -57,10 +56,13 @@ async fn browser_tests() -> Result<(), Report> {
         .await
         .context("Starting examples/demo-ssr app")?;
 
-    let tests: Vec<Box<dyn BrowserTest<str>>> = vec![
-        Box::new(HydratesAndRoundTripsContent),
-        Box::new(ReEnablesEditorAfterDisabling),
-    ];
+    let context = Context {
+        base_url: app.base_url().to_owned(),
+    };
+
+    let tests = BrowserTests::new()
+        .with(HydratesAndRoundTripsContent)
+        .with(ReEnablesEditorAfterDisabling);
 
     BrowserTestRunner::new()
         .with_visibility(BrowserTestVisibility::from_env())
@@ -68,18 +70,20 @@ async fn browser_tests() -> Result<(), Report> {
         .with_test_parallelism(BrowserTestParallelism::Parallel(
             NonZeroUsize::new(4).expect("non-zero"),
         ))
-        .with_webdriver_timeouts(TimeoutConfiguration::new(
-            Some(WEBDRIVER_SCRIPT_TIMEOUT),
-            Some(WEBDRIVER_PAGE_LOAD_TIMEOUT),
-            Some(WEBDRIVER_IMPLICIT_WAIT_TIMEOUT),
-        ))
+        .with_timeouts(
+            BrowserTimeouts::builder()
+                .script_timeout(Duration::from_secs(5))
+                .page_load_timeout(Duration::from_secs(5))
+                .implicit_wait_timeout(Duration::from_secs(0))
+                .build(),
+        )
         .with_element_query_wait(ElementQueryWaitConfig::new(
-            ELEMENT_QUERY_TIMEOUT,
-            ELEMENT_QUERY_INTERVAL,
+            Duration::from_secs(5),
+            Duration::from_millis(250),
         ))
-        .with_browser_driver_output(BrowserDriverOutputConfig::tail_lines(100))
+        .with_driver_output(DriverOutputConfig::tail_lines(100))
         .with_hint(format!("Leptos test app is running at {}", app.base_url()))
-        .run(app.base_url(), tests)
+        .run(&context, tests)
         .await
         .context("Running tests")?;
 

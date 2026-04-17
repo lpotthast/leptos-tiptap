@@ -91,9 +91,8 @@ rootcause-backtrace = "0.12.1"
 rootcause-tracing = "0.12.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-browser-test = { path = "../browser-test" }
+browser-test = "0.1.0"
 leptos-browser-test = { path = "../leptos-browser-test" }
-thirtyfour = { version = "0.36.1", default-features = false, features = ["component", "reqwest", "rustls-tls"] }
 tokio = { version = "1.50.0", default-features = false, features = ["macros", "rt-multi-thread", "time"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["ansi", "fmt", "registry"] }
 

@@ -1,22 +1,23 @@
+use crate::Context;
 use crate::ui_tests::{
     EDITOR_SELECTOR, HTML_CONTENT_SELECTOR, JSON_CONTENT_SELECTOR, click_button, click_css,
     wait_for_single, wait_for_text_contains, wait_for_visible,
 };
+use browser_test::thirtyfour::WebDriver;
 use browser_test::{BrowserTest, async_trait};
 use rootcause::Report;
 use std::borrow::Cow;
-use thirtyfour::WebDriver;
 
 pub struct HydratesAndRoundTripsContent;
 
 #[async_trait]
-impl BrowserTest<str> for HydratesAndRoundTripsContent {
+impl BrowserTest<Context> for HydratesAndRoundTripsContent {
     fn name(&self) -> Cow<'_, str> {
         "hydrates_and_round_trips_content".into()
     }
 
-    async fn run(&self, driver: &WebDriver, base_url: &str) -> Result<(), Report> {
-        crate::ui_tests::goto(driver, base_url).await?;
+    async fn run(&self, driver: &WebDriver, context: &Context) -> Result<(), Report> {
+        crate::ui_tests::goto(driver, &context.base_url).await?;
 
         wait_for_visible(driver, EDITOR_SELECTOR).await?;
         wait_for_single(driver, ".ProseMirror").await?;

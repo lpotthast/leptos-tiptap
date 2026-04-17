@@ -1,6 +1,6 @@
 use rootcause::Report;
-use thirtyfour::prelude::ElementQueryable;
-use thirtyfour::{By, WebDriver, WebElement};
+use browser_test::thirtyfour::prelude::ElementQueryable;
+use browser_test::thirtyfour::{By, WebDriver, WebElement};
 
 pub mod hydrate_and_round_trip;
 pub mod re_enable_after_disable;

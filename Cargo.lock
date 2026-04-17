@@ -54,9 +54,9 @@ dependencies = [
 
 [[package]]
 name = "assertr"
-version = "0.5.2"
+version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61336a1905b137bc7f8768a5293ca339f1d318ae6b8557977d4bae3cd0480220"
+checksum = "460292de2f58c883a25b79b912c887467602061defc88ae178ca941528a16e4e"
 dependencies = [
  "futures",
  "indoc",
@@ -207,6 +207,8 @@ dependencies = [
 [[package]]
 name = "browser-test"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcc25ed2a5a7beaf410d82454a122bbc91133cf41f399bfa99f2207185e0d7dd"
 dependencies = [
  "async-trait",
  "chrome-for-testing-manager",
@@ -216,6 +218,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "typed-builder",
 ]
 
 [[package]]
@@ -1325,6 +1328,7 @@ dependencies = [
 name = "leptos-browser-test"
 version = "0.1.0"
 dependencies = [
+ "assertr",
  "rootcause",
  "thiserror 2.0.18",
  "tokio",
@@ -1360,7 +1364,6 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
- "thirtyfour",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
