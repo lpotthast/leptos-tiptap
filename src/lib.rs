@@ -8,7 +8,6 @@ mod api;
 mod protocol;
 mod runtime;
 
-pub use api::TiptapEditor;
 #[cfg(feature = "component")]
 pub use api::component::TiptapEditor;
 pub use api::{
