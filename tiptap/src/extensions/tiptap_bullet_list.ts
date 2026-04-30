@@ -1,7 +1,7 @@
 import {BulletList} from "@tiptap/extension-bullet-list"
 
 import type {ExtensionDescriptor} from "../bridge_api.ts"
-import {registerOfficialExtension} from "../bridge_extension_helpers.ts"
+import {activeSelection, registerOfficialExtension} from "../bridge_extension_helpers.ts"
 
 const descriptor: ExtensionDescriptor = {
     name: "bullet_list",
@@ -9,10 +9,9 @@ const descriptor: ExtensionDescriptor = {
     commands: {
         toggle_bullet_list: (editor) => editor.chain().focus().toggleBulletList().run(),
     },
-    selection_keys: ["bullet_list"],
-    selection_state: (editor) => ({
-        bullet_list: editor.isActive("bulletList"),
-    }),
+    ...activeSelection([
+        ["bullet_list", (editor) => editor.isActive("bulletList")],
+    ]),
 }
 
 export function register_bullet_list(): void {

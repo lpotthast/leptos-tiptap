@@ -20,9 +20,7 @@ const descriptor: ExtensionDescriptor = {
     create: () => Image,
     commands: {
         set_image: (editor, command) =>
-            command.kind === "set_image"
-                ? editor.chain().focus().setImage(buildImageAttributes(command)).run()
-                : false,
+            editor.chain().focus().setImage(buildImageAttributes(command)).run(),
     },
 }
 

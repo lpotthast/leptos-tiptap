@@ -8,3 +8,6 @@ pkg
 # Build output
 /generated/**
 !/generated/.gitkeep
+
+# Browser end-to-end test outputs (e.g. Playwright artifacts)
+/end2end/

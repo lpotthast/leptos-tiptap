@@ -18,13 +18,9 @@ const descriptor: ExtensionDescriptor = {
     create: () => CodeBlock,
     commands: {
         set_code_block: (editor, command) =>
-            command.kind === "set_code_block"
-                ? editor.chain().focus().setCodeBlock(buildCodeBlockAttributes(command.attributes)).run()
-                : false,
+            editor.chain().focus().setCodeBlock(buildCodeBlockAttributes(command.attributes)).run(),
         toggle_code_block: (editor, command) =>
-            command.kind === "toggle_code_block"
-                ? editor.chain().focus().toggleCodeBlock(buildCodeBlockAttributes(command.attributes)).run()
-                : false,
+            editor.chain().focus().toggleCodeBlock(buildCodeBlockAttributes(command.attributes)).run(),
     },
 }
 

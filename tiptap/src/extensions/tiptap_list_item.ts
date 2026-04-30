@@ -8,9 +8,7 @@ const descriptor: ExtensionDescriptor = {
     create: () => ListItem,
     commands: {
         split_list_item: (editor, command) =>
-            command.kind === "split_list_item"
-                ? editor.chain().focus().splitListItem("listItem", command.attributes ?? {}).run()
-                : false,
+            editor.chain().focus().splitListItem("listItem", command.attributes ?? {}).run(),
         sink_list_item: (editor) => editor.chain().focus().sinkListItem("listItem").run(),
         lift_list_item: (editor) => editor.chain().focus().liftListItem("listItem").run(),
     },

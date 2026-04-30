@@ -236,6 +236,7 @@ export type EditorCommand = CoreCommand | ExtensionCommand | RuntimeCommand
 export type CommandKind = EditorCommand["kind"]
 export type CoreCommandKind = CoreCommand["kind"]
 export type ExtensionCommandKind = ExtensionCommand["kind"]
+export type RuntimeCommandKind = RuntimeCommand["kind"]
 
 export type DocumentRequest =
     | { kind: "get_content"; format: ContentFormat }
@@ -252,6 +253,13 @@ export type DocumentCall = {
 }
 
 export type TiptapExtension = NonNullable<EditorOptions["extensions"]>[number]
+export type ExtensionCommandHandler<K extends ExtensionCommandKind = ExtensionCommandKind> = (
+    editor: Editor,
+    command: Extract<ExtensionCommand, { kind: K }>,
+) => boolean | void
+export type ExtensionCommandHandlers = Partial<{
+    [K in ExtensionCommandKind]: ExtensionCommandHandler<K>
+}>
 
 export type ExtensionCreateContext = {
     placeholder?: string | null
@@ -260,7 +268,7 @@ export type ExtensionCreateContext = {
 export type ExtensionDescriptor = {
     name: string
     create: (context: ExtensionCreateContext) => TiptapExtension | TiptapExtension[]
-    commands?: Partial<Record<ExtensionCommandKind, (editor: Editor, command: ExtensionCommand) => boolean | void>>
+    commands?: ExtensionCommandHandlers
     selection_keys?: SelectionKey[]
     selection_state?: (editor: Editor) => Partial<SelectionState>
 }

@@ -1,7 +1,7 @@
 import {Blockquote} from "@tiptap/extension-blockquote"
 
 import type {ExtensionDescriptor} from "../bridge_api.ts"
-import {registerOfficialExtension} from "../bridge_extension_helpers.ts"
+import {activeSelection, registerOfficialExtension} from "../bridge_extension_helpers.ts"
 
 const descriptor: ExtensionDescriptor = {
     name: "blockquote",
@@ -11,10 +11,9 @@ const descriptor: ExtensionDescriptor = {
         toggle_blockquote: (editor) => editor.chain().focus().toggleBlockquote().run(),
         unset_blockquote: (editor) => editor.chain().focus().unsetBlockquote().run(),
     },
-    selection_keys: ["blockquote"],
-    selection_state: (editor) => ({
-        blockquote: editor.isActive("blockquote"),
-    }),
+    ...activeSelection([
+        ["blockquote", (editor) => editor.isActive("blockquote")],
+    ]),
 }
 
 export function register_blockquote(): void {

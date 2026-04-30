@@ -6,6 +6,11 @@ use leptos::{attr, attr::Attr, prelude::*};
 use leptos_element_capture::{CapturedElement, ElementCaptureAttr};
 
 /// Input parameters for the `use_tiptap_editor` hook.
+///
+/// Use [`UseTiptapEditorInput::new`] for the common case where only `id` and
+/// `initial_content` need explicit values; everything else picks up sensible
+/// defaults (no callbacks, not disabled, all compiled extensions active, no
+/// placeholder).
 #[derive(Clone)]
 pub struct UseTiptapEditorInput {
     /// The ID for this Tiptap instance. Must be unique across all mounted instances.
@@ -48,6 +53,36 @@ pub struct UseTiptapEditorInput {
     /// See the official Tiptap Placeholder docs for CSS examples:
     /// <https://tiptap.dev/docs/editor/extensions/functionality/placeholder>.
     pub placeholder: Option<String>,
+}
+
+impl UseTiptapEditorInput {
+    /// Construct an input with the given `id` and `initial_content` and every
+    /// other field at its default value.
+    #[must_use]
+    pub fn new(id: impl Into<String>, initial_content: TiptapContent) -> Self {
+        Self {
+            id: id.into(),
+            initial_content,
+            ..Self::default()
+        }
+    }
+}
+
+impl Default for UseTiptapEditorInput {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            editor: None,
+            initial_content: TiptapContent::default(),
+            on_ready: None,
+            on_change: None,
+            on_selection_change: None,
+            on_error: None,
+            disabled: Signal::derive(|| false),
+            extensions: None,
+            placeholder: None,
+        }
+    }
 }
 
 /// Mount props returned by [`use_tiptap_editor`].

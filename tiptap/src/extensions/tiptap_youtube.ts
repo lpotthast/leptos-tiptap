@@ -1,7 +1,7 @@
 import {Youtube} from "@tiptap/extension-youtube"
 
 import type {ExtensionDescriptor} from "../bridge_api.ts"
-import {registerOfficialExtension} from "../bridge_extension_helpers.ts"
+import {activeSelection, registerOfficialExtension} from "../bridge_extension_helpers.ts"
 
 function buildYoutubeAttributes(command: {
     src: string
@@ -29,14 +29,11 @@ const descriptor: ExtensionDescriptor = {
     create: () => Youtube,
     commands: {
         set_youtube_video: (editor, command) =>
-            command.kind === "set_youtube_video"
-                ? editor.chain().focus().setYoutubeVideo(buildYoutubeAttributes(command)).run()
-                : false,
+            editor.chain().focus().setYoutubeVideo(buildYoutubeAttributes(command)).run(),
     },
-    selection_keys: ["youtube"],
-    selection_state: (editor) => ({
-        youtube: editor.isActive("youtube"),
-    }),
+    ...activeSelection([
+        ["youtube", (editor) => editor.isActive("youtube")],
+    ]),
 }
 
 export function register_youtube(): void {

@@ -11,11 +11,13 @@
       <sourceFolder url="file://$MODULE_DIR$/leptos-tiptap/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/demo-app/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/leptos-tiptap-build/target" />
       <excludeFolder url="file://$MODULE_DIR$/leptos-tiptap/examples/demo-csr/target" />
       <excludeFolder url="file://$MODULE_DIR$/leptos-tiptap/examples/demo-ssr/target" />
       <excludeFolder url="file://$MODULE_DIR$/leptos-tiptap/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
+      <excludeFolder url="file://$MODULE_DIR$/examples/demo-app/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

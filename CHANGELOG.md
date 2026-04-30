@@ -2,8 +2,8 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [leptos-tiptap 0.10.0] - Unreleased
 
@@ -17,8 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   editor instance.
 - Added `on_ready` and `on_change` callbacks on `<TiptapEditor/>` so callers can pull the current content on demand.
 - Added an optional `on_error` callback on `<TiptapEditor/>` for JS bridge and runtime failures.
-- Added browser-level SSR coverage in the `demo-ssr` example with Playwright, including hydration and HTML/JSON
-  round-trip checks.
+- Added browser integration tests under `tests/` exercising SSR hydration, HTML/JSON round-trip, and disable/re-enable
+  cycling against the `demo-ssr` example.
 - Added adapter-level JS unit tests covering create failures, invalid content handling, and editor registry cleanup.
 - Added adapter-level tests covering generation-aware stale-handle rejection and the initial selection callback emitted
   during editor startup.
@@ -31,14 +31,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `TiptapAttributes` map helpers for lookup, borrowed map access, mutable map access, consuming map access, and
   collection from key/value pairs.
 - Added a `TiptapEditor` compatibility type alias for the user-held handle to ease migration to `TiptapEditorHandle`.
+- Added `Default` and `UseTiptapEditorInput::new(id, initial_content)` so callers no longer need to spell out every
+  optional field. `TiptapContent` also implements `Default` (empty HTML) for use with the new constructor.
 - Added this root `CHANGELOG.md`.
 
 ### Changed
 
 - Changed `<TiptapEditor/>` to use `TiptapEditorHandle` command methods instead of the `msg: Signal<TiptapInstanceMsg>`
   prop. The `msg` prop has been removed.
-- Changed the public editor type names so the user-held reactive command object is `TiptapEditorHandle` and the
-  concrete mounted editor object is `TiptapEditorInstance`.
+- Changed the public editor type names so the user-held reactive command object is `TiptapEditorHandle` and the concrete
+  mounted editor object is `TiptapEditorInstance`.
 - Changed the editor readiness tracking to use a reactive signal internally, so the disabled state is automatically
   synced when the editor becomes ready without a manual call from the `on_ready` closure.
 - Changed the internal `TiptapEditorInstance` identity model to include a JS-side generation token so stale instances
@@ -68,8 +70,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed bridge command handling to return structured statuses instead of booleans or missing values.
 - Changed the link and YouTube resource payloads to use optional metadata fields instead of stringly-typed required
   values.
-- Changed the SSR Playwright test to reuse a single expected editor id constant instead of repeating the selector/id
-  literal.
 - Raised the `leptos-tiptap` MSRV to `1.89.0` to match the adopted `assertr` version.
 - Updated the demos and README files to reflect the new API, current versions, and stable editor ids.
 - Updated the bundled TipTap packages from `2.12.0` to `2.27.2`.

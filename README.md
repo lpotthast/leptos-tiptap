@@ -4,21 +4,22 @@ Use [Tiptap](https://tiptap.dev/) editors from [Leptos](https://leptos.dev/) app
 
 The crate gives you two entry points:
 
-- Use the `<TiptapEditor/>` component when you only need to mount an editor and drive it through the editor handle you pass in.
+- Use the `<TiptapEditor/>` component when you only need to mount an editor and drive it through the editor handle you
+  pass in.
 - Use the `use_tiptap_editor` hook when you want to provide the host element yourself.
 
 ## Usage
 
-Add the crate to your Leptos app. The default feature set includes the component and the minimal
-Tiptap schema (`document`, `paragraph`, and `text`).
+Add the crate to your Leptos app. The default feature set includes the component and the minimal Tiptap schema
+(`document`, `paragraph`, and `text`).
 
 ```toml
 [dependencies]
 leptos-tiptap = { version = "0.10", features = ["starter-kit"] }
 ```
 
-The crate ships its JavaScript bridge as crate-local `wasm-bindgen` snippets. You do not need a
-downstream `build.rs`, copied browser assets, or a manual preload tag.
+The crate ships its JavaScript bridge as crate-local `wasm-bindgen` snippets. You do not need a downstream `build.rs`,
+copied browser assets, or a manual preload tag.
 
 ## Component
 
@@ -61,22 +62,18 @@ pub fn EditorWithComponent() -> impl IntoView {
 }
 ```
 
-The component populates the `editor` handle once the JavaScript editor is ready. Use that same handle
-to run commands, read HTML or JSON content, or replace the full document with `set_content`,
-`set_html`, or `set_json`.
+The component populates the `editor` handle once the JavaScript editor is ready. Use that same handle to run commands,
+read HTML or JSON content, or replace the full document with `set_content`, `set_html`, or `set_json`.
 
-For advanced cases, `editor.instance()` returns the current `TiptapEditorInstance`. That value is
-bound to a concrete mounted editor id and generation, so older instances become stale after destroy
-and recreate cycles.
+For advanced cases, `editor.instance()` returns the current `TiptapEditorInstance`. That value is bound to a concrete
+mounted editor id and generation, so older instances become stale after destroy and recreate cycles.
 
-`TiptapEditorHandle` is the preferred user-held handle name. The old handle type name,
-`TiptapEditor`, remains available as a compatibility alias for migration, while `<TiptapEditor/>`
-continues to be the component name.
+`TiptapEditorHandle` is the preferred user-held handle name. The old handle type name, `TiptapEditor`, remains available
+as a compatibility alias for migration, while `<TiptapEditor/>` continues to be the component name.
 
 ## Hook
 
-Use the hook when you want to choose the host element yourself or compose editor mounting into a
-larger component.
+Use the hook when you want to choose the host element yourself or compose editor mounting into a larger component.
 
 ```rust
 use leptos::prelude::*;
@@ -84,18 +81,10 @@ use leptos_tiptap::{use_tiptap_editor, TiptapContent, UseTiptapEditorInput};
 
 #[component]
 pub fn EditorWithHook() -> impl IntoView {
-    let tiptap = use_tiptap_editor(UseTiptapEditorInput {
-        id: "article-editor".to_string(),
-        editor: None,
-        initial_content: TiptapContent::html("<p>Edit me.</p>"),
-        on_ready: None,
-        on_change: None,
-        on_selection_change: None,
-        on_error: None,
-        disabled: Signal::derive(|| false),
-        extensions: None,
-        placeholder: None,
-    });
+    let tiptap = use_tiptap_editor(UseTiptapEditorInput::new(
+        "article-editor",
+        TiptapContent::html("<p>Edit me.</p>"),
+    ));
 
     let editor = tiptap.editor;
     let is_ready = tiptap.is_ready;
@@ -116,32 +105,31 @@ pub fn EditorWithHook() -> impl IntoView {
 }
 ```
 
-Spread `tiptap.props.into_attrs()` onto exactly one rendered host element. The hook owns mount
-timing, cleanup, disabled-state synchronization, and the reactive editor handle.
+Spread `tiptap.props.into_attrs()` onto exactly one rendered host element. The hook owns mount timing, cleanup,
+disabled-state synchronization, and the reactive editor handle.
 
 ## Content, commands, and extensions
 
 `initial_content` is one-time initialization input. Use `TiptapContent::html(...)` for HTML or
-`TiptapContent::json(...)` / `TiptapContent::json_str(...)` for JSON. To replace content
-after mount, call `editor.set_content(...)`, `editor.set_html(...)`, or `editor.set_json(...)`.
+`TiptapContent::json(...)` / `TiptapContent::json_str(...)` for JSON. To replace content after mount, call
+`editor.set_content(...)`, `editor.set_html(...)`, or `editor.set_json(...)`.
 
 The editor `id` is a stable DOM id and must be unique across all live editor instances.
 
-Extension-specific convenience commands such as `toggle_bold`, `set_link`, and `set_heading`
-focus the editor before running the Tiptap command. Core position and selection commands are
-forwarded directly without that implicit focus step.
+Extension-specific convenience commands such as `toggle_bold`, `set_link`, and `set_heading` focus the editor before
+running the Tiptap command. Core position and selection commands are forwarded directly without that implicit focus
+step.
 
-Use `TiptapAttributes` for structured node and mark attributes. It supports insertion, lookup,
-borrowed map access, consuming map access, and collection from key/value pairs.
+Use `TiptapAttributes` for structured node and mark attributes. It supports insertion, lookup, borrowed map access,
+consuming map access, and collection from key/value pairs.
 
-Compiled extensions are selected through Cargo features. Use `starter-kit` for the StarterKit-like
-subset supported by this crate, or `full` for every currently supported extension. Per-instance
-extension subsets can be selected with the component `extensions` prop or the hook input
-`extensions` field; if omitted, all compiled extensions are active.
+Compiled extensions are selected through Cargo features. Use `starter-kit` for the StarterKit-like subset supported by
+this crate, or `full` for every currently supported extension. Per-instance extension subsets can be selected with the
+component `extensions` prop or the hook input `extensions` field; if omitted, all compiled extensions are active.
 
-When the `placeholder` feature is enabled and active for an editor, set the component or hook
-`placeholder` option to initialize its placeholder text. The extension adds placeholder classes
-and `data-placeholder`; your app stylesheet must render them, for example:
+When the `placeholder` feature is enabled and active for an editor, set the component or hook `placeholder` option to
+initialize its placeholder text. The extension adds placeholder classes and `data-placeholder`; your app stylesheet must
+render them, for example:
 
 ```css
 .tiptap p.is-editor-empty:first-child::before,
@@ -157,20 +145,19 @@ and `data-placeholder`; your app stylesheet must render them, for example:
 The official Tiptap Placeholder docs also include ready-to-copy CSS examples:
 <https://tiptap.dev/docs/editor/extensions/functionality/placeholder>.
 
-Bridge errors are reported through `on_error` as `TiptapEditorReport` values. Public editor
-operations return `TiptapEditorResult<T>`, a `rootcause::Report` whose typed context is
-`TiptapEditorError`. Commands called before readiness use
-`TiptapEditorError::EditorUnavailable` as that context.
+Bridge errors are reported through `on_error` as `TiptapEditorReport` values. Public editor operations return
+`TiptapEditorResult<T>`, a `rootcause::Report` whose typed context is `TiptapEditorError`. Commands called before
+readiness use `TiptapEditorError::EditorUnavailable` as that context.
 
-For SSR builds, enable the `ssr` feature in the app's server build. Server-side JavaScript interop
-is a no-op, while the DOM node still renders and hydrates on the client.
+For SSR builds, enable the `ssr` feature in the app's server build. Server-side JavaScript interop is a no-op, while the
+DOM node still renders and hydrates on the client.
 
 ## Integrated
 
-If you are searching for a ready-to-use text editor, check out the leptos component
-library [Leptonic](https://leptonic.dev/), which already incorporates this crate to define an editor.
+If you are searching for a ready-to-use text editor, check out the leptos component library
+[Leptonic](https://leptonic.dev/), which already incorporates this crate to define an editor.
 
-## Repository development
+## Contributing
 
 Current repository versions:
 
@@ -184,14 +171,27 @@ Current default crate feature set:
 
 Optional feature bundles:
 
-- `starter-kit`: blockquote, bold, bullet list, code, code block, document, dropcursor, gapcursor,
-  hard break, heading, history, horizontal rule, italic, list item, ordered list, paragraph,
-  strike, text
+- `starter-kit`: blockquote, bold, bullet list, code, code block, document, dropcursor, gapcursor, hard break, heading,
+  history, horizontal rule, italic, list item, ordered list, paragraph, strike, text
 - `full`: `starter-kit` plus text-align, highlight, image, link, placeholder, youtube
 
-The Rust crate lives at the repository root. The browser-side Tiptap build project lives in
-`tiptap/`; `just build` bundles the shared bridge runtime and standalone extension modules into
-`src/js/generated/`.
+### Layout
+
+- The Rust crate lives at the repository root (`Cargo.toml`, `src/`, `tests/`).
+- The browser-side TipTap host lives in `tiptap/` as a TypeScript build project. `npm run build` (driven by
+  `just build`) produces one bundle per TipTap extension into `src/js/generated/`. Those bundles are checked in and
+  shipped with the crate via crate-local `wasm-bindgen` snippets.
+- Example apps live in `examples/`. `demo-app` is the shared UI; `demo-csr` and `demo-ssr` are thin CSR/SSR wrappers
+  around it.
+
+### Prerequisites
+
+- Rust toolchain matching the MSRV (`1.89.0` — see `Cargo.toml`'s `rust-version`) or newer.
+- `wasm32-unknown-unknown` target installed (`rustup target add wasm32-unknown-unknown`).
+- Node.js 20 or newer with `npm`.
+- [`just`](https://github.com/casey/just) for the orchestration recipes.
+
+### Common commands
 
 Run the examples:
 
@@ -206,12 +206,26 @@ Build the checked-in Tiptap JavaScript bundle:
 just build
 ```
 
-`just build` performs a reproducible rebuild from `tiptap/package-lock.json`.
-`just update-tiptap` is the explicit maintenance command for upgrading the npm dependencies and
-refreshing the checked-in bundle artifacts.
+`just build` performs a reproducible rebuild from `tiptap/package-lock.json`. `just update-tiptap` is the explicit
+maintenance command for upgrading the npm dependencies and refreshing the checked-in bundle artifacts. `just verify`
+runs the full Rust and bridge-level validation suite, including a generated-bundle drift check. Run `just` to list all
+available recipes.
 
-`just verify` runs the Rust and bridge-level validation suite, including a generated-bundle drift
-check.
+### Conventions
+
+- Follow `rustfmt` defaults; `cargo fmt --check` is part of CI.
+- Use the `assertr` crate for unit-level assertions instead of `assert!` / `assert_eq!`.
+- When you add or remove a TipTap command, update the Rust `protocol`/`api`/`runtime` modules and the matching
+  TypeScript bridge or extension module together. `tiptap/check-build.mjs` enforces that command names, document
+  request kinds, selection keys, and extension names stay in sync between Rust and TypeScript.
+- If a change touches `tiptap/src/`, rebuild the generated bundles with `just build` and include the resulting diffs
+  under `src/js/generated/` in the same commit. The drift check will fail otherwise.
+
+### Pull requests
+
+- Keep commits focused; recent history uses short, imperative subjects.
+- Mention generated-bundle updates in the commit message when `src/js/generated/` changes.
+- Run `just verify` locally before requesting review.
 
 ## Leptos compatibility
 

@@ -1,9 +1,10 @@
-use rootcause::Report;
 use browser_test::thirtyfour::prelude::ElementQueryable;
 use browser_test::thirtyfour::{By, WebDriver, WebElement};
+use rootcause::Report;
 
 pub mod hydrate_and_round_trip;
 pub mod re_enable_after_disable;
+pub mod replace_content;
 
 const EDITOR_SELECTOR: &str = "#id .ProseMirror";
 const HTML_CONTENT_SELECTOR: &str = "#html-content";

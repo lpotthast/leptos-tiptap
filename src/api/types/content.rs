@@ -10,6 +10,14 @@ pub enum TiptapContent {
     Json(serde_json::Value),
 }
 
+impl Default for TiptapContent {
+    /// Empty HTML content. Useful with [`UseTiptapEditorInput::default`] when
+    /// the initial document is set later through `TiptapEditorHandle::set_content`.
+    fn default() -> Self {
+        Self::Html(String::new())
+    }
+}
+
 impl TiptapContent {
     /// Creates an HTML content payload.
     #[must_use]

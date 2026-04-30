@@ -1,7 +1,7 @@
 import {Bold} from "@tiptap/extension-bold"
 
 import type {ExtensionDescriptor} from "../bridge_api.ts"
-import {registerOfficialExtension} from "../bridge_extension_helpers.ts"
+import {activeSelection, registerOfficialExtension} from "../bridge_extension_helpers.ts"
 
 const descriptor: ExtensionDescriptor = {
     name: "bold",
@@ -11,10 +11,9 @@ const descriptor: ExtensionDescriptor = {
         toggle_bold: (editor) => editor.chain().focus().toggleBold().run(),
         unset_bold: (editor) => editor.chain().focus().unsetBold().run(),
     },
-    selection_keys: ["bold"],
-    selection_state: (editor) => ({
-        bold: editor.isActive("bold"),
-    }),
+    ...activeSelection([
+        ["bold", (editor) => editor.isActive("bold")],
+    ]),
 }
 
 export function register_bold(): void {

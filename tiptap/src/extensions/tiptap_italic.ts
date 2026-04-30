@@ -1,7 +1,7 @@
 import {Italic} from "@tiptap/extension-italic"
 
 import type {ExtensionDescriptor} from "../bridge_api.ts"
-import {registerOfficialExtension} from "../bridge_extension_helpers.ts"
+import {activeSelection, registerOfficialExtension} from "../bridge_extension_helpers.ts"
 
 const descriptor: ExtensionDescriptor = {
     name: "italic",
@@ -11,10 +11,9 @@ const descriptor: ExtensionDescriptor = {
         toggle_italic: (editor) => editor.chain().focus().toggleItalic().run(),
         unset_italic: (editor) => editor.chain().focus().unsetItalic().run(),
     },
-    selection_keys: ["italic"],
-    selection_state: (editor) => ({
-        italic: editor.isActive("italic"),
-    }),
+    ...activeSelection([
+        ["italic", (editor) => editor.isActive("italic")],
+    ]),
 }
 
 export function register_italic(): void {

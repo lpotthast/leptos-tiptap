@@ -1,3 +1,4 @@
+use crate::Context;
 use crate::ui_tests::{
     EDITOR_SELECTOR, HTML_CONTENT_SELECTOR, click_button_starting_with, goto, wait_for_attribute,
     wait_for_text_contains, wait_for_visible,
@@ -6,7 +7,6 @@ use browser_test::thirtyfour::WebDriver;
 use browser_test::{BrowserTest, async_trait};
 use rootcause::Report;
 use std::borrow::Cow;
-use crate::Context;
 
 pub struct ReEnablesEditorAfterDisabling;
 

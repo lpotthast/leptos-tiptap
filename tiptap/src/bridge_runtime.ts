@@ -5,8 +5,11 @@ import {
     getOrCreateBridgeBindings,
     type BridgeError,
     type BridgeResult,
+    type CommandKind,
     type ContentFormat,
     type ContentPayload,
+    type CoreCommand,
+    type CoreCommandKind,
     type ExtensionCreateContext,
     type ExtensionCommand,
     type ExtensionCommandKind,
@@ -22,6 +25,8 @@ import {
     type ErrorKind,
     type ExtensionDescriptor,
     type ReadyPayload,
+    type RuntimeCommand,
+    type RuntimeCommandKind,
     type SelectionKey,
     type SelectionState,
 } from "./bridge_api.ts"
@@ -34,6 +39,14 @@ type EditorConstructor = new (options?: CreateEditorOptions) => Editor
 type EditorFactory = (options: CreateEditorOptions) => Editor
 type OnSelection = (selectionState: SelectionState) => void
 type DescriptorCommandHandler = (editor: Editor, command: ExtensionCommand) => boolean | void
+type CoreCommandHandler<K extends CoreCommandKind> = (
+    editor: Editor,
+    command: Extract<CoreCommand, { kind: K }>,
+) => BridgeResult<EmptyResponse>
+type RuntimeCommandHandler<K extends RuntimeCommandKind> = (
+    editor: Editor,
+    command: Extract<RuntimeCommand, { kind: K }>,
+) => BridgeResult<EmptyResponse>
 
 type EditorEntry = {
     editor: Editor
@@ -372,148 +385,141 @@ function toMarkOptions(options?: MarkOptions | null): { extendEmptyMarkRange?: b
     }
 }
 
-function executeCoreCommand(editor: Editor, command: EditorCommand): BridgeResult<EmptyResponse> | undefined {
-    switch (command.kind) {
-        case "blur":
-            return runCommand(command.kind, () => editor.commands.blur())
-        case "clear_content":
-            return runCommand(command.kind, () => editor.commands.clearContent(command.emit_update))
-        case "clear_nodes":
-            return runCommand(command.kind, () => editor.commands.clearNodes())
-        case "create_paragraph_near":
-            return runCommand(command.kind, () => editor.commands.createParagraphNear())
-        case "cut":
-            return runCommand(command.kind, () => editor.commands.cut(command.range, command.target_pos))
-        case "delete_current_node":
-            return runCommand(command.kind, () => editor.commands.deleteCurrentNode())
-        case "delete_node":
-            return runCommand(command.kind, () => editor.commands.deleteNode(command.type_or_name))
-        case "delete_range":
-            return runCommand(command.kind, () => editor.commands.deleteRange(command.range))
-        case "delete_selection":
-            return runCommand(command.kind, () => editor.commands.deleteSelection())
-        case "enter":
-            return runCommand(command.kind, () => editor.commands.enter())
-        case "exit_code":
-            return runCommand(command.kind, () => editor.commands.exitCode())
-        case "extend_mark_range":
-            return runCommand(command.kind, () => editor.commands.extendMarkRange(command.type_or_name, command.attributes ?? undefined))
-        case "focus":
-            return runCommand(command.kind, () => editor.commands.focus(command.target ?? null, toFocusOptions(command.options)))
-        case "insert_content": {
-            const parsedContent = parseContent(command.content)
-            if (!parsedContent.ok) {
-                return parsedContent
-            }
-
-            const {from, to} = editor.state.selection
-
-            return runCommand(command.kind, () => editor.commands.insertContentAt(
-                {from, to},
-                parsedContent.value,
-                toInsertContentOptions(command.options),
-            ))
+const coreCommandHandlers: {
+    [K in CoreCommandKind]: CoreCommandHandler<K>
+} = {
+    blur: (editor, command) => runCommand(command.kind, () => editor.commands.blur()),
+    clear_content: (editor, command) => runCommand(command.kind, () => editor.commands.clearContent(command.emit_update)),
+    clear_nodes: (editor, command) => runCommand(command.kind, () => editor.commands.clearNodes()),
+    create_paragraph_near: (editor, command) => runCommand(command.kind, () => editor.commands.createParagraphNear()),
+    cut: (editor, command) => runCommand(command.kind, () => editor.commands.cut(command.range, command.target_pos)),
+    delete_current_node: (editor, command) => runCommand(command.kind, () => editor.commands.deleteCurrentNode()),
+    delete_node: (editor, command) => runCommand(command.kind, () => editor.commands.deleteNode(command.type_or_name)),
+    delete_range: (editor, command) => runCommand(command.kind, () => editor.commands.deleteRange(command.range)),
+    delete_selection: (editor, command) => runCommand(command.kind, () => editor.commands.deleteSelection()),
+    enter: (editor, command) => runCommand(command.kind, () => editor.commands.enter()),
+    exit_code: (editor, command) => runCommand(command.kind, () => editor.commands.exitCode()),
+    extend_mark_range: (editor, command) =>
+        runCommand(command.kind, () => editor.commands.extendMarkRange(command.type_or_name, command.attributes ?? undefined)),
+    focus: (editor, command) =>
+        runCommand(command.kind, () => editor.commands.focus(command.target ?? null, toFocusOptions(command.options))),
+    insert_content: (editor, command) => {
+        const parsedContent = parseContent(command.content)
+        if (!parsedContent.ok) {
+            return parsedContent
         }
-        case "insert_content_at": {
-            const parsedContent = parseContent(command.content)
-            if (!parsedContent.ok) {
-                return parsedContent
-            }
 
-            return runCommand(command.kind, () => editor.commands.insertContentAt(
-                command.position,
-                parsedContent.value,
-                toInsertContentOptions(command.options),
-            ))
+        const {from, to} = editor.state.selection
+
+        return runCommand(command.kind, () => editor.commands.insertContentAt(
+            {from, to},
+            parsedContent.value,
+            toInsertContentOptions(command.options),
+        ))
+    },
+    insert_content_at: (editor, command) => {
+        const parsedContent = parseContent(command.content)
+        if (!parsedContent.ok) {
+            return parsedContent
         }
-        case "join_up":
-            return runCommand(command.kind, () => editor.commands.joinUp())
-        case "join_down":
-            return runCommand(command.kind, () => editor.commands.joinDown())
-        case "join_backward":
-            return runCommand(command.kind, () => editor.commands.joinBackward())
-        case "join_forward":
-            return runCommand(command.kind, () => editor.commands.joinForward())
-        case "join_item_backward":
-            return runCommand(command.kind, () => editor.commands.joinItemBackward())
-        case "join_item_forward":
-            return runCommand(command.kind, () => editor.commands.joinItemForward())
-        case "join_textblock_backward":
-            return runCommand(command.kind, () => editor.commands.joinTextblockBackward())
-        case "join_textblock_forward":
-            return runCommand(command.kind, () => editor.commands.joinTextblockForward())
-        case "keyboard_shortcut":
-            return runCommand(command.kind, () => editor.commands.keyboardShortcut(command.name))
-        case "lift":
-            return runCommand(command.kind, () => editor.commands.lift(command.type_or_name, command.attributes ?? undefined))
-        case "lift_empty_block":
-            return runCommand(command.kind, () => editor.commands.liftEmptyBlock())
-        case "newline_in_code":
-            return runCommand(command.kind, () => editor.commands.newlineInCode())
-        case "reset_attributes":
-            return runCommand(command.kind, () => editor.commands.resetAttributes(command.type_or_name, command.attribute_names))
-        case "scroll_into_view":
-            return runCommand(command.kind, () => editor.commands.scrollIntoView())
-        case "select_all":
-            return runCommand(command.kind, () => editor.commands.selectAll())
-        case "select_node_backward":
-            return runCommand(command.kind, () => editor.commands.selectNodeBackward())
-        case "select_node_forward":
-            return runCommand(command.kind, () => editor.commands.selectNodeForward())
-        case "select_parent_node":
-            return runCommand(command.kind, () => editor.commands.selectParentNode())
-        case "select_textblock_end":
-            return runCommand(command.kind, () => editor.commands.selectTextblockEnd())
-        case "select_textblock_start":
-            return runCommand(command.kind, () => editor.commands.selectTextblockStart())
-        case "set_mark":
-            return runCommand(command.kind, () => editor.commands.setMark(command.type_or_name, command.attributes ?? undefined))
-        case "set_meta":
-            return runCommand(command.kind, () => editor.commands.setMeta(command.key, command.value))
-        case "set_node":
-            return runCommand(command.kind, () => editor.commands.setNode(command.type_or_name, command.attributes ?? undefined))
-        case "set_node_selection":
-            return runCommand(command.kind, () => editor.commands.setNodeSelection(command.position))
-        case "set_text_selection":
-            return runCommand(command.kind, () => editor.commands.setTextSelection(command.position))
-        case "split_block":
-            return runCommand(command.kind, () => editor.commands.splitBlock({keepMarks: command.keep_marks}))
-        case "toggle_list":
-            return runCommand(command.kind, () => editor.commands.toggleList(
-                command.list_type_or_name,
-                command.item_type_or_name,
-                command.keep_marks,
-                command.attributes ?? undefined,
-            ))
-        case "toggle_mark":
-            return runCommand(command.kind, () => editor.commands.toggleMark(
-                command.type_or_name,
-                command.attributes ?? undefined,
-                toMarkOptions(command.options),
-            ))
-        case "toggle_node":
-            return runCommand(command.kind, () => editor.commands.toggleNode(
-                command.type_or_name,
-                command.toggle_type_or_name,
-                command.attributes ?? undefined,
-            ))
-        case "toggle_wrap":
-            return runCommand(command.kind, () => editor.commands.toggleWrap(command.type_or_name, command.attributes ?? undefined))
-        case "undo_input_rule":
-            return runCommand(command.kind, () => editor.commands.undoInputRule())
-        case "unset_all_marks":
-            return runCommand(command.kind, () => editor.commands.unsetAllMarks())
-        case "unset_mark":
-            return runCommand(command.kind, () => editor.commands.unsetMark(command.type_or_name, toMarkOptions(command.options)))
-        case "update_attributes":
-            return runCommand(command.kind, () => editor.commands.updateAttributes(command.type_or_name, command.attributes))
-        case "wrap_in":
-            return runCommand(command.kind, () => editor.commands.wrapIn(command.type_or_name, command.attributes ?? undefined))
-        case "wrap_in_list":
-            return runCommand(command.kind, () => editor.commands.wrapInList(command.type_or_name, command.attributes ?? undefined))
-        default:
-            return undefined
-    }
+
+        return runCommand(command.kind, () => editor.commands.insertContentAt(
+            command.position,
+            parsedContent.value,
+            toInsertContentOptions(command.options),
+        ))
+    },
+    join_up: (editor, command) => runCommand(command.kind, () => editor.commands.joinUp()),
+    join_down: (editor, command) => runCommand(command.kind, () => editor.commands.joinDown()),
+    join_backward: (editor, command) => runCommand(command.kind, () => editor.commands.joinBackward()),
+    join_forward: (editor, command) => runCommand(command.kind, () => editor.commands.joinForward()),
+    join_item_backward: (editor, command) => runCommand(command.kind, () => editor.commands.joinItemBackward()),
+    join_item_forward: (editor, command) => runCommand(command.kind, () => editor.commands.joinItemForward()),
+    join_textblock_backward: (editor, command) => runCommand(command.kind, () => editor.commands.joinTextblockBackward()),
+    join_textblock_forward: (editor, command) => runCommand(command.kind, () => editor.commands.joinTextblockForward()),
+    keyboard_shortcut: (editor, command) => runCommand(command.kind, () => editor.commands.keyboardShortcut(command.name)),
+    lift: (editor, command) =>
+        runCommand(command.kind, () => editor.commands.lift(command.type_or_name, command.attributes ?? undefined)),
+    lift_empty_block: (editor, command) => runCommand(command.kind, () => editor.commands.liftEmptyBlock()),
+    newline_in_code: (editor, command) => runCommand(command.kind, () => editor.commands.newlineInCode()),
+    reset_attributes: (editor, command) =>
+        runCommand(command.kind, () => editor.commands.resetAttributes(command.type_or_name, command.attribute_names)),
+    scroll_into_view: (editor, command) => runCommand(command.kind, () => editor.commands.scrollIntoView()),
+    select_all: (editor, command) => runCommand(command.kind, () => editor.commands.selectAll()),
+    select_node_backward: (editor, command) => runCommand(command.kind, () => editor.commands.selectNodeBackward()),
+    select_node_forward: (editor, command) => runCommand(command.kind, () => editor.commands.selectNodeForward()),
+    select_parent_node: (editor, command) => runCommand(command.kind, () => editor.commands.selectParentNode()),
+    select_textblock_end: (editor, command) => runCommand(command.kind, () => editor.commands.selectTextblockEnd()),
+    select_textblock_start: (editor, command) => runCommand(command.kind, () => editor.commands.selectTextblockStart()),
+    set_mark: (editor, command) =>
+        runCommand(command.kind, () => editor.commands.setMark(command.type_or_name, command.attributes ?? undefined)),
+    set_meta: (editor, command) => runCommand(command.kind, () => editor.commands.setMeta(command.key, command.value)),
+    set_node: (editor, command) =>
+        runCommand(command.kind, () => editor.commands.setNode(command.type_or_name, command.attributes ?? undefined)),
+    set_node_selection: (editor, command) => runCommand(command.kind, () => editor.commands.setNodeSelection(command.position)),
+    set_text_selection: (editor, command) => runCommand(command.kind, () => editor.commands.setTextSelection(command.position)),
+    split_block: (editor, command) => runCommand(command.kind, () => editor.commands.splitBlock({keepMarks: command.keep_marks})),
+    toggle_list: (editor, command) => runCommand(command.kind, () => editor.commands.toggleList(
+        command.list_type_or_name,
+        command.item_type_or_name,
+        command.keep_marks,
+        command.attributes ?? undefined,
+    )),
+    toggle_mark: (editor, command) => runCommand(command.kind, () => editor.commands.toggleMark(
+        command.type_or_name,
+        command.attributes ?? undefined,
+        toMarkOptions(command.options),
+    )),
+    toggle_node: (editor, command) => runCommand(command.kind, () => editor.commands.toggleNode(
+        command.type_or_name,
+        command.toggle_type_or_name,
+        command.attributes ?? undefined,
+    )),
+    toggle_wrap: (editor, command) =>
+        runCommand(command.kind, () => editor.commands.toggleWrap(command.type_or_name, command.attributes ?? undefined)),
+    undo_input_rule: (editor, command) => runCommand(command.kind, () => editor.commands.undoInputRule()),
+    unset_all_marks: (editor, command) => runCommand(command.kind, () => editor.commands.unsetAllMarks()),
+    unset_mark: (editor, command) =>
+        runCommand(command.kind, () => editor.commands.unsetMark(command.type_or_name, toMarkOptions(command.options))),
+    update_attributes: (editor, command) =>
+        runCommand(command.kind, () => editor.commands.updateAttributes(command.type_or_name, command.attributes)),
+    wrap_in: (editor, command) =>
+        runCommand(command.kind, () => editor.commands.wrapIn(command.type_or_name, command.attributes ?? undefined)),
+    wrap_in_list: (editor, command) =>
+        runCommand(command.kind, () => editor.commands.wrapInList(command.type_or_name, command.attributes ?? undefined)),
+}
+
+const runtimeCommandHandlers: {
+    [K in RuntimeCommandKind]: RuntimeCommandHandler<K>
+} = {
+    set_editable: (editor, command) =>
+        runCommand(command.kind, () => {
+            editor.setEditable(command.editable)
+        }),
+}
+
+const coreCommandKinds = new Set<CommandKind>(Object.keys(coreCommandHandlers) as CoreCommandKind[])
+const runtimeCommandKinds = new Set<CommandKind>(Object.keys(runtimeCommandHandlers) as RuntimeCommandKind[])
+
+function isCoreCommand(command: EditorCommand): command is CoreCommand {
+    return coreCommandKinds.has(command.kind)
+}
+
+function isRuntimeCommand(command: EditorCommand): command is RuntimeCommand {
+    return runtimeCommandKinds.has(command.kind)
+}
+
+function executeCoreCommand(editor: Editor, command: CoreCommand): BridgeResult<EmptyResponse> {
+    const handler = coreCommandHandlers[command.kind] as (editor: Editor, command: CoreCommand) => BridgeResult<EmptyResponse>
+    return handler(editor, command)
+}
+
+function executeRuntimeCommand(editor: Editor, command: RuntimeCommand): BridgeResult<EmptyResponse> {
+    const handler = runtimeCommandHandlers[command.kind] as (
+        editor: Editor,
+        command: RuntimeCommand,
+    ) => BridgeResult<EmptyResponse>
+    return handler(editor, command)
 }
 
 function getContentOperationName(format: ContentFormat): string {
@@ -657,12 +663,8 @@ export function create(
             extensions: runtimeConfig.value.extensions,
             injectCSS: false,
             content: parsedContent.value,
-            onUpdate: ({editor}) => {
+            onUpdate: () => {
                 onChange()
-                emitSelectionForCurrentEditor(request.id, editor)
-            },
-            onSelectionUpdate: ({editor}) => {
-                emitSelectionForCurrentEditor(request.id, editor)
             },
             onTransaction: ({editor}) => {
                 emitSelectionForCurrentEditor(request.id, editor)
@@ -702,18 +704,13 @@ export function command(request: {
 }): BridgeResult<EmptyResponse> {
     const {id, generation, command} = request
 
-    if (command.kind === "set_editable") {
-        return withEditor(id, generation, command.kind, ({editor}) =>
-            runCommand(command.kind, () => {
-                editor.setEditable(command.editable)
-            }),
-        )
-    }
-
     return withEditor(id, generation, command.kind, (editorEntry) => {
-        const coreResult = executeCoreCommand(editorEntry.editor, command)
-        if (coreResult != null) {
-            return coreResult
+        if (isRuntimeCommand(command)) {
+            return executeRuntimeCommand(editorEntry.editor, command)
+        }
+
+        if (isCoreCommand(command)) {
+            return executeCoreCommand(editorEntry.editor, command)
         }
 
         const extensionCommand = command as ExtensionCommand

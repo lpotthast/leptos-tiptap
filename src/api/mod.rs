@@ -8,7 +8,6 @@ mod extensions;
 mod types;
 mod use_tiptap_editor;
 
-pub use editor::TiptapEditor;
 pub use editor::{TiptapEditorHandle, TiptapEditorInstance};
 pub use error::{TiptapEditorError, TiptapEditorReport, TiptapEditorResult};
 pub use extensions::TiptapExtension;

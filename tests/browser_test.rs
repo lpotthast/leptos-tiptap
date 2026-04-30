@@ -21,6 +21,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{Layer, Registry};
 use ui_tests::hydrate_and_round_trip::HydratesAndRoundTripsContent;
 use ui_tests::re_enable_after_disable::ReEnablesEditorAfterDisabling;
+use ui_tests::replace_content::ReplacesLiveContent;
 
 #[derive(Debug)]
 struct Context {
@@ -62,7 +63,8 @@ async fn browser_tests() -> Result<(), Report> {
 
     let tests = BrowserTests::new()
         .with(HydratesAndRoundTripsContent)
-        .with(ReEnablesEditorAfterDisabling);
+        .with(ReEnablesEditorAfterDisabling)
+        .with(ReplacesLiveContent);
 
     BrowserTestRunner::new()
         .with_visibility(BrowserTestVisibility::from_env())

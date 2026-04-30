@@ -170,8 +170,6 @@ await buildEntryPoints(bridgeRuntimeEntry)
 
 const hostedModulePlugin = createHostedModulePlugin(SHARED_BASE_MODULES)
 
-for (const [outfile, entryPoint] of Object.entries(extensionEntries)) {
-    await buildEntryPoints({[outfile]: entryPoint}, [hostedModulePlugin])
-}
+await buildEntryPoints(extensionEntries, [hostedModulePlugin])
 
 await validateImportFreeArtifacts(outputDir)
