@@ -1,9 +1,9 @@
 use leptos::prelude::*;
 use leptos::serde_json;
 use leptos_tiptap::{
-    TiptapContent, TiptapEditor, TiptapEditorHandle, TiptapExtension, TiptapHeadingLevel,
-    TiptapLinkResource, TiptapSelectionState, TiptapTextAlign, TiptapYoutubeVideoResource,
-    leptos_styles::Styles
+    TiptapActiveKey, TiptapContent, TiptapEditor, TiptapEditorHandle, TiptapExtension,
+    TiptapHeadingLevel, TiptapLinkResource, TiptapSelectionState, TiptapTextAlign,
+    TiptapYoutubeVideoResource, leptos_styles::Styles
 };
 
 pub mod test_fixtures;
@@ -117,83 +117,83 @@ pub fn DemoApp() -> impl IntoView {
                                 <tbody>
                                     <tr>
                                         <td>"H1"</td>
-                                        <td class="value" class:active=selection.h1>{ selection.h1 }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::H1)>{ selection.is_active(TiptapActiveKey::H1) }</td>
                                     </tr>
                                     <tr>
                                         <td>"H2"</td>
-                                        <td class="value" class:active=selection.h2>{ selection.h2 }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::H2)>{ selection.is_active(TiptapActiveKey::H2) }</td>
                                     </tr>
                                     <tr>
                                         <td>"H3"</td>
-                                        <td class="value" class:active=selection.h3>{ selection.h3 }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::H3)>{ selection.is_active(TiptapActiveKey::H3) }</td>
                                     </tr>
                                     <tr>
                                         <td>"H4"</td>
-                                        <td class="value" class:active=selection.h4>{ selection.h4 }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::H4)>{ selection.is_active(TiptapActiveKey::H4) }</td>
                                     </tr>
                                     <tr>
                                         <td>"H5"</td>
-                                        <td class="value" class:active=selection.h5>{ selection.h5 }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::H5)>{ selection.is_active(TiptapActiveKey::H5) }</td>
                                     </tr>
                                     <tr>
                                         <td>"H6"</td>
-                                        <td class="value" class:active=selection.h6>{ selection.h6 }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::H6)>{ selection.is_active(TiptapActiveKey::H6) }</td>
                                     </tr>
                                     <tr>
                                         <td>"Paragraph"</td>
-                                        <td class="value" class:active=selection.paragraph>{ selection.paragraph }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::Paragraph)>{ selection.is_active(TiptapActiveKey::Paragraph) }</td>
                                     </tr>
                                     <tr>
                                         <td>"Bold"</td>
-                                        <td class="value" class:active=selection.bold>{ selection.bold }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::Bold)>{ selection.is_active(TiptapActiveKey::Bold) }</td>
                                     </tr>
                                     <tr>
                                         <td>"Italic"</td>
-                                        <td class="value" class:active=selection.italic>{ selection.italic }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::Italic)>{ selection.is_active(TiptapActiveKey::Italic) }</td>
                                     </tr>
                                     <tr>
                                         <td>"Strike"</td>
-                                        <td class="value" class:active=selection.strike>{ selection.strike }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::Strike)>{ selection.is_active(TiptapActiveKey::Strike) }</td>
                                     </tr>
                                     <tr>
                                         <td>"Blockquote"</td>
-                                        <td class="value" class:active=selection.blockquote>{ selection.blockquote }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::Blockquote)>{ selection.is_active(TiptapActiveKey::Blockquote) }</td>
                                     </tr>
                                     <tr>
                                         <td>"Highlight"</td>
-                                        <td class="value" class:active=selection.highlight>{ selection.highlight }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::Highlight)>{ selection.is_active(TiptapActiveKey::Highlight) }</td>
                                     </tr>
                                     <tr>
                                         <td>"Bullet List"</td>
-                                        <td class="value" class:active=selection.bullet_list>{ selection.bullet_list }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::BulletList)>{ selection.is_active(TiptapActiveKey::BulletList) }</td>
                                     </tr>
                                     <tr>
                                         <td>"Ordered List"</td>
-                                        <td class="value" class:active=selection.ordered_list>{ selection.ordered_list }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::OrderedList)>{ selection.is_active(TiptapActiveKey::OrderedList) }</td>
                                     </tr>
                                     <tr>
                                         <td>"Align left"</td>
-                                        <td class="value" class:active=selection.align_left>{ selection.align_left }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::AlignLeft)>{ selection.is_active(TiptapActiveKey::AlignLeft) }</td>
                                     </tr>
                                     <tr>
                                         <td>"Align center"</td>
-                                        <td class="value" class:active=selection.align_center>{ selection.align_center }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::AlignCenter)>{ selection.is_active(TiptapActiveKey::AlignCenter) }</td>
                                     </tr>
                                     <tr>
                                         <td>"Align right"</td>
-                                        <td class="value" class:active=selection.align_right>{ selection.align_right }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::AlignRight)>{ selection.is_active(TiptapActiveKey::AlignRight) }</td>
                                     </tr>
                                     <tr>
                                         <td>"Align justify"</td>
-                                        <td class="value" class:active=selection.align_justify>{ selection.align_justify }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::AlignJustify)>{ selection.is_active(TiptapActiveKey::AlignJustify) }</td>
                                     </tr>
                                     <tr>
                                         <td>"Link"</td>
-                                        <td class="value" class:active=selection.link>{ selection.link }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::Link)>{ selection.is_active(TiptapActiveKey::Link) }</td>
                                     </tr>
                                     <tr>
                                         <td>"YouTube"</td>
-                                        <td class="value" class:active=selection.youtube>{ selection.youtube }</td>
+                                        <td class="value" class:active=selection.is_active(TiptapActiveKey::Youtube)>{ selection.is_active(TiptapActiveKey::Youtube) }</td>
                                     </tr>
                                 </tbody>
                             </table>

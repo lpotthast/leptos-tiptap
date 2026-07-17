@@ -1,18 +1,18 @@
 import type {Editor} from "@tiptap/core"
 
-import type {ExtensionDescriptor, SelectionKey, SelectionState} from "./bridge_api.ts"
+import type {ActiveKey, ActiveState, ExtensionDescriptor} from "./bridge_api.ts"
 import {getBridgeBindings} from "./bridge_api.ts"
 
-export function activeSelection(
+export function activeState(
     entries: ReadonlyArray<readonly [
-        key: SelectionKey,
+        key: ActiveKey,
         isActive: (editor: Editor) => boolean,
     ]>,
-): Pick<ExtensionDescriptor, "selection_keys" | "selection_state"> {
+): Pick<ExtensionDescriptor, "active_keys" | "active_state"> {
     return {
-        selection_keys: entries.map(([key]) => key),
-        selection_state: (editor): Partial<SelectionState> => {
-            const state: SelectionState = {}
+        active_keys: entries.map(([key]) => key),
+        active_state: (editor): ActiveState => {
+            const state: ActiveState = {}
             for (const [key, isActive] of entries) {
                 state[key] = isActive(editor)
             }
@@ -21,7 +21,7 @@ export function activeSelection(
     }
 }
 
-export const mappedSelection = activeSelection
+export const mappedActiveState = activeState
 
 export function registerOfficialExtension(descriptor: ExtensionDescriptor): void {
     getBridgeBindings().registerExtension(descriptor)

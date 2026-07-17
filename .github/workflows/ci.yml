@@ -45,6 +45,14 @@ jobs:
       - name: just verify
         run: just verify
 
+      - name: Install nightly Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: just verify-nightly
+        run: just verify-nightly
+
   deny:
     runs-on: ubuntu-latest
     steps:

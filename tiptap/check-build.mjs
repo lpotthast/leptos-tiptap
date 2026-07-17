@@ -306,18 +306,21 @@ async function validateBridgeDrift() {
         rustDocumentFields,
     )
 
-    const tsSelectionSection = extractBetween(
+    const tsActiveKeySection = extractBetween(
         bridgeApi,
-        "export type SelectionKey =",
-        "export type SelectionState =",
-        "TypeScript selection keys",
+        "export type ActiveKey =",
+        "export type ActiveState =",
+        "TypeScript active keys",
     )
+    const rustActiveKeys = [...parseRustVariantFields(
+        extractRustEnumBody(rustSelection, "pub enum TiptapActiveKey {"),
+    ).keys()]
     assertSameSet(
-        "Selection key wire contract",
+        "Active key wire contract",
         "tiptap/src/bridge_api.ts",
-        matches(tsSelectionSection, /\|\s*"([^"]+)"/g),
+        matches(tsActiveKeySection, /\|\s*"([^"]+)"/g),
         "src/api/types/selection.rs",
-        matches(rustSelection, /\bpub\s+([a-z0-9_]+):\s+bool\b/g),
+        rustActiveKeys,
     )
 
     const rustExtensionNameSection = extractBetween(

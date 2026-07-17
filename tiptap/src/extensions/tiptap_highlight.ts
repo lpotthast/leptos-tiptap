@@ -1,7 +1,7 @@
 import {Highlight} from "@tiptap/extension-highlight"
 
 import type {ExtensionDescriptor} from "../bridge_api.ts"
-import {activeSelection, registerOfficialExtension} from "../bridge_extension_helpers.ts"
+import {activeState, registerOfficialExtension} from "../bridge_extension_helpers.ts"
 
 function buildHighlightAttributes(attributes?: { color?: string | null } | null) {
     if (attributes?.color == null) {
@@ -23,7 +23,7 @@ const descriptor: ExtensionDescriptor = {
             editor.chain().focus().toggleHighlight(buildHighlightAttributes(command.attributes)).run(),
         unset_highlight: (editor) => editor.chain().focus().unsetHighlight().run(),
     },
-    ...activeSelection([
+    ...activeState([
         ["highlight", (editor) => editor.isActive("highlight")],
     ]),
 }

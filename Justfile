@@ -47,6 +47,12 @@ verify:
     cargo check --manifest-path examples/demo-csr/Cargo.toml --target wasm32-unknown-unknown
     cargo check --manifest-path examples/demo-ssr/Cargo.toml --features ssr
 
+# Verify the nightly-only Leptos integrations without requiring nightly for the stable suite.
+verify-nightly:
+    cargo +nightly check --no-default-features --features nightly
+    cargo +nightly check --no-default-features --features component,nightly
+    cargo +nightly check --target wasm32-unknown-unknown --no-default-features --features component,full,nightly
+
 # Run the Chrome-based browser integration test headlessly.
 browser-test:
     cargo test --test browser_test -- --nocapture

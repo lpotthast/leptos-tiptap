@@ -33,6 +33,10 @@ pub struct UseTiptapEditorInput {
     pub on_change: Option<Callback<()>>,
 
     /// Called whenever the current editor selection changes.
+    ///
+    /// Use [`TiptapSelectionState::is_active`] for boolean extension activity and
+    /// [`TiptapSelectionState::active`] when missing and explicitly inactive states must remain
+    /// distinct.
     pub on_selection_change: Option<Callback<TiptapSelectionState>>,
 
     /// Called whenever the JS bridge reports a runtime error.

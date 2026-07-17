@@ -3,6 +3,8 @@ import type {Content, Editor, EditorOptions} from "@tiptap/core"
 import {
     emptySelectionState,
     getOrCreateBridgeBindings,
+    type ActiveKey,
+    type ActiveState,
     type BridgeError,
     type BridgeResult,
     type CommandKind,
@@ -27,7 +29,6 @@ import {
     type ReadyPayload,
     type RuntimeCommand,
     type RuntimeCommandKind,
-    type SelectionKey,
     type SelectionState,
 } from "./bridge_api.ts"
 import {installHostedModules} from "./generated/hosted_modules.ts"
@@ -52,7 +53,7 @@ type EditorEntry = {
     editor: Editor
     onSelection: OnSelection
     commandHandlers: Map<ExtensionCommandKind, DescriptorCommandHandler>
-    selectionContributors: Array<(editor: Editor) => Partial<SelectionState>>
+    activeStateContributors: Array<(editor: Editor) => ActiveState>
     lastSelectionState?: SelectionState
 }
 
@@ -63,13 +64,13 @@ type EditorSlot = {
 
 type RuntimeDescriptor = {
     descriptor: ExtensionDescriptor
-    selectionKeys: SelectionKey[]
+    activeKeys: ActiveKey[]
 }
 
 type RuntimeConfiguration = {
     extensions: NonNullable<EditorOptions["extensions"]>
     commandHandlers: Map<ExtensionCommandKind, DescriptorCommandHandler>
-    selectionContributors: Array<(editor: Editor) => Partial<SelectionState>>
+    activeStateContributors: Array<(editor: Editor) => ActiveState>
 }
 
 const editorSlots = new Map<string, EditorSlot>()
@@ -170,7 +171,7 @@ function setEditorEntry(
         editor,
         onSelection,
         commandHandlers: runtimeConfig.commandHandlers,
-        selectionContributors: runtimeConfig.selectionContributors,
+        activeStateContributors: runtimeConfig.activeStateContributors,
     }
     slot.entry = editorEntry
     return editorEntry
@@ -284,21 +285,21 @@ function serializeContent(editor: Editor, format: ContentFormat): BridgeResult<C
 function getSelectionState(editorEntry: EditorEntry): SelectionState {
     const state = emptySelectionState()
 
-    for (const contribute of editorEntry.selectionContributors) {
-        Object.assign(state, contribute(editorEntry.editor))
+    for (const contribute of editorEntry.activeStateContributors) {
+        Object.assign(state.active, contribute(editorEntry.editor))
     }
 
     return state
 }
 
 function selectionStatesEqual(left: SelectionState, right: SelectionState): boolean {
-    const keys = new Set<SelectionKey>([
-        ...(Object.keys(left) as SelectionKey[]),
-        ...(Object.keys(right) as SelectionKey[]),
+    const keys = new Set<ActiveKey>([
+        ...(Object.keys(left.active) as ActiveKey[]),
+        ...(Object.keys(right.active) as ActiveKey[]),
     ])
 
     for (const key of keys) {
-        if ((left[key] ?? false) !== (right[key] ?? false)) {
+        if ((left.active[key] ?? false) !== (right.active[key] ?? false)) {
             return false
         }
     }
@@ -540,7 +541,7 @@ function resolveDescriptors(extensionNames: string[]): BridgeResult<RuntimeDescr
 
         descriptors.push({
             descriptor,
-            selectionKeys: descriptor.selection_keys ?? [],
+            activeKeys: descriptor.active_keys ?? [],
         })
     }
 
@@ -557,11 +558,11 @@ function buildRuntimeConfiguration(
     }
 
     const commandHandlers = new Map<ExtensionCommandKind, DescriptorCommandHandler>()
-    const selectionContributors: Array<(editor: Editor) => Partial<SelectionState>> = []
+    const activeStateContributors: Array<(editor: Editor) => ActiveState> = []
     const extensions: NonNullable<EditorOptions["extensions"]> = []
-    const seenSelectionKeys = new Set<SelectionKey>()
+    const seenActiveKeys = new Set<ActiveKey>()
 
-    for (const {descriptor, selectionKeys} of resolvedDescriptors.value) {
+    for (const {descriptor, activeKeys} of resolvedDescriptors.value) {
         let created: ReturnType<ExtensionDescriptor["create"]>
         try {
             created = descriptor.create(context)
@@ -580,17 +581,17 @@ function buildRuntimeConfiguration(
             extensions.push(created)
         }
 
-        for (const selectionKey of selectionKeys) {
-            if (seenSelectionKeys.has(selectionKey)) {
+        for (const activeKey of activeKeys) {
+            if (seenActiveKeys.has(activeKey)) {
                 return registrationError(
-                    `Can not create Tiptap instance, as multiple selected extensions contribute selection key "${selectionKey}".`,
+                    `Can not create Tiptap instance, as multiple selected extensions contribute active key "${activeKey}".`,
                 )
             }
-            seenSelectionKeys.add(selectionKey)
+            seenActiveKeys.add(activeKey)
         }
 
-        if (descriptor.selection_state != null) {
-            selectionContributors.push(descriptor.selection_state)
+        if (descriptor.active_state != null) {
+            activeStateContributors.push(descriptor.active_state)
         }
 
         for (const [commandKind, handler] of Object.entries(descriptor.commands ?? {}) as Array<
@@ -613,7 +614,7 @@ function buildRuntimeConfiguration(
     return okResult({
         extensions,
         commandHandlers,
-        selectionContributors,
+        activeStateContributors,
     })
 }
 

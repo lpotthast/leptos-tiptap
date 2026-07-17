@@ -19,5 +19,5 @@ pub use extensions::{
     TiptapYoutubeVideoResource,
 };
 pub use schema::{TiptapMarkName, TiptapNodeName, TiptapSchemaTarget};
-pub use selection::TiptapSelectionState;
+pub use selection::{TiptapActiveKey, TiptapActiveState, TiptapSelectionState};
 pub use shared::TiptapAttributes;

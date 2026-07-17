@@ -11,9 +11,9 @@ mod runtime;
 #[cfg(feature = "component")]
 pub use api::component::TiptapEditor;
 pub use api::{
-    TiptapAttributes, TiptapCodeBlockAttributes, TiptapContent, TiptapEditorError,
-    TiptapEditorHandle, TiptapEditorInstance, TiptapEditorReport, TiptapEditorResult,
-    TiptapExtension, TiptapFocusOptions, TiptapFocusTarget, TiptapHeadingLevel,
+    TiptapActiveKey, TiptapActiveState, TiptapAttributes, TiptapCodeBlockAttributes, TiptapContent,
+    TiptapEditorError, TiptapEditorHandle, TiptapEditorInstance, TiptapEditorReport,
+    TiptapEditorResult, TiptapExtension, TiptapFocusOptions, TiptapFocusTarget, TiptapHeadingLevel,
     TiptapHighlightAttributes, TiptapImageResource, TiptapInsertContentOptions, TiptapLinkResource,
     TiptapListKind, TiptapMarkName, TiptapMarkOptions, TiptapNodeName, TiptapParseOptions,
     TiptapPositionOrRange, TiptapRange, TiptapSchemaTarget, TiptapSelectionState,

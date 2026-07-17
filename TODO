@@ -6,5 +6,3 @@
   payload field names, document request kinds and fields, selection keys, and extension entrypoint/FFI/registration
   names; what remains is the Cargo-feature ↔ Rust-registration mapping (currently hand-maintained in
   `src/api/extensions.rs`).
-- Revisit whether `TiptapSelectionState` should stay a flat bool struct or move to an extensible keyed model before
-  adding many more extensions.

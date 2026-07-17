@@ -1,7 +1,7 @@
 import {TextAlign} from "@tiptap/extension-text-align"
 
 import type {ExtensionDescriptor} from "../bridge_api.ts"
-import {activeSelection, registerOfficialExtension} from "../bridge_extension_helpers.ts"
+import {activeState, registerOfficialExtension} from "../bridge_extension_helpers.ts"
 
 const allowedAlignments = ["left", "center", "right", "justify"] as const
 
@@ -22,7 +22,7 @@ const descriptor: ExtensionDescriptor = {
                 : false,
         unset_text_align: (editor) => editor.chain().focus().unsetTextAlign().run(),
     },
-    ...activeSelection([
+    ...activeState([
         ["align_left", (editor) => editor.isActive({textAlign: "left"})],
         ["align_center", (editor) => editor.isActive({textAlign: "center"})],
         ["align_right", (editor) => editor.isActive({textAlign: "right"})],

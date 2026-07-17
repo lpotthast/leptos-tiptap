@@ -3,6 +3,7 @@ import test from "node:test"
 import type {Editor, EditorOptions} from "@tiptap/core"
 
 import type {
+    ActiveState,
     BridgeError,
     BridgeResult,
     CreateRequest,
@@ -634,7 +635,7 @@ test("emits sparse selection state for extensions without contributors", () => {
         },
     )
 
-    assert.deepEqual(latestSelection, {})
+    assert.deepEqual(latestSelection, {active: {}})
 })
 
 test("configures placeholder extension from create request", () => {
@@ -1588,7 +1589,7 @@ test("emits selection state when a transaction changes active mark state", () =>
         () => {
         },
         (selectionState) => {
-            latestSelection = selectionState.bold ?? false
+            latestSelection = selectionState.active.bold ?? false
             selectionCount += 1
         },
         () => {
@@ -1614,15 +1615,15 @@ test("emits selection state when a transaction changes active mark state", () =>
     assert.equal(selectionCount, 2)
 })
 
-test("treats missing selection keys as false when comparing sparse states", () => {
+test("treats missing active keys as false when comparing sparse states", () => {
     const createdEditors = setupAdapterTest()
-    let contributedSelection: SelectionState = {}
+    let contributedActiveState: ActiveState = {}
 
     __testing.registerExtension({
         name: "conditional_selection",
         create: () => ({name: "conditional_selection"} as never),
-        selection_keys: ["bold"],
-        selection_state: () => contributedSelection,
+        active_keys: ["bold"],
+        active_state: () => contributedActiveState,
     })
 
     let latestSelection: SelectionState | undefined
@@ -1651,23 +1652,23 @@ test("treats missing selection keys as false when comparing sparse states", () =
     }
 
     assert.equal(selectionCount, 1)
-    assert.deepEqual(latestSelection, {})
+    assert.deepEqual(latestSelection, {active: {}})
 
-    contributedSelection = {bold: false}
+    contributedActiveState = {bold: false}
     editor.emitTransaction()
     assert.equal(selectionCount, 1)
 
-    contributedSelection = {bold: true}
+    contributedActiveState = {bold: true}
     editor.emitTransaction()
     assert.equal(selectionCount, 2)
-    assert.deepEqual(latestSelection, {bold: true})
+    assert.deepEqual(latestSelection, {active: {bold: true}})
 
-    contributedSelection = {}
+    contributedActiveState = {}
     editor.emitTransaction()
     assert.equal(selectionCount, 3)
-    assert.deepEqual(latestSelection, {})
+    assert.deepEqual(latestSelection, {active: {}})
 
-    contributedSelection = {bold: false}
+    contributedActiveState = {bold: false}
     editor.emitTransaction()
     assert.equal(selectionCount, 3)
 })

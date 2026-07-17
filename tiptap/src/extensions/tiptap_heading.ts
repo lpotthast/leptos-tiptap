@@ -1,7 +1,7 @@
 import {Heading} from "@tiptap/extension-heading"
 
 import type {ExtensionDescriptor} from "../bridge_api.ts"
-import {activeSelection, registerOfficialExtension} from "../bridge_extension_helpers.ts"
+import {activeState, registerOfficialExtension} from "../bridge_extension_helpers.ts"
 
 const descriptor: ExtensionDescriptor = {
     name: "heading",
@@ -16,7 +16,7 @@ const descriptor: ExtensionDescriptor = {
                 level: command.level as 1 | 2 | 3 | 4 | 5 | 6,
             }).run(),
     },
-    ...activeSelection([
+    ...activeState([
         ["h1", (editor) => editor.isActive("heading", {level: 1})],
         ["h2", (editor) => editor.isActive("heading", {level: 2})],
         ["h3", (editor) => editor.isActive("heading", {level: 3})],

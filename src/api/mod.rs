@@ -12,12 +12,13 @@ pub use editor::{TiptapEditorHandle, TiptapEditorInstance};
 pub use error::{TiptapEditorError, TiptapEditorReport, TiptapEditorResult};
 pub use extensions::TiptapExtension;
 pub use types::{
-    TiptapAttributes, TiptapCodeBlockAttributes, TiptapContent, TiptapFocusOptions,
-    TiptapFocusTarget, TiptapHeadingLevel, TiptapHighlightAttributes, TiptapImageResource,
-    TiptapInsertContentOptions, TiptapLinkResource, TiptapListKind, TiptapMarkName,
-    TiptapMarkOptions, TiptapNodeName, TiptapParseOptions, TiptapPositionOrRange, TiptapRange,
-    TiptapSchemaTarget, TiptapSelectionState, TiptapSetContentOptions, TiptapSplitBlockOptions,
-    TiptapTextAlign, TiptapToggleListOptions, TiptapWhitespaceMode, TiptapYoutubeVideoResource,
+    TiptapActiveKey, TiptapActiveState, TiptapAttributes, TiptapCodeBlockAttributes, TiptapContent,
+    TiptapFocusOptions, TiptapFocusTarget, TiptapHeadingLevel, TiptapHighlightAttributes,
+    TiptapImageResource, TiptapInsertContentOptions, TiptapLinkResource, TiptapListKind,
+    TiptapMarkName, TiptapMarkOptions, TiptapNodeName, TiptapParseOptions, TiptapPositionOrRange,
+    TiptapRange, TiptapSchemaTarget, TiptapSelectionState, TiptapSetContentOptions,
+    TiptapSplitBlockOptions, TiptapTextAlign, TiptapToggleListOptions, TiptapWhitespaceMode,
+    TiptapYoutubeVideoResource,
 };
 pub use use_tiptap_editor::{
     UseTiptapEditorAttrs, UseTiptapEditorInput, UseTiptapEditorProps, UseTiptapEditorReturn,

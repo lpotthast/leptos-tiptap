@@ -1,7 +1,7 @@
 import Link from "@tiptap/extension-link"
 
 import type {ExtensionDescriptor} from "../bridge_api.ts"
-import {activeSelection, registerOfficialExtension} from "../bridge_extension_helpers.ts"
+import {activeState, registerOfficialExtension} from "../bridge_extension_helpers.ts"
 
 function buildLinkAttributes(
     href: string,
@@ -36,7 +36,7 @@ const descriptor: ExtensionDescriptor = {
             ).run(),
         unset_link: (editor) => editor.chain().focus().unsetLink().run(),
     },
-    ...activeSelection([
+    ...activeState([
         ["link", (editor) => editor.isActive("link")],
     ]),
 }

@@ -46,6 +46,8 @@ Applications with custom asset pipelines or server configuration must account fo
   `styles` props through the re-exported `leptos_classes` and `leptos_styles` modules.
 - Changed extension compilation to use individual Cargo features, with `starter-kit` and `full` presets. The
   `text_align` feature now enables its required `heading` and `paragraph` schema features.
+- Changed `TiptapSelectionState` from feature-gated public boolean fields to an opaque aggregate with typed,
+  feature-independent `TiptapActiveKey` lookups through `active`, `is_active`, and `active_entries`.
 - Changed `TiptapContent::Json` from a string to `serde_json::Value`. Use `TiptapContent::json_str` to parse serialized
   JSON.
 - Updated extension resource types: `TiptapImageResource` uses `src` and optional `alt`/`title`, `TiptapLinkResource`

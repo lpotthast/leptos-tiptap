@@ -32,7 +32,7 @@ export type BridgeResult<T> =
 
 export type EmptyResponse = { kind: "empty" }
 
-export type SelectionKey =
+export type ActiveKey =
     | "h1"
     | "h2"
     | "h3"
@@ -54,7 +54,11 @@ export type SelectionKey =
     | "link"
     | "youtube"
 
-export type SelectionState = Partial<Record<SelectionKey, boolean>>
+export type ActiveState = Partial<Record<ActiveKey, boolean>>
+
+export type SelectionState = {
+    active: ActiveState
+}
 
 export type ContentPayload =
     | {
@@ -270,8 +274,8 @@ export type ExtensionDescriptor = {
     name: string
     create: (context: ExtensionCreateContext) => TiptapExtension | TiptapExtension[]
     commands?: ExtensionCommandHandlers
-    selection_keys?: SelectionKey[]
-    selection_state?: (editor: Editor) => Partial<SelectionState>
+    active_keys?: ActiveKey[]
+    active_state?: (editor: Editor) => ActiveState
 }
 
 export type BridgeBindings = {
@@ -284,7 +288,7 @@ type BridgeGlobal = typeof globalThis & {
 }
 
 export function emptySelectionState(): SelectionState {
-    return {}
+    return {active: {}}
 }
 
 export function getOrCreateBridgeBindings(): BridgeBindings {

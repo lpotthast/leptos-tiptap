@@ -1,7 +1,7 @@
 import {Strike} from "@tiptap/extension-strike"
 
 import type {ExtensionDescriptor} from "../bridge_api.ts"
-import {activeSelection, registerOfficialExtension} from "../bridge_extension_helpers.ts"
+import {activeState, registerOfficialExtension} from "../bridge_extension_helpers.ts"
 
 const descriptor: ExtensionDescriptor = {
     name: "strike",
@@ -11,7 +11,7 @@ const descriptor: ExtensionDescriptor = {
         toggle_strike: (editor) => editor.chain().focus().toggleStrike().run(),
         unset_strike: (editor) => editor.chain().focus().unsetStrike().run(),
     },
-    ...activeSelection([
+    ...activeState([
         ["strike", (editor) => editor.isActive("strike")],
     ]),
 }

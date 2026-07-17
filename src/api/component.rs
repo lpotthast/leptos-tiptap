@@ -129,7 +129,10 @@ pub fn TiptapEditor(
     placeholder: Option<String>,
 
     /// Notifies you about a new selection. A selection changes, for example, if the cursor in the
-    /// editor changes position, "selecting" a new element in the editor.
+    /// editor changes position, "selecting" a new element in the editor. Use
+    /// [`TiptapSelectionState::is_active`] for boolean extension activity and
+    /// [`TiptapSelectionState::active`] when missing and explicitly inactive states must remain
+    /// distinct.
     #[prop(into, optional)]
     on_selection_change: Option<Callback<TiptapSelectionState>>,
 ) -> impl IntoView {

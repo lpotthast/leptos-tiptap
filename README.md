@@ -140,6 +140,19 @@ Compiled extensions are selected through Cargo features. Use `starter-kit` for t
 this crate, or `full` for every currently supported extension. Per-instance extension subsets can be selected with the
 component `extensions` prop or the hook input `extensions` field; if omitted, all compiled extensions are active.
 
+Selection callbacks receive an opaque `TiptapSelectionState`. Query boolean extension activity with typed keys:
+
+```rust
+use leptos_tiptap::TiptapActiveKey;
+
+let bold_is_active = selection.is_active(TiptapActiveKey::Bold);
+let bold_is_reported = selection.active(TiptapActiveKey::Bold); // Option<bool>
+```
+
+`active` distinguishes an explicitly inactive state from a key that the editor's selected extensions do not report.
+Use `active_entries` to iterate every contributed boolean state. Separately typed selection information can be added to
+the opaque aggregate without turning it into an untyped value map.
+
 When the `placeholder` feature is enabled and active for an editor, set the component or hook `placeholder` option to
 initialize its placeholder text. The extension adds placeholder classes and `data-placeholder`; your app stylesheet must
 render them, for example:
@@ -213,8 +226,8 @@ Optional feature bundles:
 
 ### Prerequisites
 
-
 - Rust toolchain matching the MSRV (`1.89.0` — see `Cargo.toml`'s `rust-version`) or newer.
+- A nightly toolchain with `wasm32-unknown-unknown` installed when running `just verify-nightly`.
 - `wasm32-unknown-unknown` target installed (`rustup target add wasm32-unknown-unknown`).
 - Node.js 20 or newer with `npm`.
 - [`just`](https://github.com/casey/just) for the orchestration recipes.
@@ -246,7 +259,7 @@ warning-denied documentation, and a generated-bundle drift check. Run `just` to 
 - Use the `assertr` crate for unit-level assertions instead of `assert!` / `assert_eq!`.
 - When you add or remove a TipTap command, update the Rust `protocol`/`api`/`runtime` modules and the matching
   TypeScript bridge or extension module together. `tiptap/check-build.mjs` enforces that command names, document
-  request kinds, selection keys, and extension names stay in sync between Rust and TypeScript.
+  request kinds, active-state keys, and extension names stay in sync between Rust and TypeScript.
 - If a change touches `tiptap/src/`, rebuild the generated bundles with `just build` and include the resulting diffs
   under `src/js/generated/` in the same commit. The drift check will fail otherwise.
 

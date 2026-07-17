@@ -1,7 +1,7 @@
 import {OrderedList} from "@tiptap/extension-ordered-list"
 
 import type {ExtensionDescriptor} from "../bridge_api.ts"
-import {activeSelection, registerOfficialExtension} from "../bridge_extension_helpers.ts"
+import {activeState, registerOfficialExtension} from "../bridge_extension_helpers.ts"
 
 const descriptor: ExtensionDescriptor = {
     name: "ordered_list",
@@ -9,7 +9,7 @@ const descriptor: ExtensionDescriptor = {
     commands: {
         toggle_ordered_list: (editor) => editor.chain().focus().toggleOrderedList().run(),
     },
-    ...activeSelection([
+    ...activeState([
         ["ordered_list", (editor) => editor.isActive("orderedList")],
     ]),
 }

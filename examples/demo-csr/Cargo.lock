@@ -766,9 +766,9 @@ dependencies = [
 
 [[package]]
 name = "leptos-classes"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "560b74e5707db7c6b183d9ec4993b463b29ec8b70d5ae6d5a1a97653041c108f"
+checksum = "db5768a4be3c7af7c31ba4974c82eb8c79f49f334cfd9515dad7053ed25e9722"
 dependencies = [
  "leptos",
  "smallvec",
