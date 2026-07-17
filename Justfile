@@ -59,6 +59,10 @@ browser-test-visible:
 browser-test-pause:
     BROWSER_TEST_VISIBLE=1 BROWSER_TEST_PAUSE=1 cargo test --test browser_test -- --nocapture
 
+# Run cargo-deny's supply-chain checks (advisories, bans, licenses, sources).
+deny:
+    cargo deny check
+
 # Find the minimum supported rust version
 msrv:
     cargo install cargo-msrv

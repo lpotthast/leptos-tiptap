@@ -16,6 +16,7 @@ Example apps are under `examples/`, including `demo-csr` and `demo-ssr`.
   Clippy.
 - `cargo build`: build the library crate.
 - `cargo build --features ssr`: verify the server-side no-op JS path builds.
+- `just deny`: run the blocking supply-chain checks.
 - `cd tiptap && npm test`: run bridge runtime tests.
 - `cd examples/demo-csr && trunk serve`: run the CSR example.
 - `cd examples/demo-ssr && cargo leptos watch`: run the SSR example.

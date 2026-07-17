@@ -1,0 +1,31 @@
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+unmaintained = "all"
+ignore = [
+    { id = "RUSTSEC-2024-0436", reason = "paste is transitive through Leptos 0.8 and has no compatible maintained release" },
+    { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 is transitive through Leptos 0.8 and has no compatible maintained release" },
+]
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "BSL-1.0",
+    "CC0-1.0",
+    "MIT",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
