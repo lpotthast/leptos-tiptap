@@ -10,11 +10,9 @@ mod js {
         #[wasm_bindgen(catch)]
         pub fn create(
             request: JsValue,
-            on_ready: &ScopedClosure<'static, dyn Fn(JsValue)>,
             on_change: &ScopedClosure<'static, dyn Fn()>,
             on_selection: &ScopedClosure<'static, dyn Fn(JsValue)>,
-            on_error: &ScopedClosure<'static, dyn Fn(JsValue)>,
-        ) -> Result<(), JsValue>;
+        ) -> Result<JsValue, JsValue>;
         pub fn destroy(id: String);
         pub fn command(request: JsValue) -> JsValue;
         pub fn document(request: JsValue) -> JsValue;

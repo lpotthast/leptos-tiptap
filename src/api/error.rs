@@ -3,9 +3,37 @@ use thiserror::Error;
 /// Error type for editor operations.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum TiptapEditorError {
-    /// The requested editor instance is unavailable.
-    #[error("the requested Tiptap editor instance is not available")]
-    EditorUnavailable,
+    /// The current editor session has not yet finished mounting and become ready.
+    ///
+    /// This is also the result of attempting an editor operation under SSR, where the editor never
+    /// becomes ready. Reusing a handle for a sequential remount or retry moves it back to this state
+    /// while the new session initializes.
+    #[error("the Tiptap editor is not yet ready")]
+    NotReady,
+
+    /// The previous editor session was cleaned up and is no longer usable.
+    ///
+    /// Typically observed when an operation is attempted on a handle whose component has unmounted.
+    /// A sequential remount of the same logical editor moves the handle back to [`NotReady`](Self::NotReady).
+    #[error("the Tiptap editor has been destroyed")]
+    Destroyed,
+
+    /// The current editor session failed to mount and is not usable.
+    ///
+    /// Retrying the same logical editor with a new session moves the handle back to
+    /// [`NotReady`](Self::NotReady) while that attempt initializes.
+    #[error("the Tiptap editor failed to mount")]
+    CreateFailed,
+
+    /// The [`TiptapEditorInstance`] used to address the editor refers to a generation that is no
+    /// longer alive (the editor was destroyed and a new one was registered under the same DOM id).
+    ///
+    /// Acquire a fresh instance through [`TiptapEditorHandle::instance`] and retry.
+    ///
+    /// [`TiptapEditorInstance`]: crate::TiptapEditorInstance
+    /// [`TiptapEditorHandle::instance`]: crate::TiptapEditorHandle::instance
+    #[error("the Tiptap editor instance is stale")]
+    Stale,
 
     /// An editor id is already in use.
     #[error("duplicate Tiptap editor id: {0}")]

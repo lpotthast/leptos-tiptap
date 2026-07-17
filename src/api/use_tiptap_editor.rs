@@ -16,15 +16,17 @@ pub struct UseTiptapEditorInput {
     /// The ID for this Tiptap instance. Must be unique across all mounted instances.
     pub id: String,
 
-    /// An optional editor handle to populate when the editor becomes ready.
+    /// An optional handle to populate when the editor becomes ready.
     ///
     /// If omitted, the hook creates and returns its own [`struct@TiptapEditorHandle`].
-    pub editor: Option<TiptapEditorHandle>,
+    /// Keep one handle per logical editor: it may be reused for that editor's sequential remounts
+    /// or retries, but must not be shared by distinct or concurrently mounted editor sessions.
+    pub handle: Option<TiptapEditorHandle>,
 
     /// Initial content of the editor.
     pub initial_content: TiptapContent,
 
-    /// Called once the editor has been populated into `editor`.
+    /// Called once the editor has been populated into `handle`.
     pub on_ready: Option<Callback<()>>,
 
     /// Called whenever the editor content changes.
@@ -72,7 +74,7 @@ impl Default for UseTiptapEditorInput {
     fn default() -> Self {
         Self {
             id: String::new(),
-            editor: None,
+            handle: None,
             initial_content: TiptapContent::default(),
             on_ready: None,
             on_change: None,
@@ -122,7 +124,7 @@ pub struct UseTiptapEditorReturn {
     pub props: UseTiptapEditorProps,
 
     /// The reactive editor handle for issuing commands and reading content.
-    pub editor: TiptapEditorHandle,
+    pub handle: TiptapEditorHandle,
 
     /// Reactive readiness state for the editor handle.
     pub is_ready: Signal<bool>,
@@ -134,11 +136,45 @@ pub struct UseTiptapEditorReturn {
 /// Creates and manages a Tiptap editor instance from within a Leptos owner scope.
 ///
 /// This hook owns the Leptos-specific orchestration around `TiptapRuntimeSession`:
-/// mount timing, disabled synchronization, cleanup, and exposing the editor handle.
+/// mount timing, disabled synchronization, cleanup, and exposing the editor handle. Use it when
+/// building an editor component from scratch or when you need to choose and compose the host
+/// element yourself. Spread [`UseTiptapEditorProps::into_attrs`] onto exactly one rendered host
+/// element so the hook can capture it and mount the editor.
+///
+/// If you do not need a custom host element, prefer the prebuilt editor component. It is provided
+/// by the `component` Cargo feature, which is enabled by default.
+#[cfg_attr(
+    feature = "component",
+    doc = "See the prebuilt [`TiptapEditor`](crate::TiptapEditor) component."
+)]
+#[cfg_attr(
+    not(feature = "component"),
+    doc = "Enable the `component` feature to use the prebuilt `TiptapEditor` component."
+)]
+///
+/// # Example
+///
+/// ```
+/// use leptos::prelude::*;
+/// use leptos_tiptap::{TiptapContent, UseTiptapEditorInput, use_tiptap_editor};
+///
+/// #[component]
+/// fn CustomEditor() -> impl IntoView {
+///     let tiptap = use_tiptap_editor(UseTiptapEditorInput::new(
+///         "article-editor",
+///         TiptapContent::html("<p>Edit me.</p>"),
+///     ));
+///     let attrs = tiptap.props.into_attrs();
+///
+///     view! {
+///         <div class="custom-editor" {..attrs}></div>
+///     }
+/// }
+/// ```
 pub fn use_tiptap_editor(input: UseTiptapEditorInput) -> UseTiptapEditorReturn {
     let UseTiptapEditorInput {
         id,
-        editor,
+        handle,
         initial_content,
         on_ready,
         on_change,
@@ -149,8 +185,8 @@ pub fn use_tiptap_editor(input: UseTiptapEditorInput) -> UseTiptapEditorReturn {
         on_selection_change,
     } = input;
 
-    let editor = editor.unwrap_or_default();
-    let session = TiptapRuntimeSession::new(id, editor);
+    let handle = handle.unwrap_or_default();
+    let session = TiptapRuntimeSession::new(id, handle);
     let mount_options = TiptapRuntimeMountOptions {
         initial_content,
         initial_editable: !disabled.get_untracked(),
@@ -198,8 +234,8 @@ pub fn use_tiptap_editor(input: UseTiptapEditorInput) -> UseTiptapEditorReturn {
             aria_disabled: disabled,
             element_capture: element,
         },
-        editor,
-        is_ready: Signal::derive(move || editor.is_ready()),
+        handle,
+        is_ready: Signal::derive(move || handle.is_ready()),
         element,
     }
 }

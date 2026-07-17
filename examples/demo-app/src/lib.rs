@@ -3,15 +3,26 @@ use leptos::serde_json;
 use leptos_tiptap::{
     TiptapContent, TiptapEditor, TiptapEditorHandle, TiptapExtension, TiptapHeadingLevel,
     TiptapLinkResource, TiptapSelectionState, TiptapTextAlign, TiptapYoutubeVideoResource,
+    leptos_styles::Styles
 };
+
+pub mod test_fixtures;
 
 #[component]
 pub fn DemoApp() -> impl IntoView {
-    let editor = TiptapEditorHandle::new();
+    let handle = TiptapEditorHandle::new();
     let (selection, set_selection) = signal(TiptapSelectionState::default());
     let (disabled, set_disabled) = signal(false);
     let (html_output, set_html_output) = signal(String::new());
     let (json_output, set_json_output) = signal(String::new());
+    let editor_styles = Styles::builder()
+        .with_unchecked("display", "block")
+        .with_unchecked("width", "auto")
+        .with_unchecked("height", "auto")
+        .with_unchecked("border", "1px solid")
+        .with_unchecked("padding", "0.5em")
+        .with_unchecked("white-space", "pre-wrap")
+        .build();
 
     view! {
         <section id="html-demo">
@@ -19,31 +30,31 @@ pub fn DemoApp() -> impl IntoView {
 
             <button on:click=move |_| set_disabled.set(!disabled.get())>"Disabled: " { move || disabled.get() }</button>
             <button
-                on:click=move |_| replace_editor_content(&editor, set_html_output, set_json_output)
-                disabled=move || !editor.is_ready()
+                on:click=move |_| replace_editor_content(&handle, set_html_output, set_json_output)
+                disabled=move || !handle.is_ready()
             >
                 "Replace content"
             </button>
-            <button on:click=move |_| { let _ = editor.toggle_heading(TiptapHeadingLevel::H1); }>"H1"</button>
-            <button on:click=move |_| { let _ = editor.toggle_heading(TiptapHeadingLevel::H2); }>"H2"</button>
-            <button on:click=move |_| { let _ = editor.toggle_heading(TiptapHeadingLevel::H3); }>"H3"</button>
-            <button on:click=move |_| { let _ = editor.toggle_heading(TiptapHeadingLevel::H4); }>"H4"</button>
-            <button on:click=move |_| { let _ = editor.toggle_heading(TiptapHeadingLevel::H5); }>"H5"</button>
-            <button on:click=move |_| { let _ = editor.toggle_heading(TiptapHeadingLevel::H6); }>"H6"</button>
-            <button on:click=move |_| { let _ = editor.set_paragraph(); }>"Paragraph"</button>
-            <button on:click=move |_| { let _ = editor.toggle_bold(); }>"Bold"</button>
-            <button on:click=move |_| { let _ = editor.toggle_italic(); }>"Italic"</button>
-            <button on:click=move |_| { let _ = editor.toggle_strike(); }>"Strike"</button>
-            <button on:click=move |_| { let _ = editor.toggle_blockquote(); }>"Blockquote"</button>
-            <button on:click=move |_| { let _ = editor.toggle_highlight(None); }>"Highlight"</button>
-            <button on:click=move |_| { let _ = editor.toggle_bullet_list(); }>"BulletList"</button>
-            <button on:click=move |_| { let _ = editor.toggle_ordered_list(); }>"OrderedList"</button>
-            <button on:click=move |_| { let _ = editor.set_text_align(TiptapTextAlign::Left); }>"AlignLeft"</button>
-            <button on:click=move |_| { let _ = editor.set_text_align(TiptapTextAlign::Center); }>"AlignCenter"</button>
-            <button on:click=move |_| { let _ = editor.set_text_align(TiptapTextAlign::Right); }>"AlignRight"</button>
-            <button on:click=move |_| { let _ = editor.set_text_align(TiptapTextAlign::Justify); }>"AlignJustify"</button>
+            <button on:click=move |_| { let _ = handle.toggle_heading(TiptapHeadingLevel::H1); }>"H1"</button>
+            <button on:click=move |_| { let _ = handle.toggle_heading(TiptapHeadingLevel::H2); }>"H2"</button>
+            <button on:click=move |_| { let _ = handle.toggle_heading(TiptapHeadingLevel::H3); }>"H3"</button>
+            <button on:click=move |_| { let _ = handle.toggle_heading(TiptapHeadingLevel::H4); }>"H4"</button>
+            <button on:click=move |_| { let _ = handle.toggle_heading(TiptapHeadingLevel::H5); }>"H5"</button>
+            <button on:click=move |_| { let _ = handle.toggle_heading(TiptapHeadingLevel::H6); }>"H6"</button>
+            <button on:click=move |_| { let _ = handle.set_paragraph(); }>"Paragraph"</button>
+            <button on:click=move |_| { let _ = handle.toggle_bold(); }>"Bold"</button>
+            <button on:click=move |_| { let _ = handle.toggle_italic(); }>"Italic"</button>
+            <button on:click=move |_| { let _ = handle.toggle_strike(); }>"Strike"</button>
+            <button on:click=move |_| { let _ = handle.toggle_blockquote(); }>"Blockquote"</button>
+            <button on:click=move |_| { let _ = handle.toggle_highlight(None); }>"Highlight"</button>
+            <button on:click=move |_| { let _ = handle.toggle_bullet_list(); }>"BulletList"</button>
+            <button on:click=move |_| { let _ = handle.toggle_ordered_list(); }>"OrderedList"</button>
+            <button on:click=move |_| { let _ = handle.set_text_align(TiptapTextAlign::Left); }>"AlignLeft"</button>
+            <button on:click=move |_| { let _ = handle.set_text_align(TiptapTextAlign::Center); }>"AlignCenter"</button>
+            <button on:click=move |_| { let _ = handle.set_text_align(TiptapTextAlign::Right); }>"AlignRight"</button>
+            <button on:click=move |_| { let _ = handle.set_text_align(TiptapTextAlign::Justify); }>"AlignJustify"</button>
             <button on:click=move |_| {
-                let _ = editor.set_link(TiptapLinkResource {
+                let _ = handle.set_link(TiptapLinkResource {
                     href: "https://www.google.com/".to_string(),
                     target: Some("_blank".to_string()),
                     rel: Some("alternate".to_string()),
@@ -53,7 +64,7 @@ pub fn DemoApp() -> impl IntoView {
                 "Set link"
             </button>
             <button on:click=move |_| {
-                let _ = editor.toggle_link(TiptapLinkResource {
+                let _ = handle.toggle_link(TiptapLinkResource {
                     href: "https://www.google.com/".to_string(),
                     target: Some("_blank".to_string()),
                     rel: Some("alternate".to_string()),
@@ -62,9 +73,9 @@ pub fn DemoApp() -> impl IntoView {
             }>
                 "Toggle link"
             </button>
-            <button on:click=move |_| { let _ = editor.unset_link(); }>"Unset link"</button>
+            <button on:click=move |_| { let _ = handle.unset_link(); }>"Unset link"</button>
             <button on:click=move |_| {
-                let _ = editor.set_youtube_video(TiptapYoutubeVideoResource {
+                let _ = handle.set_youtube_video(TiptapYoutubeVideoResource {
                     src: "https://www.youtube.com/embed/dQw4w9WgXcQ?si=6LwJzVo1t8hpLywC".to_string(),
                     start: Some(0),
                     width: Some(640),
@@ -75,16 +86,17 @@ pub fn DemoApp() -> impl IntoView {
             </button>
 
             <TiptapEditor
-                editor=editor
+                handle=handle
                 id="id"
                 disabled=disabled
                 initial_content=initial_html_content()
                 placeholder="Start typing here..."
-                on_ready=move |_| sync_editor_outputs(&editor, set_html_output, set_json_output)
-                on_change=move |_| sync_editor_outputs(&editor, set_html_output, set_json_output)
+                on_ready=move |_| sync_editor_outputs(&handle, set_html_output, set_json_output)
+                on_change=move |_| sync_editor_outputs(&handle, set_html_output, set_json_output)
                 on_selection_change=move |state| set_selection.set(state)
                 extensions=TiptapExtension::all_enabled()
-                attr:style="display: block; width: auto; height: auto; border: 1px solid; padding: 0.5em; white-space: pre-wrap;"
+                classes="demo-editor"
+                styles=editor_styles
             />
 
             <div style="display: flex; flex-direction: row; gap: 0.5em; margin-top: 0.5em;">
@@ -230,11 +242,11 @@ fn replacement_html_content() -> TiptapContent {
 }
 
 fn replace_editor_content(
-    editor: &TiptapEditorHandle,
+    handle: &TiptapEditorHandle,
     set_html_output: WriteSignal<String>,
     set_json_output: WriteSignal<String>,
 ) {
-    match editor.set_content(replacement_html_content()) {
+    match handle.set_content(replacement_html_content()) {
         Ok(()) => {}
         Err(err) => {
             set_html_output.set(format!("Error replacing content: {err}"));
@@ -244,17 +256,17 @@ fn replace_editor_content(
 }
 
 fn sync_editor_outputs(
-    editor: &TiptapEditorHandle,
+    handle: &TiptapEditorHandle,
     set_html_output: WriteSignal<String>,
     set_json_output: WriteSignal<String>,
 ) {
     set_html_output.set(
-        editor
+        handle
             .get_html()
             .unwrap_or_else(|err| format!("Error reading HTML content: {err}")),
     );
     set_json_output.set(
-        editor
+        handle
             .get_json()
             .map(|content| serde_json::to_string_pretty(&content).unwrap())
             .unwrap_or_else(|err| format!("Error reading JSON content: {err}")),

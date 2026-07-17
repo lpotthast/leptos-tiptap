@@ -1,3 +1,7 @@
+use demo_app::test_fixtures::{
+    DuplicateEditorIdFixture, ExtensionSubsetFixture, MultiEditorFixture, OnChangeCountingFixture,
+    OnErrorFixture, PlaceholderFixture, RemountHandleFixture, RetryHandleFixture,
+};
 use demo_app::DemoApp;
 use leptos::prelude::*;
 use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
@@ -36,6 +40,14 @@ pub fn App() -> impl IntoView {
             <main>
                 <Routes fallback=|| "Page not found.".into_view()>
                     <Route path=StaticSegment("") view=DemoApp/>
+                    <Route path=StaticSegment("multi-editor") view=MultiEditorFixture/>
+                    <Route path=StaticSegment("duplicate-editor-id") view=DuplicateEditorIdFixture/>
+                    <Route path=StaticSegment("placeholder") view=PlaceholderFixture/>
+                    <Route path=StaticSegment("extension-subset") view=ExtensionSubsetFixture/>
+                    <Route path=StaticSegment("on-error") view=OnErrorFixture/>
+                    <Route path=StaticSegment("on-change-counting") view=OnChangeCountingFixture/>
+                    <Route path=StaticSegment("remount-handle") view=RemountHandleFixture/>
+                    <Route path=StaticSegment("retry-handle") view=RetryHandleFixture/>
                 </Routes>
             </main>
         </Router>

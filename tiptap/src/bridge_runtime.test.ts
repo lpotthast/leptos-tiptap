@@ -2,8 +2,15 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import type {Editor, EditorOptions} from "@tiptap/core"
 
-import type {CreateRequest, EditorCommand, SelectionState} from "./bridge_api.ts"
-import {__testing, command, create, destroy, document} from "./bridge_runtime.ts"
+import type {
+    BridgeError,
+    BridgeResult,
+    CreateRequest,
+    EditorCommand,
+    ReadyPayload,
+    SelectionState,
+} from "./bridge_api.ts"
+import {__testing, command, create as createRuntime, destroy, document} from "./bridge_runtime.ts"
 import {register_blockquote} from "./extensions/tiptap_blockquote.ts"
 import {register_bold} from "./extensions/tiptap_bold.ts"
 import {register_bullet_list} from "./extensions/tiptap_bullet_list.ts"
@@ -55,6 +62,25 @@ const DEFAULT_EXTENSION_NAMES: string[] = [
     "link",
     "youtube",
 ]
+
+// Keep the existing callback-oriented assertions focused on callback ordering while the runtime's
+// public create contract returns the synchronous ready/error outcome as a structured result.
+function create(
+    request: CreateRequest,
+    onReady: (payload: ReadyPayload) => void,
+    onChange: () => void,
+    onSelection: (selectionState: SelectionState) => void,
+    onError: (error: BridgeError) => void,
+): BridgeResult<ReadyPayload> {
+    const result = createRuntime(request, onChange, onSelection)
+    if (result.ok) {
+        onReady(result.value)
+        onSelection(result.value.selection_state)
+    } else {
+        onError(result.error)
+    }
+    return result
+}
 
 function registerDefaultExtensions(): void {
     if (__testing.hasRegisteredExtension("blockquote")) {
@@ -506,7 +532,7 @@ test("rejects duplicate live ids before replacement extension validation", () =>
     assert.equal(__testing.getEditorEntry("id")?.editor, firstEditor as unknown as Editor)
 })
 
-test("reports extension initialization failures through onError without throwing", () => {
+test("returns extension initialization failures without throwing", () => {
     setupAdapterTest()
     __testing.registerExtension({
         name: "throwing_extension",
@@ -1087,6 +1113,73 @@ test("forwards document set_content options to editor.commands.setContent", () =
     assert.deepEqual(editor.chainCalls, [])
 })
 
+test("defaults document set_content to emitting an update", () => {
+    const editor = new FakeEditor({content: "<p>hello</p>"})
+    setupAdapterTest({
+        makeEditor: () => editor,
+    })
+
+    const generation = createAndGetGeneration()
+
+    const result = document({
+        id: "id",
+        generation,
+        request: {
+            kind: "set_content",
+            content: {
+                format: "html",
+                value: "<p>updated</p>",
+            },
+        },
+    })
+
+    assert.equal(result.ok, true)
+    assert.deepEqual(editor.commandCalls, [{
+        name: "setContent",
+        args: [
+            "<p>updated</p>",
+            true,
+            {},
+            {errorOnInvalidContent: undefined},
+        ],
+    }])
+})
+
+test("allows document set_content updates to be silenced explicitly", () => {
+    const editor = new FakeEditor({content: "<p>hello</p>"})
+    setupAdapterTest({
+        makeEditor: () => editor,
+    })
+
+    const generation = createAndGetGeneration()
+
+    const result = document({
+        id: "id",
+        generation,
+        request: {
+            kind: "set_content",
+            content: {
+                format: "html",
+                value: "<p>updated</p>",
+            },
+            options: {
+                emit_update: false,
+            },
+        },
+    })
+
+    assert.equal(result.ok, true)
+    assert.deepEqual(editor.commandCalls, [{
+        name: "setContent",
+        args: [
+            "<p>updated</p>",
+            false,
+            {},
+            {errorOnInvalidContent: undefined},
+        ],
+    }])
+})
+
 test("forwards insert_content invalid-content handling options to editor.commands.insertContent", () => {
     const editor = new FakeEditor({content: "<p>hello</p>"})
     setupAdapterTest({
@@ -1177,6 +1270,28 @@ test("rejects duplicate live editor ids without destroying the existing editor",
     assert.equal(firstEditor?.destroyed, false)
     assert.equal(createdEditors.length, 1)
     assert.equal(__testing.getEditorEntry("id")?.editor, firstEditor as unknown as Editor)
+})
+
+test("returns duplicate live editor ids as structured creation errors", () => {
+    const createdEditors = setupAdapterTest()
+
+    const firstResult = createRuntime(createRequest("id", "<p>first</p>"), () => {
+    }, () => {
+    })
+    assert.equal(firstResult.ok, true)
+
+    const duplicateResult = withSuppressedConsoleError(() =>
+        createRuntime(createRequest("id", "<p>second</p>"), () => {
+        }, () => {
+        }))
+
+    assert.equal(duplicateResult.ok, false)
+    if (duplicateResult.ok) {
+        throw new Error("duplicate create should return an error")
+    }
+    assert.equal(duplicateResult.error.kind, "duplicate_editor_id")
+    assert.equal(createdEditors.length, 1)
+    assert.equal(__testing.getEditorEntry("id")?.editor, createdEditors[0] as unknown as Editor)
 })
 
 test("does not allocate registry slots when destroying unknown ids", () => {

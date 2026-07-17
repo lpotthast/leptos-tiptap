@@ -2,22 +2,14 @@
 <module type="EMPTY_MODULE" version="4">
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
-      <sourceFolder url="file://$MODULE_DIR$/leptos-tiptap-build/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/leptos-tiptap/examples" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/leptos-tiptap/examples/demo-csr/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/leptos-tiptap/examples/demo-ssr/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/leptos-tiptap/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/leptos-tiptap/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/demo-app/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" />
-      <sourceFolder url="file://$MODULE_DIR$/examples/demo-app/src" isTestSource="false" />
-      <excludeFolder url="file://$MODULE_DIR$/leptos-tiptap-build/target" />
-      <excludeFolder url="file://$MODULE_DIR$/leptos-tiptap/examples/demo-csr/target" />
-      <excludeFolder url="file://$MODULE_DIR$/leptos-tiptap/examples/demo-ssr/target" />
-      <excludeFolder url="file://$MODULE_DIR$/leptos-tiptap/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/examples/demo-app/target" />
+      <excludeFolder url="file://$MODULE_DIR$/examples/demo-csr/target" />
+      <excludeFolder url="file://$MODULE_DIR$/examples/demo-ssr/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

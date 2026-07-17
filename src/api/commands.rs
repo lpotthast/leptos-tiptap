@@ -20,814 +20,467 @@ use super::{
 };
 use crate::protocol::{ContentPayload, EditorCommand};
 
-macro_rules! dispatch_no_arg_methods {
-    ($($(#[$meta:meta])* $method_name:ident => $command_variant:ident),* $(,)?) => {
+macro_rules! dispatch_command {
+    ($receiver:expr, $command_variant:ident) => {
+        $receiver.dispatch(EditorCommand::$command_variant)
+    };
+    ($receiver:expr, $command_variant:ident, |$instance:ident| $body:block) => {{
+        let $instance = $receiver;
+        $body
+    }};
+}
+
+macro_rules! command_methods {
+    (
         $(
-            $(#[$meta])*
-            pub fn $method_name(&self) -> TiptapEditorResult<()> {
-                self.dispatch(EditorCommand::$command_variant)
-            }
-        )*
+            $(#[$meta:meta])*
+            $method_name:ident $(<$($generic:ident),+>)? (
+                $($argument_name:ident: $argument_type:ty),* $(,)?
+            ) => $command_variant:ident
+            $(where [$($where_clause:tt)*])?
+            $(|$instance:ident| $body:block)?
+        ),* $(,)?
+    ) => {
+        impl TiptapEditorInstance {
+            $(
+                $(#[$meta])*
+                #[doc = concat!(
+                    "Dispatches Tiptap's `",
+                    stringify!($method_name),
+                    "` command on this editor instance.",
+                )]
+                ///
+                /// # Errors
+                ///
+                /// Returns a [`TiptapEditorError`](crate::TiptapEditorError) if the command
+                /// cannot be prepared or dispatched, for example because its input is invalid,
+                /// this instance is stale, or the bridge rejected the command.
+                pub fn $method_name $(<$($generic),+>)? (
+                    &self,
+                    $($argument_name: $argument_type),*
+                ) -> TiptapEditorResult<()>
+                $(where $($where_clause)*)?
+                {
+                    dispatch_command!(
+                        self,
+                        $command_variant
+                        $(, |$instance| $body)?
+                    )
+                }
+            )*
+        }
+
+        impl TiptapEditorHandle {
+            $(
+                $(#[$meta])*
+                #[doc = concat!(
+                    "Forwards to [`TiptapEditorInstance::",
+                    stringify!($method_name),
+                    "`] when this handle has a live editor instance.",
+                )]
+                ///
+                /// # Errors
+                ///
+                /// Returns [`NotReady`](crate::TiptapEditorError::NotReady),
+                /// [`Destroyed`](crate::TiptapEditorError::Destroyed), or
+                /// [`CreateFailed`](crate::TiptapEditorError::CreateFailed) when the handle has no
+                /// live instance; otherwise propagates errors from the instance method.
+                pub fn $method_name $(<$($generic),+>)? (
+                    &self,
+                    $($argument_name: $argument_type),*
+                ) -> TiptapEditorResult<()>
+                $(where $($where_clause)*)?
+                {
+                    self.with_instance(move |instance| {
+                        instance.$method_name($($argument_name),*)
+                    })
+                }
+            )*
+        }
     };
 }
 
-macro_rules! delegate_no_arg_methods {
-    ($($(#[$meta:meta])* $method_name:ident),* $(,)?) => {
-        $(
-            $(#[$meta])*
-            pub fn $method_name(&self) -> TiptapEditorResult<()> {
-                self.with_instance(TiptapEditorInstance::$method_name)
-            }
-        )*
-    };
-}
-
-#[allow(missing_docs, clippy::missing_errors_doc)]
-impl TiptapEditorInstance {
-    dispatch_no_arg_methods!(
-        blur => Blur,
-        clear_nodes => ClearNodes,
-        create_paragraph_near => CreateParagraphNear,
-        delete_current_node => DeleteCurrentNode,
-        delete_selection => DeleteSelection,
-        enter => Enter,
-        exit_code => ExitCode,
-        join_up => JoinUp,
-        join_down => JoinDown,
-        join_backward => JoinBackward,
-        join_forward => JoinForward,
-        join_item_backward => JoinItemBackward,
-        join_item_forward => JoinItemForward,
-        join_textblock_backward => JoinTextblockBackward,
-        join_textblock_forward => JoinTextblockForward,
-        lift_empty_block => LiftEmptyBlock,
-        newline_in_code => NewlineInCode,
-        scroll_into_view => ScrollIntoView,
-        select_all => SelectAll,
-        select_node_backward => SelectNodeBackward,
-        select_node_forward => SelectNodeForward,
-        select_parent_node => SelectParentNode,
-        select_textblock_end => SelectTextblockEnd,
-        select_textblock_start => SelectTextblockStart,
-        undo_input_rule => UndoInputRule,
-        unset_all_marks => UnsetAllMarks,
-        #[cfg(feature = "blockquote")]
-        set_blockquote => SetBlockquote,
-        #[cfg(feature = "blockquote")]
-        toggle_blockquote => ToggleBlockquote,
-        #[cfg(feature = "blockquote")]
-        unset_blockquote => UnsetBlockquote,
-        #[cfg(feature = "bold")]
-        set_bold => SetBold,
-        #[cfg(feature = "bold")]
-        toggle_bold => ToggleBold,
-        #[cfg(feature = "bold")]
-        unset_bold => UnsetBold,
-        #[cfg(feature = "code")]
-        set_code => SetCode,
-        #[cfg(feature = "code")]
-        toggle_code => ToggleCode,
-        #[cfg(feature = "code")]
-        unset_code => UnsetCode,
-        #[cfg(feature = "hard_break")]
-        set_hard_break => SetHardBreak,
-        #[cfg(feature = "paragraph")]
-        set_paragraph => SetParagraph,
-        #[cfg(feature = "highlight")]
-        unset_highlight => UnsetHighlight,
-        #[cfg(feature = "horizontal_rule")]
-        set_horizontal_rule => SetHorizontalRule,
-        #[cfg(feature = "italic")]
-        set_italic => SetItalic,
-        #[cfg(feature = "italic")]
-        toggle_italic => ToggleItalic,
-        #[cfg(feature = "italic")]
-        unset_italic => UnsetItalic,
-        #[cfg(feature = "list_item")]
-        sink_list_item => SinkListItem,
-        #[cfg(feature = "list_item")]
-        lift_list_item => LiftListItem,
-        #[cfg(feature = "history")]
-        undo => Undo,
-        #[cfg(feature = "history")]
-        redo => Redo,
-        #[cfg(feature = "strike")]
-        set_strike => SetStrike,
-        #[cfg(feature = "strike")]
-        toggle_strike => ToggleStrike,
-        #[cfg(feature = "strike")]
-        unset_strike => UnsetStrike,
-        #[cfg(feature = "bullet_list")]
-        toggle_bullet_list => ToggleBulletList,
-        #[cfg(feature = "ordered_list")]
-        toggle_ordered_list => ToggleOrderedList,
-        #[cfg(feature = "text_align")]
-        unset_text_align => UnsetTextAlign,
-        #[cfg(feature = "link")]
-        unset_link => UnsetLink,
-    );
-
-    pub fn clear_content(&self, emit_update: bool) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::ClearContent {
+command_methods!(
+    blur() => Blur,
+    clear_nodes() => ClearNodes,
+    create_paragraph_near() => CreateParagraphNear,
+    delete_current_node() => DeleteCurrentNode,
+    delete_selection() => DeleteSelection,
+    enter() => Enter,
+    exit_code() => ExitCode,
+    join_up() => JoinUp,
+    join_down() => JoinDown,
+    join_backward() => JoinBackward,
+    join_forward() => JoinForward,
+    join_item_backward() => JoinItemBackward,
+    join_item_forward() => JoinItemForward,
+    join_textblock_backward() => JoinTextblockBackward,
+    join_textblock_forward() => JoinTextblockForward,
+    lift_empty_block() => LiftEmptyBlock,
+    newline_in_code() => NewlineInCode,
+    scroll_into_view() => ScrollIntoView,
+    select_all() => SelectAll,
+    select_node_backward() => SelectNodeBackward,
+    select_node_forward() => SelectNodeForward,
+    select_parent_node() => SelectParentNode,
+    select_textblock_end() => SelectTextblockEnd,
+    select_textblock_start() => SelectTextblockStart,
+    undo_input_rule() => UndoInputRule,
+    unset_all_marks() => UnsetAllMarks,
+    #[cfg(feature = "blockquote")]
+    set_blockquote() => SetBlockquote,
+    #[cfg(feature = "blockquote")]
+    toggle_blockquote() => ToggleBlockquote,
+    #[cfg(feature = "blockquote")]
+    unset_blockquote() => UnsetBlockquote,
+    #[cfg(feature = "bold")]
+    set_bold() => SetBold,
+    #[cfg(feature = "bold")]
+    toggle_bold() => ToggleBold,
+    #[cfg(feature = "bold")]
+    unset_bold() => UnsetBold,
+    #[cfg(feature = "code")]
+    set_code() => SetCode,
+    #[cfg(feature = "code")]
+    toggle_code() => ToggleCode,
+    #[cfg(feature = "code")]
+    unset_code() => UnsetCode,
+    #[cfg(feature = "hard_break")]
+    set_hard_break() => SetHardBreak,
+    #[cfg(feature = "paragraph")]
+    set_paragraph() => SetParagraph,
+    #[cfg(feature = "highlight")]
+    unset_highlight() => UnsetHighlight,
+    #[cfg(feature = "horizontal_rule")]
+    set_horizontal_rule() => SetHorizontalRule,
+    #[cfg(feature = "italic")]
+    set_italic() => SetItalic,
+    #[cfg(feature = "italic")]
+    toggle_italic() => ToggleItalic,
+    #[cfg(feature = "italic")]
+    unset_italic() => UnsetItalic,
+    #[cfg(feature = "list_item")]
+    sink_list_item() => SinkListItem,
+    #[cfg(feature = "list_item")]
+    lift_list_item() => LiftListItem,
+    #[cfg(feature = "history")]
+    undo() => Undo,
+    #[cfg(feature = "history")]
+    redo() => Redo,
+    #[cfg(feature = "strike")]
+    set_strike() => SetStrike,
+    #[cfg(feature = "strike")]
+    toggle_strike() => ToggleStrike,
+    #[cfg(feature = "strike")]
+    unset_strike() => UnsetStrike,
+    #[cfg(feature = "bullet_list")]
+    toggle_bullet_list() => ToggleBulletList,
+    #[cfg(feature = "ordered_list")]
+    toggle_ordered_list() => ToggleOrderedList,
+    #[cfg(feature = "text_align")]
+    unset_text_align() => UnsetTextAlign,
+    #[cfg(feature = "link")]
+    unset_link() => UnsetLink,
+    clear_content(emit_update: bool) => ClearContent |instance| {
+        instance.dispatch(EditorCommand::ClearContent {
             emit_update: Some(emit_update),
         })
-    }
-
-    pub fn cut(&self, range: TiptapRange, target_pos: u32) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::Cut { range, target_pos })
-    }
-
-    pub fn delete_node(&self, node: TiptapNodeName) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::DeleteNode {
+    },
+    cut(range: TiptapRange, target_pos: u32) => Cut |instance| {
+        instance.dispatch(EditorCommand::Cut { range, target_pos })
+    },
+    delete_node(node: TiptapNodeName) => DeleteNode |instance| {
+        instance.dispatch(EditorCommand::DeleteNode {
             type_or_name: node.schema_name().to_owned(),
         })
-    }
-
-    pub fn delete_range(&self, range: TiptapRange) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::DeleteRange { range })
-    }
-
-    pub fn extend_mark_range(
-        &self,
+    },
+    delete_range(range: TiptapRange) => DeleteRange |instance| {
+        instance.dispatch(EditorCommand::DeleteRange { range })
+    },
+    extend_mark_range(
         mark: TiptapMarkName,
         attributes: Option<TiptapAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::ExtendMarkRange {
+    ) => ExtendMarkRange |instance| {
+        instance.dispatch(EditorCommand::ExtendMarkRange {
             type_or_name: mark.schema_name().to_owned(),
             attributes,
         })
-    }
-
-    pub fn focus(&self) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::Focus {
+    },
+    focus() => Focus |instance| {
+        instance.dispatch(EditorCommand::Focus {
             target: None,
             options: None,
         })
-    }
-
-    pub fn focus_with(
-        &self,
+    },
+    focus_with(
         target: TiptapFocusTarget,
         options: Option<TiptapFocusOptions>,
-    ) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::Focus {
+    ) => Focus |instance| {
+        instance.dispatch(EditorCommand::Focus {
             target: Some(target.into()),
             options: options.map(Into::into),
         })
-    }
-
-    pub fn insert_content(
-        &self,
+    },
+    insert_content(
         content: TiptapContent,
         options: Option<TiptapInsertContentOptions>,
-    ) -> TiptapEditorResult<()> {
+    ) => InsertContent |instance| {
         let content = ContentPayload::try_from(content)?;
-        self.dispatch(EditorCommand::InsertContent {
+        instance.dispatch(EditorCommand::InsertContent {
             content,
             options: options.map(Into::into),
         })
-    }
-
-    pub fn insert_content_at(
-        &self,
+    },
+    insert_content_at(
         position: impl Into<TiptapPositionOrRange>,
         content: TiptapContent,
         options: Option<TiptapInsertContentOptions>,
-    ) -> TiptapEditorResult<()> {
+    ) => InsertContentAt |instance| {
         let content = ContentPayload::try_from(content)?;
-        self.dispatch(EditorCommand::InsertContentAt {
+        instance.dispatch(EditorCommand::InsertContentAt {
             position: position.into().into(),
             content,
             options: options.map(Into::into),
         })
-    }
-
-    pub fn keyboard_shortcut(&self, name: impl Into<String>) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::KeyboardShortcut { name: name.into() })
-    }
-
-    pub fn lift(
-        &self,
+    },
+    keyboard_shortcut(name: impl Into<String>) => KeyboardShortcut |instance| {
+        instance.dispatch(EditorCommand::KeyboardShortcut { name: name.into() })
+    },
+    lift(
         node: TiptapNodeName,
         attributes: Option<TiptapAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::Lift {
+    ) => Lift |instance| {
+        instance.dispatch(EditorCommand::Lift {
             type_or_name: node.schema_name().to_owned(),
             attributes,
         })
-    }
-
-    pub fn reset_attributes<I, S>(
-        &self,
+    },
+    reset_attributes<I, S>(
         target: TiptapSchemaTarget,
         attribute_names: I,
-    ) -> TiptapEditorResult<()>
-    where
+    ) => ResetAttributes
+    where [
         I: IntoIterator<Item = S>,
         S: Into<String>,
-    {
-        self.dispatch(EditorCommand::ResetAttributes {
+    ]
+    |instance| {
+        instance.dispatch(EditorCommand::ResetAttributes {
             type_or_name: target.schema_name().to_owned(),
             attribute_names: attribute_names.into_iter().map(Into::into).collect(),
         })
-    }
-
-    pub fn set_mark(
-        &self,
+    },
+    set_mark(
         mark: TiptapMarkName,
         attributes: Option<TiptapAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::SetMark {
+    ) => SetMark |instance| {
+        instance.dispatch(EditorCommand::SetMark {
             type_or_name: mark.schema_name().to_owned(),
             attributes,
         })
-    }
-
-    pub fn set_meta(
-        &self,
+    },
+    set_meta(
         key: impl Into<String>,
         value: impl Into<serde_json::Value>,
-    ) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::SetMeta {
+    ) => SetMeta |instance| {
+        instance.dispatch(EditorCommand::SetMeta {
             key: key.into(),
             value: value.into(),
         })
-    }
-
-    pub fn set_node(
-        &self,
+    },
+    set_node(
         node: TiptapNodeName,
         attributes: Option<TiptapAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::SetNode {
+    ) => SetNode |instance| {
+        instance.dispatch(EditorCommand::SetNode {
             type_or_name: node.schema_name().to_owned(),
             attributes,
         })
-    }
-
-    pub fn set_node_selection(&self, position: u32) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::SetNodeSelection { position })
-    }
-
-    pub fn set_text_selection(
-        &self,
+    },
+    set_node_selection(position: u32) => SetNodeSelection |instance| {
+        instance.dispatch(EditorCommand::SetNodeSelection { position })
+    },
+    set_text_selection(
         position: impl Into<TiptapPositionOrRange>,
-    ) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::SetTextSelection {
+    ) => SetTextSelection |instance| {
+        instance.dispatch(EditorCommand::SetTextSelection {
             position: position.into().into(),
         })
-    }
-
-    pub fn split_block(&self, options: Option<TiptapSplitBlockOptions>) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::SplitBlock {
+    },
+    split_block(
+        options: Option<TiptapSplitBlockOptions>,
+    ) => SplitBlock |instance| {
+        instance.dispatch(EditorCommand::SplitBlock {
             keep_marks: options.and_then(|options| options.keep_marks),
         })
-    }
-
-    pub fn toggle_list(
-        &self,
+    },
+    toggle_list(
         list: TiptapListKind,
         options: Option<TiptapToggleListOptions>,
-    ) -> TiptapEditorResult<()> {
+    ) => ToggleList |instance| {
         let (keep_marks, attributes) = match options {
             Some(options) => (options.keep_marks, options.attributes),
             None => (None, None),
         };
 
-        self.dispatch(EditorCommand::ToggleList {
+        instance.dispatch(EditorCommand::ToggleList {
             list_type_or_name: list.list_name().to_owned(),
             item_type_or_name: TiptapListKind::item_name().to_owned(),
             keep_marks,
             attributes,
         })
-    }
-
-    pub fn toggle_mark(
-        &self,
+    },
+    toggle_mark(
         mark: TiptapMarkName,
         attributes: Option<TiptapAttributes>,
         options: Option<TiptapMarkOptions>,
-    ) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::ToggleMark {
+    ) => ToggleMark |instance| {
+        instance.dispatch(EditorCommand::ToggleMark {
             type_or_name: mark.schema_name().to_owned(),
             attributes,
             options: options.map(Into::into),
         })
-    }
-
-    pub fn toggle_node(
-        &self,
+    },
+    toggle_node(
         node: TiptapNodeName,
         toggle_node: TiptapNodeName,
         attributes: Option<TiptapAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::ToggleNode {
+    ) => ToggleNode |instance| {
+        instance.dispatch(EditorCommand::ToggleNode {
             type_or_name: node.schema_name().to_owned(),
             toggle_type_or_name: toggle_node.schema_name().to_owned(),
             attributes,
         })
-    }
-
-    pub fn toggle_wrap(
-        &self,
+    },
+    toggle_wrap(
         node: TiptapNodeName,
         attributes: Option<TiptapAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::ToggleWrap {
+    ) => ToggleWrap |instance| {
+        instance.dispatch(EditorCommand::ToggleWrap {
             type_or_name: node.schema_name().to_owned(),
             attributes,
         })
-    }
-
-    pub fn unset_mark(
-        &self,
+    },
+    unset_mark(
         mark: TiptapMarkName,
         options: Option<TiptapMarkOptions>,
-    ) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::UnsetMark {
+    ) => UnsetMark |instance| {
+        instance.dispatch(EditorCommand::UnsetMark {
             type_or_name: mark.schema_name().to_owned(),
             options: options.map(Into::into),
         })
-    }
-
-    pub fn update_attributes(
-        &self,
+    },
+    update_attributes(
         target: TiptapSchemaTarget,
         attributes: TiptapAttributes,
-    ) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::UpdateAttributes {
+    ) => UpdateAttributes |instance| {
+        instance.dispatch(EditorCommand::UpdateAttributes {
             type_or_name: target.schema_name().to_owned(),
             attributes,
         })
-    }
-
-    pub fn wrap_in(
-        &self,
+    },
+    wrap_in(
         node: TiptapNodeName,
         attributes: Option<TiptapAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::WrapIn {
+    ) => WrapIn |instance| {
+        instance.dispatch(EditorCommand::WrapIn {
             type_or_name: node.schema_name().to_owned(),
             attributes,
         })
-    }
-
-    pub fn wrap_in_list(
-        &self,
+    },
+    wrap_in_list(
         list: TiptapListKind,
         attributes: Option<TiptapAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::WrapInList {
+    ) => WrapInList |instance| {
+        instance.dispatch(EditorCommand::WrapInList {
             type_or_name: list.list_name().to_owned(),
             attributes,
         })
-    }
-
+    },
     #[cfg(feature = "code_block")]
-    pub fn set_code_block(
-        &self,
+    set_code_block(
         attributes: Option<TiptapCodeBlockAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::SetCodeBlock { attributes })
-    }
-
+    ) => SetCodeBlock |instance| {
+        instance.dispatch(EditorCommand::SetCodeBlock { attributes })
+    },
     #[cfg(feature = "code_block")]
-    pub fn toggle_code_block(
-        &self,
+    toggle_code_block(
         attributes: Option<TiptapCodeBlockAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::ToggleCodeBlock { attributes })
-    }
-
+    ) => ToggleCodeBlock |instance| {
+        instance.dispatch(EditorCommand::ToggleCodeBlock { attributes })
+    },
     #[cfg(feature = "heading")]
-    pub fn set_heading(&self, level: TiptapHeadingLevel) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::SetHeading {
+    set_heading(level: TiptapHeadingLevel) => SetHeading |instance| {
+        instance.dispatch(EditorCommand::SetHeading {
             level: level.into(),
         })
-    }
-
+    },
     #[cfg(feature = "heading")]
-    pub fn toggle_heading(&self, level: TiptapHeadingLevel) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::ToggleHeading {
+    toggle_heading(level: TiptapHeadingLevel) => ToggleHeading |instance| {
+        instance.dispatch(EditorCommand::ToggleHeading {
             level: level.into(),
         })
-    }
-
+    },
     #[cfg(feature = "highlight")]
-    pub fn set_highlight(
-        &self,
+    set_highlight(
         attributes: Option<TiptapHighlightAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::SetHighlight { attributes })
-    }
-
+    ) => SetHighlight |instance| {
+        instance.dispatch(EditorCommand::SetHighlight { attributes })
+    },
     #[cfg(feature = "highlight")]
-    pub fn toggle_highlight(
-        &self,
+    toggle_highlight(
         attributes: Option<TiptapHighlightAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::ToggleHighlight { attributes })
-    }
-
+    ) => ToggleHighlight |instance| {
+        instance.dispatch(EditorCommand::ToggleHighlight { attributes })
+    },
     #[cfg(feature = "list_item")]
-    pub fn split_list_item(&self, attributes: Option<TiptapAttributes>) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::SplitListItem { attributes })
-    }
-
+    split_list_item(
+        attributes: Option<TiptapAttributes>,
+    ) => SplitListItem |instance| {
+        instance.dispatch(EditorCommand::SplitListItem { attributes })
+    },
     #[cfg(feature = "text_align")]
-    pub fn set_text_align(&self, alignment: TiptapTextAlign) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::SetTextAlign { alignment })
-    }
-
+    set_text_align(alignment: TiptapTextAlign) => SetTextAlign |instance| {
+        instance.dispatch(EditorCommand::SetTextAlign { alignment })
+    },
     #[cfg(feature = "text_align")]
-    pub fn toggle_text_align(&self, alignment: TiptapTextAlign) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::ToggleTextAlign { alignment })
-    }
-
+    toggle_text_align(alignment: TiptapTextAlign) => ToggleTextAlign |instance| {
+        instance.dispatch(EditorCommand::ToggleTextAlign { alignment })
+    },
     #[cfg(feature = "image")]
-    pub fn set_image(&self, image: TiptapImageResource) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::SetImage {
+    set_image(image: TiptapImageResource) => SetImage |instance| {
+        instance.dispatch(EditorCommand::SetImage {
             src: image.src,
             alt: image.alt,
             title: image.title,
         })
-    }
-
+    },
     #[cfg(feature = "link")]
-    pub fn set_link(&self, link: TiptapLinkResource) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::SetLink {
+    set_link(link: TiptapLinkResource) => SetLink |instance| {
+        instance.dispatch(EditorCommand::SetLink {
             href: link.href,
             target: link.target,
             rel: link.rel,
             class: link.class,
         })
-    }
-
+    },
     #[cfg(feature = "link")]
-    pub fn toggle_link(&self, link: TiptapLinkResource) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::ToggleLink {
+    toggle_link(link: TiptapLinkResource) => ToggleLink |instance| {
+        instance.dispatch(EditorCommand::ToggleLink {
             href: link.href,
             target: link.target,
             rel: link.rel,
             class: link.class,
         })
-    }
-
+    },
     #[cfg(feature = "youtube")]
-    pub fn set_youtube_video(&self, video: TiptapYoutubeVideoResource) -> TiptapEditorResult<()> {
-        self.dispatch(EditorCommand::SetYoutubeVideo {
+    set_youtube_video(
+        video: TiptapYoutubeVideoResource,
+    ) => SetYoutubeVideo |instance| {
+        instance.dispatch(EditorCommand::SetYoutubeVideo {
             src: video.src,
             start: video.start,
             width: video.width,
             height: video.height,
         })
-    }
-}
-
-#[allow(missing_docs, clippy::missing_errors_doc)]
-impl TiptapEditorHandle {
-    delegate_no_arg_methods!(
-        blur,
-        clear_nodes,
-        create_paragraph_near,
-        delete_current_node,
-        delete_selection,
-        enter,
-        exit_code,
-        join_up,
-        join_down,
-        join_backward,
-        join_forward,
-        join_item_backward,
-        join_item_forward,
-        join_textblock_backward,
-        join_textblock_forward,
-        lift_empty_block,
-        newline_in_code,
-        scroll_into_view,
-        select_all,
-        select_node_backward,
-        select_node_forward,
-        select_parent_node,
-        select_textblock_end,
-        select_textblock_start,
-        undo_input_rule,
-        unset_all_marks,
-        focus,
-        #[cfg(feature = "blockquote")]
-        set_blockquote,
-        #[cfg(feature = "blockquote")]
-        toggle_blockquote,
-        #[cfg(feature = "blockquote")]
-        unset_blockquote,
-        #[cfg(feature = "bold")]
-        set_bold,
-        #[cfg(feature = "bold")]
-        toggle_bold,
-        #[cfg(feature = "bold")]
-        unset_bold,
-        #[cfg(feature = "code")]
-        set_code,
-        #[cfg(feature = "code")]
-        toggle_code,
-        #[cfg(feature = "code")]
-        unset_code,
-        #[cfg(feature = "hard_break")]
-        set_hard_break,
-        #[cfg(feature = "paragraph")]
-        set_paragraph,
-        #[cfg(feature = "highlight")]
-        unset_highlight,
-        #[cfg(feature = "horizontal_rule")]
-        set_horizontal_rule,
-        #[cfg(feature = "italic")]
-        set_italic,
-        #[cfg(feature = "italic")]
-        toggle_italic,
-        #[cfg(feature = "italic")]
-        unset_italic,
-        #[cfg(feature = "list_item")]
-        sink_list_item,
-        #[cfg(feature = "list_item")]
-        lift_list_item,
-        #[cfg(feature = "history")]
-        undo,
-        #[cfg(feature = "history")]
-        redo,
-        #[cfg(feature = "strike")]
-        set_strike,
-        #[cfg(feature = "strike")]
-        toggle_strike,
-        #[cfg(feature = "strike")]
-        unset_strike,
-        #[cfg(feature = "bullet_list")]
-        toggle_bullet_list,
-        #[cfg(feature = "ordered_list")]
-        toggle_ordered_list,
-        #[cfg(feature = "text_align")]
-        unset_text_align,
-        #[cfg(feature = "link")]
-        unset_link,
-    );
-
-    pub fn clear_content(&self, emit_update: bool) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.clear_content(emit_update))
-    }
-
-    pub fn cut(&self, range: TiptapRange, target_pos: u32) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.cut(range, target_pos))
-    }
-
-    pub fn delete_node(&self, node: TiptapNodeName) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.delete_node(node))
-    }
-
-    pub fn delete_range(&self, range: TiptapRange) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.delete_range(range))
-    }
-
-    pub fn extend_mark_range(
-        &self,
-        mark: TiptapMarkName,
-        attributes: Option<TiptapAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.extend_mark_range(mark, attributes))
-    }
-
-    pub fn focus_with(
-        &self,
-        target: TiptapFocusTarget,
-        options: Option<TiptapFocusOptions>,
-    ) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.focus_with(target, options))
-    }
-
-    pub fn insert_content(
-        &self,
-        content: TiptapContent,
-        options: Option<TiptapInsertContentOptions>,
-    ) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.insert_content(content, options))
-    }
-
-    pub fn insert_content_at(
-        &self,
-        position: impl Into<TiptapPositionOrRange>,
-        content: TiptapContent,
-        options: Option<TiptapInsertContentOptions>,
-    ) -> TiptapEditorResult<()> {
-        let position = position.into();
-        self.with_instance(|instance| instance.insert_content_at(position, content, options))
-    }
-
-    pub fn keyboard_shortcut(&self, name: impl Into<String>) -> TiptapEditorResult<()> {
-        let name = name.into();
-        self.with_instance(|instance| instance.keyboard_shortcut(name.clone()))
-    }
-
-    pub fn lift(
-        &self,
-        node: TiptapNodeName,
-        attributes: Option<TiptapAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.lift(node, attributes))
-    }
-
-    pub fn reset_attributes<I, S>(
-        &self,
-        target: TiptapSchemaTarget,
-        attribute_names: I,
-    ) -> TiptapEditorResult<()>
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        let names: Vec<String> = attribute_names.into_iter().map(Into::into).collect();
-        self.with_instance(|instance| instance.reset_attributes(target, names.clone()))
-    }
-
-    pub fn set_mark(
-        &self,
-        mark: TiptapMarkName,
-        attributes: Option<TiptapAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.set_mark(mark, attributes))
-    }
-
-    pub fn set_meta(
-        &self,
-        key: impl Into<String>,
-        value: impl Into<serde_json::Value>,
-    ) -> TiptapEditorResult<()> {
-        let key = key.into();
-        let value = value.into();
-        self.with_instance(|instance| instance.set_meta(key.clone(), value.clone()))
-    }
-
-    pub fn set_node(
-        &self,
-        node: TiptapNodeName,
-        attributes: Option<TiptapAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.set_node(node, attributes))
-    }
-
-    pub fn set_node_selection(&self, position: u32) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.set_node_selection(position))
-    }
-
-    pub fn set_text_selection(
-        &self,
-        position: impl Into<TiptapPositionOrRange>,
-    ) -> TiptapEditorResult<()> {
-        let position = position.into();
-        self.with_instance(|instance| instance.set_text_selection(position))
-    }
-
-    pub fn split_block(&self, options: Option<TiptapSplitBlockOptions>) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.split_block(options))
-    }
-
-    pub fn toggle_list(
-        &self,
-        list: TiptapListKind,
-        options: Option<TiptapToggleListOptions>,
-    ) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.toggle_list(list, options))
-    }
-
-    pub fn toggle_mark(
-        &self,
-        mark: TiptapMarkName,
-        attributes: Option<TiptapAttributes>,
-        options: Option<TiptapMarkOptions>,
-    ) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.toggle_mark(mark, attributes, options))
-    }
-
-    pub fn toggle_node(
-        &self,
-        node: TiptapNodeName,
-        toggle_node: TiptapNodeName,
-        attributes: Option<TiptapAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.toggle_node(node, toggle_node, attributes))
-    }
-
-    pub fn toggle_wrap(
-        &self,
-        node: TiptapNodeName,
-        attributes: Option<TiptapAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.toggle_wrap(node, attributes))
-    }
-
-    pub fn unset_mark(
-        &self,
-        mark: TiptapMarkName,
-        options: Option<TiptapMarkOptions>,
-    ) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.unset_mark(mark, options))
-    }
-
-    pub fn update_attributes(
-        &self,
-        target: TiptapSchemaTarget,
-        attributes: TiptapAttributes,
-    ) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.update_attributes(target, attributes))
-    }
-
-    pub fn wrap_in(
-        &self,
-        node: TiptapNodeName,
-        attributes: Option<TiptapAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.wrap_in(node, attributes))
-    }
-
-    pub fn wrap_in_list(
-        &self,
-        list: TiptapListKind,
-        attributes: Option<TiptapAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.wrap_in_list(list, attributes))
-    }
-
-    #[cfg(feature = "code_block")]
-    pub fn set_code_block(
-        &self,
-        attributes: Option<TiptapCodeBlockAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.set_code_block(attributes))
-    }
-
-    #[cfg(feature = "code_block")]
-    pub fn toggle_code_block(
-        &self,
-        attributes: Option<TiptapCodeBlockAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.toggle_code_block(attributes))
-    }
-
-    #[cfg(feature = "heading")]
-    pub fn set_heading(&self, level: TiptapHeadingLevel) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.set_heading(level))
-    }
-
-    #[cfg(feature = "heading")]
-    pub fn toggle_heading(&self, level: TiptapHeadingLevel) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.toggle_heading(level))
-    }
-
-    #[cfg(feature = "highlight")]
-    pub fn set_highlight(
-        &self,
-        attributes: Option<TiptapHighlightAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.set_highlight(attributes))
-    }
-
-    #[cfg(feature = "highlight")]
-    pub fn toggle_highlight(
-        &self,
-        attributes: Option<TiptapHighlightAttributes>,
-    ) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.toggle_highlight(attributes))
-    }
-
-    #[cfg(feature = "list_item")]
-    pub fn split_list_item(&self, attributes: Option<TiptapAttributes>) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.split_list_item(attributes))
-    }
-
-    #[cfg(feature = "text_align")]
-    pub fn set_text_align(&self, alignment: TiptapTextAlign) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.set_text_align(alignment))
-    }
-
-    #[cfg(feature = "text_align")]
-    pub fn toggle_text_align(&self, alignment: TiptapTextAlign) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.toggle_text_align(alignment))
-    }
-
-    #[cfg(feature = "image")]
-    pub fn set_image(&self, image: TiptapImageResource) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.set_image(image))
-    }
-
-    #[cfg(feature = "link")]
-    pub fn set_link(&self, link: TiptapLinkResource) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.set_link(link))
-    }
-
-    #[cfg(feature = "link")]
-    pub fn toggle_link(&self, link: TiptapLinkResource) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.toggle_link(link))
-    }
-
-    #[cfg(feature = "youtube")]
-    pub fn set_youtube_video(&self, video: TiptapYoutubeVideoResource) -> TiptapEditorResult<()> {
-        self.with_instance(|instance| instance.set_youtube_video(video))
-    }
-}
+    },
+);

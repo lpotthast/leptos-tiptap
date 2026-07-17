@@ -2,9 +2,17 @@ use browser_test::thirtyfour::prelude::ElementQueryable;
 use browser_test::thirtyfour::{By, WebDriver, WebElement};
 use rootcause::Report;
 
+pub mod duplicate_editor_id;
+pub mod extension_subset;
+pub mod handle_lifecycle;
 pub mod hydrate_and_round_trip;
+pub mod multi_editor;
+pub mod on_change_fires_once;
+pub mod on_error;
+pub mod placeholder;
 pub mod re_enable_after_disable;
 pub mod replace_content;
+pub mod selection_state;
 
 const EDITOR_SELECTOR: &str = "#id .ProseMirror";
 const HTML_CONTENT_SELECTOR: &str = "#html-content";
@@ -126,6 +134,25 @@ async fn wait_for_text_contains(
 #[tracing::instrument(
     name = "browser_test_step",
     skip_all,
+    fields(helper = "wait_for_text_equals", selector = %selector, expected = %expected),
+)]
+async fn wait_for_text_equals(
+    driver: &WebDriver,
+    selector: &str,
+    expected: &str,
+) -> Result<(), Report> {
+    let expected = expected.to_owned();
+    driver
+        .query(By::Css(selector))
+        .with_text(move |text: &str| text == expected)
+        .first()
+        .await?;
+    Ok(())
+}
+
+#[tracing::instrument(
+    name = "browser_test_step",
+    skip_all,
     fields(
         helper = "wait_for_attribute",
         selector = %selector,
@@ -143,6 +170,66 @@ async fn wait_for_attribute(
         .query(By::Css(selector))
         .with_attribute(name.to_owned(), expected.to_owned())
         .first()
+        .await?;
+    Ok(())
+}
+
+#[tracing::instrument(
+    name = "browser_test_step",
+    skip_all,
+    fields(helper = "wait_for_absent", selector = %selector),
+)]
+async fn wait_for_absent(driver: &WebDriver, selector: &str) -> Result<(), Report> {
+    let present = driver.query(By::Css(selector)).exists().await?;
+    if present {
+        driver.query(By::Css(selector)).not_exists().await?;
+    }
+    Ok(())
+}
+
+#[tracing::instrument(
+    name = "browser_test_step",
+    skip_all,
+    fields(
+        helper = "wait_for_attribute_absent",
+        selector = %selector,
+        attribute = %name,
+        unexpected = %unexpected,
+    ),
+)]
+async fn wait_for_attribute_absent(
+    driver: &WebDriver,
+    selector: &str,
+    name: &str,
+    unexpected: &str,
+) -> Result<(), Report> {
+    driver
+        .query(By::Css(selector))
+        .with_attribute(name.to_owned(), unexpected.to_owned())
+        .not_exists()
+        .await?;
+    Ok(())
+}
+
+#[tracing::instrument(
+    name = "browser_test_step",
+    skip_all,
+    fields(
+        helper = "wait_for_text_not_contains",
+        selector = %selector,
+        unexpected = %unexpected,
+    ),
+)]
+async fn wait_for_text_not_contains(
+    driver: &WebDriver,
+    selector: &str,
+    unexpected: &str,
+) -> Result<(), Report> {
+    let unexpected = unexpected.to_owned();
+    driver
+        .query(By::Css(selector))
+        .with_text(move |text: &str| text.contains(&unexpected))
+        .not_exists()
         .await?;
     Ok(())
 }

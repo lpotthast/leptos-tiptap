@@ -3,7 +3,41 @@ use super::{
     use_tiptap_editor::{UseTiptapEditorInput, use_tiptap_editor},
 };
 use leptos::prelude::*;
+use leptos_classes::{Classes, MergeStrategy};
+use leptos_styles::Styles;
 
+/// Mounts a Tiptap editor and connects it to a reactive [`TiptapEditorHandle`].
+///
+/// Create one handle per logical editor, pass it together with a globally unique `id` and the
+/// editor's one-time `initial_content`, then use the handle to observe readiness, run commands,
+/// and read or replace the document. Operations attempted before the editor is ready return
+/// [`TiptapEditorError::NotReady`](super::TiptapEditorError::NotReady).
+///
+/// To choose and compose the host element yourself, or to build a custom editor component from
+/// scratch, use [`use_tiptap_editor`] instead.
+///
+/// For a small working application, see the
+/// [demo app component](https://github.com/lpotthast/leptos-tiptap/blob/main/examples/demo-app/src/lib.rs).
+///
+/// # Example
+///
+/// ```
+/// use leptos::prelude::*;
+/// use leptos_tiptap::{TiptapContent, TiptapEditor, TiptapEditorHandle};
+///
+/// #[component]
+/// fn Editor() -> impl IntoView {
+///     let handle = TiptapEditorHandle::new();
+///
+///     view! {
+///         <TiptapEditor
+///             id="article-editor"
+///             handle=handle
+///             initial_content=TiptapContent::html("<p>Edit me.</p>")
+///         />
+///     }
+/// }
+/// ```
 #[component]
 pub fn TiptapEditor(
     /// The ID for this tiptap instance. Must be UNIQUE across ALL instances.
@@ -13,14 +47,18 @@ pub fn TiptapEditor(
     id: String,
 
     /// A reactive editor handle. The component populates this with a live instance when the
-    /// editor is ready, and clears it on error or cleanup.
+    /// editor is ready and records creation failure or cleanup as precise terminal states.
     ///
     /// Use methods on the `TiptapEditorHandle` to send commands or read content.
     /// Use `TiptapEditorHandle::is_ready()` to reactively gate UI.
     ///
-    /// Commands executed before the editor initialization finishes are answered with an
-    /// `EditorUnavailable` error.
-    editor: TiptapEditorHandle,
+    /// Use one handle per logical editor. The same handle may survive sequential conditional
+    /// unmount/remount or retry, but must not be shared by distinct or concurrently mounted
+    /// editors.
+    ///
+    /// Commands executed before the editor initialization finishes are answered with a
+    /// `TiptapEditorError::NotReady` error.
+    handle: TiptapEditorHandle,
 
     /// Initial content of the editor.
     ///
@@ -28,22 +66,35 @@ pub fn TiptapEditor(
     /// unlimited time. Changes made to this content by the user, by performing edits, are not
     /// given back immediately. Instead, `on_change` is called to notify you about the change. You
     /// can then decide for yourself whether you want to fetch the updated content immediately,
-    /// using your `editor` handle or if you just want to mark the editor content as dirty to be
+    /// using your `handle` or if you just want to mark the editor content as dirty to be
     /// fetched later, when needed.
     ///
     /// If you need to replace the visible content later, use `TiptapEditorHandle::set_content`.
     #[prop(into)]
     initial_content: TiptapContent,
 
-    /// Called once the editor instance exists and has been populated into `editor`.
+    /// Additional classes for the editor host element.
+    ///
+    /// The `leptos-tiptap-instance` class is always present. Static and reactive caller-provided
+    /// classes are composed through [`Classes`].
+    #[prop(into, optional)]
+    classes: Classes,
+
+    /// Inline styles for the editor host element.
+    ///
+    /// Static and reactive declarations are rendered through [`Styles`].
+    #[prop(into, optional)]
+    styles: Styles,
+
+    /// Called once the editor instance exists and has been populated into `handle`.
     ///
     /// This is a convenient one-shot readiness notification for code that does not want to watch
-    /// `editor.is_ready()` reactively.
+    /// `handle.is_ready()` reactively.
     #[prop(into, optional)]
     on_ready: Option<Callback<()>>,
 
     /// Called whenever the editor content changes.
-    /// Use `editor` to pull the current editor content in whichever format you need.
+    /// Use `handle` to pull the current editor content in whichever format you need.
     #[prop(into, optional)]
     on_change: Option<Callback<()>>,
 
@@ -84,7 +135,7 @@ pub fn TiptapEditor(
 ) -> impl IntoView {
     let hook = use_tiptap_editor(UseTiptapEditorInput {
         id,
-        editor: Some(editor),
+        handle: Some(handle),
         initial_content,
         on_ready,
         on_change,
@@ -94,8 +145,13 @@ pub fn TiptapEditor(
         extensions,
         placeholder,
     });
+    let classes = Classes::from("leptos-tiptap-instance").merge(classes, MergeStrategy::KeepSelf);
 
     view! {
-        <leptos-tiptap-instance {..hook.props.into_attrs()} />
+        <div
+            class={classes}
+            style={styles}
+            {..hook.props.into_attrs()}
+        ></div>
     }
 }

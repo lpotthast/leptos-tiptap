@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use crate::TiptapCodeBlockAttributes;
 #[cfg(feature = "highlight")]
 use crate::TiptapHighlightAttributes;
+#[cfg(not(feature = "ssr"))]
+use crate::TiptapSelectionState;
 #[cfg(feature = "text_align")]
 use crate::TiptapTextAlign;
 use crate::{
@@ -53,9 +55,10 @@ pub(crate) struct CreateRequest {
 }
 
 #[cfg(not(feature = "ssr"))]
-#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Serialize, Debug, Clone, PartialEq, Deserialize)]
 pub(crate) struct ReadyPayload {
     pub(crate) generation: u32,
+    pub(crate) selection_state: TiptapSelectionState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

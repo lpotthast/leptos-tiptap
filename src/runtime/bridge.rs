@@ -1,15 +1,21 @@
+use crate::TiptapEditorError;
+#[cfg(not(feature = "ssr"))]
+use crate::TiptapExtension;
+#[cfg(not(feature = "ssr"))]
+use crate::protocol::ContentPayload;
 #[cfg(not(feature = "ssr"))]
 use crate::protocol::EmptyResponse;
 #[cfg(not(feature = "ssr"))]
-use crate::protocol::{CommandInvocation, CreateRequest, DocumentInvocation};
-use crate::protocol::{ContentPayload, DocumentRequest, DocumentResponse, EditorCommand};
-use crate::{TiptapEditorError, TiptapExtension};
+use crate::protocol::{CommandInvocation, CreateRequest, DocumentInvocation, ReadyPayload};
+use crate::protocol::{DocumentRequest, DocumentResponse, EditorCommand};
 use cfg_if::cfg_if;
 #[cfg(not(feature = "ssr"))]
 use serde::Deserialize;
 #[cfg(not(feature = "ssr"))]
 use serde::{Serialize, de::DeserializeOwned};
+#[cfg(not(feature = "ssr"))]
 use wasm_bindgen::JsValue;
+#[cfg(not(feature = "ssr"))]
 use wasm_bindgen::closure::ScopedClosure;
 
 #[cfg(not(feature = "ssr"))]
@@ -48,13 +54,6 @@ fn deserialize_response<T: DeserializeOwned>(
 }
 
 #[cfg(not(feature = "ssr"))]
-fn deserialize_error(value: JsValue) -> Result<JsInteropError, TiptapEditorError> {
-    serde_wasm_bindgen::from_value(value).map_err(|err| {
-        TiptapEditorError::BridgeError(format!("could not deserialize JS bridge error: {err}"))
-    })
-}
-
-#[cfg(not(feature = "ssr"))]
 fn map_bridge_error(error: JsInteropError) -> TiptapEditorError {
     let JsInteropError {
         kind,
@@ -63,7 +62,7 @@ fn map_bridge_error(error: JsInteropError) -> TiptapEditorError {
     } = error;
 
     match kind.as_str() {
-        "editor_unavailable" => TiptapEditorError::EditorUnavailable,
+        "editor_unavailable" => TiptapEditorError::Stale,
         "duplicate_editor_id" => TiptapEditorError::DuplicateEditorId(message),
         "editor_mount_failed" => TiptapEditorError::MountFailed(message),
         "invalid_content" => TiptapEditorError::InvalidContent(message),
@@ -135,31 +134,14 @@ fn format_js_value(value: &JsValue) -> String {
     value.as_string().unwrap_or_else(|| format!("{value:?}"))
 }
 
-#[cfg_attr(feature = "ssr", allow(dead_code))]
-pub(crate) fn error_from_js_value(value: JsValue) -> TiptapEditorError {
-    cfg_if! {if #[cfg(not(feature = "ssr"))] {
-        match deserialize_error(value) {
-            Ok(error) => map_bridge_error(error),
-            Err(err) => err,
-        }
-    } else {
-        let _value = value;
-        TiptapEditorError::BridgeError(
-            "received a JS error callback while compiling for SSR".to_owned(),
-        )
-    }}
-}
-
-#[cfg_attr(feature = "ssr", allow(dead_code))]
+#[cfg(not(feature = "ssr"))]
 #[derive(Clone, Copy)]
 pub(crate) struct CreateCallbacks<'a> {
-    pub(crate) ready: &'a ScopedClosure<'static, dyn Fn(JsValue)>,
     pub(crate) change: &'a ScopedClosure<'static, dyn Fn()>,
     pub(crate) selection: &'a ScopedClosure<'static, dyn Fn(JsValue)>,
-    pub(crate) error: &'a ScopedClosure<'static, dyn Fn(JsValue)>,
 }
 
-#[cfg_attr(feature = "ssr", allow(dead_code))]
+#[cfg(not(feature = "ssr"))]
 pub(crate) struct CreateOptions {
     pub(crate) id: String,
     pub(crate) content: ContentPayload,
@@ -168,44 +150,34 @@ pub(crate) struct CreateOptions {
     pub(crate) placeholder: Option<String>,
 }
 
-#[cfg_attr(feature = "ssr", allow(dead_code))]
-#[cfg_attr(feature = "ssr", allow(clippy::unnecessary_wraps))]
+#[cfg(not(feature = "ssr"))]
 pub(crate) fn create(
     request: CreateOptions,
     callbacks: CreateCallbacks<'_>,
-) -> Result<(), TiptapEditorError> {
-    cfg_if! {if #[cfg(not(feature = "ssr"))] {
-        registration::ensure_compiled_extensions_registered()?;
+) -> Result<ReadyPayload, TiptapEditorError> {
+    registration::ensure_compiled_extensions_registered()?;
 
-        let request = serialize_request(&CreateRequest {
-            id: request.id,
-            content: request.content,
-            editable: request.editable,
-            extensions: request.extensions
-                .into_iter()
-                .map(TiptapExtension::js_name)
-                .collect(),
-            placeholder: request.placeholder,
-        })?;
+    let request = serialize_request(&CreateRequest {
+        id: request.id,
+        content: request.content,
+        editable: request.editable,
+        extensions: request
+            .extensions
+            .into_iter()
+            .map(TiptapExtension::js_name)
+            .collect(),
+        placeholder: request.placeholder,
+    })?;
 
-        ffi::create(
-            request,
-            callbacks.ready,
-            callbacks.change,
-            callbacks.selection,
-            callbacks.error,
-        )
-        .map_err(|value| {
+    let response =
+        ffi::create(request, callbacks.change, callbacks.selection).map_err(|value| {
             TiptapEditorError::BridgeError(format!(
                 "JS bridge create threw an exception: {}",
                 format_js_value(&value),
             ))
         })?;
-        Ok(())
-    } else {
-        drop((request, callbacks));
-        Ok(())
-    }}
+
+    response_to_result(deserialize_response(response)?)
 }
 
 pub(crate) fn destroy(id: String) {
@@ -256,7 +228,7 @@ pub(crate) fn document(
         )
     } else {
         drop((id, generation, request));
-        Err(TiptapEditorError::EditorUnavailable)
+        Err(TiptapEditorError::NotReady)
     }}
 }
 
@@ -276,6 +248,16 @@ mod tests {
             operation: "toggle_bold".to_owned(),
             message: "selection required".to_owned(),
         });
+    }
+
+    #[test]
+    fn maps_unavailable_editor_errors_to_stale_instances() {
+        assert_that!(map_bridge_error(JsInteropError {
+            kind: "editor_unavailable".to_owned(),
+            message: "generation no longer exists".to_owned(),
+            operation: Some("get_content".to_owned()),
+        }))
+        .is_equal_to(TiptapEditorError::Stale);
     }
 
     #[test]

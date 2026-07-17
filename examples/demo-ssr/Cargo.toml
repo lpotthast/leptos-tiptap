@@ -9,16 +9,13 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 console_error_panic_hook = "0.1.7"
 demo-app = { path = "../demo-app" }
-axum = { version = "0.8.8", optional = true }
-axum-server = { version = "0.8.0", features = ["tls-rustls"], optional = true }
-leptos = { version = "0.8.17", features = [] }
-leptos_axum = { version = "0.8.8", optional = true }
+axum = { version = "0.8.9", optional = true }
+leptos = { version = "0.8.20", features = [] }
+leptos_axum = { version = "0.8.10", optional = true }
 leptos_meta = { version = "0.8.6", features = [] }
-leptos_router = { version = "0.8.13", features = [] }
-tokio = { version = "1.51.1", features = ["rt-multi-thread"], optional = true }
-tower = { version = "0.5.3", optional = true }
-tower-http = { version = "0.6.8", features = ["fs"], optional = true }
-wasm-bindgen = "0.2.118"
+leptos_router = { version = "0.8.14", features = [] }
+tokio = { version = "1.53.0", features = ["rt-multi-thread"], optional = true }
+wasm-bindgen = "0.2.126"
 
 [features]
 hydrate = [
@@ -28,10 +25,7 @@ hydrate = [
 ssr = [
     "demo-app/ssr",
     "dep:axum",
-    "dep:axum-server",
     "dep:tokio",
-    "dep:tower",
-    "dep:tower-http",
     "dep:leptos_axum",
     "leptos/ssr",
     "leptos_meta/ssr",

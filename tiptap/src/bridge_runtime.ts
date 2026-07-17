@@ -159,20 +159,21 @@ function setEditorEntry(
     editor: Editor,
     onSelection: OnSelection,
     runtimeConfig: RuntimeConfiguration,
-): boolean {
+): EditorEntry | undefined {
     const slot = editorSlots.get(id)
     if (slot == null || slot.generation !== generation) {
         destroyEditorInstance(editor)
-        return false
+        return undefined
     }
 
-    slot.entry = {
+    const editorEntry = {
         editor,
         onSelection,
         commandHandlers: runtimeConfig.commandHandlers,
         selectionContributors: runtimeConfig.selectionContributors,
     }
-    return true
+    slot.entry = editorEntry
+    return editorEntry
 }
 
 function getEditorEntry(id: string): EditorEntry | undefined {
@@ -622,35 +623,29 @@ export function init_bridge_runtime(): void {
 
 export function create(
     request: CreateRequest,
-    onReady: (ready: ReadyPayload) => void,
     onChange: () => void,
     onSelection: OnSelection,
-    onError: (error: BridgeError) => void,
-): void {
+): BridgeResult<ReadyPayload> {
     const unusedEditorId = requireUnusedEditorId(request.id)
     if (!unusedEditorId.ok) {
-        onError(unusedEditorId.error)
-        return
+        return unusedEditorId
     }
 
     const editorElement = requireEditorElement(request.id)
     if (!editorElement.ok) {
-        onError(editorElement.error)
-        return
+        return editorElement
     }
 
     const runtimeConfig = buildRuntimeConfiguration(request.extensions, {
         placeholder: request.placeholder,
     })
     if (!runtimeConfig.ok) {
-        onError(runtimeConfig.error)
-        return
+        return runtimeConfig
     }
 
     const parsedContent = parseContent(request.content)
     if (!parsedContent.ok) {
-        onError(parsedContent.error)
-        return
+        return parsedContent
     }
 
     const generation = allocateGeneration()
@@ -676,21 +671,36 @@ export function create(
         if (slot?.generation === generation && slot.entry == null) {
             editorSlots.delete(request.id)
         }
-        onError(createdEditor.error)
-        return
+        return createdEditor
     }
 
-    if (!setEditorEntry(request.id, generation, createdEditor.value, onSelection, runtimeConfig.value)) {
-        return
+    const editorEntry = setEditorEntry(
+        request.id,
+        generation,
+        createdEditor.value,
+        onSelection,
+        runtimeConfig.value,
+    )
+    if (editorEntry == null) {
+        const message = `Can not finish creating Tiptap instance "${request.id}", as its registration was replaced during creation.`
+        console.error(message)
+        return errorResult("operation_failed", message, "create_editor")
     }
 
-    const editorEntry = getEditorEntry(request.id)
-    if (editorEntry != null) {
-        onReady({generation})
-        emitSelectionState(editorEntry, {force: true})
-    } else {
-        onReady({generation})
+    const initialSelection = runOperation(
+        "read_initial_selection_state",
+        () => getSelectionState(editorEntry),
+    )
+    if (!initialSelection.ok) {
+        destroySlot(request.id)
+        return initialSelection
     }
+
+    editorEntry.lastSelectionState = initialSelection.value
+    return okResult({
+        generation,
+        selection_state: initialSelection.value,
+    })
 }
 
 export function destroy(id: string): void {
@@ -752,7 +762,10 @@ export function document(call: DocumentCall): BridgeResult<DocumentResponse> {
                 return runCommand(request.kind, () =>
                     editorEntry.editor.commands.setContent(
                         parsedContent.value,
-                        request.options?.emit_update ?? false,
+                        // Match Tiptap's own default: emit an update so the host can read the
+                        // new document back through `on_change`. Callers who want a silent
+                        // replacement opt out via `TiptapSetContentOptions { emit_update: false }`.
+                        request.options?.emit_update ?? true,
                         toParseOptions(request.options?.parse_options),
                         {
                             errorOnInvalidContent: request.options?.error_on_invalid_content,

@@ -19,9 +19,19 @@ use rootcause_tracing::{RootcauseLayer, SpanCollector};
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{Layer, Registry};
+use ui_tests::duplicate_editor_id::RejectsDuplicateLiveEditorId;
+use ui_tests::extension_subset::ActivatesExtensionSubset;
+use ui_tests::handle_lifecycle::{
+    RemountsDestroyedHandleThroughNotReady, RetriesFailedHandleThroughNotReady,
+};
 use ui_tests::hydrate_and_round_trip::HydratesAndRoundTripsContent;
+use ui_tests::multi_editor::MountsTwoEditorsIndependently;
+use ui_tests::on_change_fires_once::FiresOnChangeExactlyOncePerReplace;
+use ui_tests::on_error::EmitsErrorReportToOnErrorCallback;
+use ui_tests::placeholder::RendersPlaceholderText;
 use ui_tests::re_enable_after_disable::ReEnablesEditorAfterDisabling;
 use ui_tests::replace_content::ReplacesLiveContent;
+use ui_tests::selection_state::ObservesSelectionStateBoldFlag;
 
 #[derive(Debug)]
 struct Context {
@@ -64,7 +74,16 @@ async fn browser_tests() -> Result<(), Report> {
     let tests = BrowserTests::new()
         .with(HydratesAndRoundTripsContent)
         .with(ReEnablesEditorAfterDisabling)
-        .with(ReplacesLiveContent);
+        .with(ReplacesLiveContent)
+        .with(MountsTwoEditorsIndependently)
+        .with(RejectsDuplicateLiveEditorId)
+        .with(RendersPlaceholderText)
+        .with(ActivatesExtensionSubset)
+        .with(EmitsErrorReportToOnErrorCallback)
+        .with(FiresOnChangeExactlyOncePerReplace)
+        .with(ObservesSelectionStateBoldFlag)
+        .with(RemountsDestroyedHandleThroughNotReady)
+        .with(RetriesFailedHandleThroughNotReady);
 
     BrowserTestRunner::new()
         .with_visibility(BrowserTestVisibility::from_env())

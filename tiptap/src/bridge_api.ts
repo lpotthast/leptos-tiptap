@@ -76,6 +76,7 @@ export type CreateRequest = {
 
 export type ReadyPayload = {
     generation: number
+    selection_state: SelectionState
 }
 
 export type TextAlign = "left" | "center" | "right" | "justify"

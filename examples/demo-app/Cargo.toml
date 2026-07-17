@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-leptos = { version = "0.8.2", default-features = false }
+leptos = { version = "0.8.19", default-features = false }
 leptos-tiptap = { path = "../..", default-features = false, features = ["component", "full"] }
 
 [features]

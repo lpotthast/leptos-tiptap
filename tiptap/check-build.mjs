@@ -95,6 +95,129 @@ function assertSameSet(label, leftName, leftValues, rightName, rightValues) {
     throw new Error(lines.join("\n"))
 }
 
+// Extracts the brace-delimited body that follows a `pub(crate) enum X {` declaration
+// in a Rust source string, walking braces to handle nested ones.
+function extractRustEnumBody(contents, declaration) {
+    const start = contents.indexOf(declaration)
+    if (start === -1) {
+        throw new Error(`Could not find Rust declaration: ${declaration}`)
+    }
+
+    const bodyStart = contents.indexOf("{", start) + 1
+    let depth = 1
+    let i = bodyStart
+    while (i < contents.length && depth > 0) {
+        const character = contents[i]
+        if (character === "{") {
+            depth += 1
+        } else if (character === "}") {
+            depth -= 1
+            if (depth === 0) {
+                break
+            }
+        }
+        i += 1
+    }
+
+    if (depth !== 0) {
+        throw new Error(`Unterminated Rust enum body for: ${declaration}`)
+    }
+
+    return contents.slice(bodyStart, i)
+}
+
+// Parses a Rust enum body into a Map<snake_case_name, sorted_field_names[]>.
+// Unit variants map to an empty array; struct variants map to their named fields.
+function parseRustVariantFields(body) {
+    const variants = new Map()
+    const variantRegex = /(?:#\[[^\]]+\]\s*)*([A-Z][A-Za-z0-9]*)\s*(?:\{([^}]*)\}|,)/g
+    const fieldRegex = /([a-z_][a-z0-9_]*)\s*:(?!:)/g
+
+    let variantMatch
+    while ((variantMatch = variantRegex.exec(body)) !== null) {
+        const variantName = variantMatch[1]
+        const fieldsBlock = variantMatch[2]
+        const fields = []
+
+        if (fieldsBlock != null) {
+            let fieldMatch
+            while ((fieldMatch = fieldRegex.exec(fieldsBlock)) !== null) {
+                fields.push(fieldMatch[1])
+            }
+            fieldRegex.lastIndex = 0
+        }
+
+        variants.set(toSnakeCase(variantName), uniqueSorted(fields))
+    }
+
+    return variants
+}
+
+// Parses a TypeScript discriminated-union section into a Map<kind, sorted_field_names[]>.
+// Each variant is expected to be written as `| { kind: "x"; field?: T; ... }`.
+// `kind` itself is filtered out of the field set since it is the discriminator.
+function parseTsVariantFields(section) {
+    const variants = new Map()
+    const variantRegex = /\|\s*\{\s*kind:\s*"([^"]+)"([^}]*)\}/g
+    const fieldRegex = /([a-z_][a-z0-9_]*)\s*\??\s*:/g
+
+    let variantMatch
+    while ((variantMatch = variantRegex.exec(section)) !== null) {
+        const kind = variantMatch[1]
+        const remainder = variantMatch[2]
+        const fields = []
+
+        let fieldMatch
+        while ((fieldMatch = fieldRegex.exec(remainder)) !== null) {
+            const name = fieldMatch[1]
+            if (name !== "kind") {
+                fields.push(name)
+            }
+        }
+        fieldRegex.lastIndex = 0
+
+        variants.set(kind, uniqueSorted(fields))
+    }
+
+    return variants
+}
+
+// Asserts that, for every kind shared by both maps, the field sets match exactly.
+// Kinds that exist only on one side are intentionally ignored here: the kind-set
+// drift check above already covers that case.
+function assertSameVariantFields(label, leftName, leftMap, rightName, rightMap) {
+    const sharedKinds = [...leftMap.keys()].filter((kind) => rightMap.has(kind)).sort()
+    const drifts = []
+
+    for (const kind of sharedKinds) {
+        const left = leftMap.get(kind)
+        const right = rightMap.get(kind)
+        const leftSet = new Set(left)
+        const rightSet = new Set(right)
+        const missingFromLeft = right.filter((value) => !leftSet.has(value))
+        const missingFromRight = left.filter((value) => !rightSet.has(value))
+
+        if (missingFromLeft.length === 0 && missingFromRight.length === 0) {
+            continue
+        }
+
+        const lines = [`  ${kind}:`]
+        if (missingFromLeft.length > 0) {
+            lines.push(`    missing from ${leftName}: ${missingFromLeft.join(", ")}`)
+        }
+        if (missingFromRight.length > 0) {
+            lines.push(`    missing from ${rightName}: ${missingFromRight.join(", ")}`)
+        }
+        drifts.push(lines.join("\n"))
+    }
+
+    if (drifts.length === 0) {
+        return
+    }
+
+    throw new Error(`${label} field drift detected.\n${drifts.join("\n")}`)
+}
+
 async function discoverExtensionNames() {
     const files = await fs.readdir(extensionsDir)
     return files
@@ -139,6 +262,18 @@ async function validateBridgeDrift() {
         matches(rustCommandSection, /Some\("([^"]+)"\)/g),
     )
 
+    const tsCommandFields = parseTsVariantFields(tsCommandSection)
+    const rustCommandFields = parseRustVariantFields(
+        extractRustEnumBody(protocol, "pub(crate) enum EditorCommand {"),
+    )
+    assertSameVariantFields(
+        "Editor command payload contract",
+        "tiptap/src/bridge_api.ts",
+        tsCommandFields,
+        "src/protocol/mod.rs",
+        rustCommandFields,
+    )
+
     const tsDocumentSection = extractBetween(
         bridgeApi,
         "export type DocumentRequest =",
@@ -157,6 +292,18 @@ async function validateBridgeDrift() {
         matches(tsDocumentSection, /kind:\s*"([^"]+)"/g),
         "src/protocol/mod.rs",
         matches(rustDocumentSection, /^\s+([A-Z][A-Za-z0-9]*)\s*\{/gm).map(toSnakeCase),
+    )
+
+    const tsDocumentFields = parseTsVariantFields(tsDocumentSection)
+    const rustDocumentFields = parseRustVariantFields(
+        extractRustEnumBody(protocol, "pub(crate) enum DocumentRequest {"),
+    )
+    assertSameVariantFields(
+        "Document request payload contract",
+        "tiptap/src/bridge_api.ts",
+        tsDocumentFields,
+        "src/protocol/mod.rs",
+        rustDocumentFields,
     )
 
     const tsSelectionSection = extractBetween(

@@ -21,6 +21,10 @@ pub use api::{
     TiptapWhitespaceMode, TiptapYoutubeVideoResource, UseTiptapEditorAttrs, UseTiptapEditorInput,
     UseTiptapEditorProps, UseTiptapEditorReturn, use_tiptap_editor,
 };
+#[cfg(feature = "component")]
+pub use leptos_classes;
+#[cfg(feature = "component")]
+pub use leptos_styles;
 
 /// Hook exports grouped under a module for namespaced imports.
 pub mod use_tiptap_editor {

@@ -11,8 +11,8 @@ pub enum TiptapContent {
 }
 
 impl Default for TiptapContent {
-    /// Empty HTML content. Useful with [`UseTiptapEditorInput::default`] when
-    /// the initial document is set later through `TiptapEditorHandle::set_content`.
+    /// Empty HTML content. Useful with [`UseTiptapEditorInput::default`](crate::UseTiptapEditorInput)
+    /// when the initial document is set later through `TiptapEditorHandle::set_content`.
     fn default() -> Self {
         Self::Html(String::new())
     }

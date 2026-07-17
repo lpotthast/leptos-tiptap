@@ -11,6 +11,7 @@ use crate::{
 };
 use leptos::prelude::*;
 use send_wrapper::SendWrapper;
+use std::sync::Arc;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::closure::ScopedClosure;
 #[cfg(not(feature = "ssr"))]
@@ -19,10 +20,8 @@ use wasm_bindgen::prelude::Closure;
 /// Stored closures, called by the `TipTap` JS runtime.
 #[allow(dead_code)]
 struct TiptapRuntimeCallbacks {
-    ready: SendWrapper<ScopedClosure<'static, dyn Fn(JsValue)>>,
     content_change: SendWrapper<ScopedClosure<'static, dyn Fn()>>,
     selection_change: SendWrapper<ScopedClosure<'static, dyn Fn(JsValue)>>,
-    error: SendWrapper<ScopedClosure<'static, dyn Fn(JsValue)>>,
 }
 
 #[cfg_attr(feature = "ssr", allow(dead_code))]
@@ -38,7 +37,7 @@ enum TiptapRuntimeLifecycle {
 pub(crate) struct TiptapRuntimeSession {
     editor_id: StoredValue<String>,
     lifecycle: StoredValue<TiptapRuntimeLifecycle>,
-    callbacks: StoredValue<Option<TiptapRuntimeCallbacks>>,
+    callbacks: StoredValue<Option<Arc<TiptapRuntimeCallbacks>>>,
     applied_editable: StoredValue<Option<bool>>,
     editor: TiptapEditorHandle,
 }
@@ -58,27 +57,27 @@ pub(crate) struct TiptapRuntimeMountOptions {
 #[cfg_attr(feature = "ssr", allow(dead_code))]
 fn reset_local_editor_state(
     lifecycle: StoredValue<TiptapRuntimeLifecycle>,
-    callbacks: StoredValue<Option<TiptapRuntimeCallbacks>>,
+    callbacks: StoredValue<Option<Arc<TiptapRuntimeCallbacks>>>,
     applied_editable: StoredValue<Option<bool>>,
     editor: TiptapEditorHandle,
 ) {
     lifecycle.update_value(|state| *state = TiptapRuntimeLifecycle::Idle);
     callbacks.update_value(|slot| *slot = None);
     applied_editable.update_value(|value| *value = None);
-    editor.clear_instance();
+    editor.mark_destroyed();
 }
 
 #[cfg_attr(feature = "ssr", allow(dead_code))]
 fn mark_local_editor_failed(
     lifecycle: StoredValue<TiptapRuntimeLifecycle>,
-    callbacks: StoredValue<Option<TiptapRuntimeCallbacks>>,
+    callbacks: StoredValue<Option<Arc<TiptapRuntimeCallbacks>>>,
     applied_editable: StoredValue<Option<bool>>,
     editor: TiptapEditorHandle,
 ) {
     lifecycle.update_value(|state| *state = TiptapRuntimeLifecycle::Failed);
     callbacks.update_value(|slot| *slot = None);
     applied_editable.update_value(|value| *value = None);
-    editor.clear_instance();
+    editor.mark_create_failed();
 }
 
 fn report_runtime_error(on_error: Option<Callback<TiptapEditorReport>>, err: TiptapEditorError) {
@@ -88,10 +87,12 @@ fn report_runtime_error(on_error: Option<Callback<TiptapEditorReport>>, err: Tip
 
 impl TiptapRuntimeSession {
     pub(crate) fn new(id: String, editor: TiptapEditorHandle) -> Self {
+        editor.mark_not_ready();
+
         Self {
             editor_id: StoredValue::new(id),
             lifecycle: StoredValue::new(TiptapRuntimeLifecycle::Idle),
-            callbacks: StoredValue::new(Option::<TiptapRuntimeCallbacks>::None),
+            callbacks: StoredValue::new(Option::<Arc<TiptapRuntimeCallbacks>>::None),
             applied_editable: StoredValue::new(Option::<bool>::None),
             editor,
         }
@@ -155,35 +156,6 @@ impl TiptapRuntimeSession {
             let applied_editable = self.applied_editable;
             let editor = self.editor;
 
-            let on_error_for_ready = on_error;
-            let on_ready_closure = SendWrapper::new(Closure::new(move |ready_as_js_value| {
-                let ready: ReadyPayload = match serde_wasm_bindgen::from_value(ready_as_js_value) {
-                    Ok(ready) => ready,
-                    Err(err) => {
-                        runtime::destroy(editor_id.get_value());
-                        mark_local_editor_failed(lifecycle, callbacks, applied_editable, editor);
-                        report_runtime_error(
-                            on_error_for_ready,
-                            TiptapEditorError::BridgeError(format!(
-                                "could not parse ready payload from JS: {err}"
-                            )),
-                        );
-                        return;
-                    }
-                };
-
-                lifecycle.update_value(|state| {
-                    *state = TiptapRuntimeLifecycle::Ready {
-                        generation: ready.generation,
-                    };
-                });
-                editor.set_instance(TiptapEditorInstance::new(
-                    editor_id.get_value(),
-                    ready.generation,
-                ));
-                on_ready.inspect(|cb| cb.run(()));
-            }));
-
             let on_content_change_closure = SendWrapper::new(Closure::new(move || {
                 if matches!(
                     *lifecycle.read_value(),
@@ -213,30 +185,21 @@ impl TiptapRuntimeSession {
                     on_selection_change.inspect(|cb| cb.run(selection_state));
                 }));
 
-            let on_error_closure = SendWrapper::new(Closure::new(move |error_as_js_value| {
-                let err = runtime::error_from_js_value(error_as_js_value);
-                mark_local_editor_failed(lifecycle, callbacks, applied_editable, editor);
-                report_runtime_error(on_error, err);
-            }));
-
             lifecycle.update_value(|state| *state = TiptapRuntimeLifecycle::Creating);
             applied_editable.update_value(|value| *value = Some(initial_editable));
             callbacks.update_value(|slot| {
-                *slot = Some(TiptapRuntimeCallbacks {
-                    ready: on_ready_closure,
+                *slot = Some(Arc::new(TiptapRuntimeCallbacks {
                     content_change: on_content_change_closure,
                     selection_change: on_selection_change_closure,
-                    error: on_error_closure,
-                });
+                }));
             });
 
-            let stored_callbacks = callbacks.read_value();
-            let Some(editor_callbacks) = stored_callbacks.as_ref() else {
+            let Some(editor_callbacks) = callbacks.get_value() else {
                 mark_local_editor_failed(lifecycle, callbacks, applied_editable, editor);
                 return;
             };
 
-            if let Err(err) = runtime::create(
+            match runtime::create(
                 CreateOptions {
                     id: editor_id.get_value(),
                     content: initial_content,
@@ -245,14 +208,26 @@ impl TiptapRuntimeSession {
                     placeholder,
                 },
                 CreateCallbacks {
-                    ready: &editor_callbacks.ready,
                     change: &editor_callbacks.content_change,
                     selection: &editor_callbacks.selection_change,
-                    error: &editor_callbacks.error,
                 },
             ) {
-                mark_local_editor_failed(lifecycle, callbacks, applied_editable, editor);
-                report_runtime_error(on_error, err);
+                Ok(ReadyPayload {
+                    generation,
+                    selection_state,
+                }) => {
+                    lifecycle.update_value(|state| {
+                        *state = TiptapRuntimeLifecycle::Ready { generation };
+                    });
+                    editor
+                        .set_instance(TiptapEditorInstance::new(editor_id.get_value(), generation));
+                    on_ready.inspect(|cb| cb.run(()));
+                    on_selection_change.inspect(|cb| cb.run(selection_state));
+                }
+                Err(err) => {
+                    mark_local_editor_failed(lifecycle, callbacks, applied_editable, editor);
+                    report_runtime_error(on_error, err);
+                }
             }
         }
 
@@ -300,5 +275,41 @@ impl TiptapRuntimeSession {
             self.applied_editable,
             self.editor,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assertr::prelude::*;
+
+    fn unavailable_error(handle: TiptapEditorHandle) -> TiptapEditorError {
+        handle.get_html().unwrap_err().into_current_context()
+    }
+
+    #[test]
+    fn new_session_resets_destroyed_handle_to_not_ready() {
+        Owner::new().with(|| {
+            let handle = TiptapEditorHandle::new();
+            handle.mark_destroyed();
+            assert_that!(unavailable_error(handle)).is_equal_to(TiptapEditorError::Destroyed);
+
+            let _session = TiptapRuntimeSession::new("remounted-editor".to_owned(), handle);
+
+            assert_that!(unavailable_error(handle)).is_equal_to(TiptapEditorError::NotReady);
+        });
+    }
+
+    #[test]
+    fn new_session_resets_create_failed_handle_to_not_ready() {
+        Owner::new().with(|| {
+            let handle = TiptapEditorHandle::new();
+            handle.mark_create_failed();
+            assert_that!(unavailable_error(handle)).is_equal_to(TiptapEditorError::CreateFailed);
+
+            let _session = TiptapRuntimeSession::new("retried-editor".to_owned(), handle);
+
+            assert_that!(unavailable_error(handle)).is_equal_to(TiptapEditorError::NotReady);
+        });
     }
 }

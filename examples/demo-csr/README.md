@@ -1,4 +1,4 @@
-# demo-ssr
+# demo-csr
 
 Install trunk with
 

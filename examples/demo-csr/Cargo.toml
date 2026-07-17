@@ -11,4 +11,4 @@ debug = 0
 [dependencies]
 console_error_panic_hook = "0.1.7"
 demo-app = { path = "../demo-app", features = ["csr"] }
-leptos = { version = "0.8.2", features = ["csr"] }
+leptos = { version = "0.8.20", features = ["csr"] }
