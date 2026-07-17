@@ -3,6 +3,10 @@
   "version": "2.27.2",
   "private": true,
   "type": "module",
+  "packageManager": "npm@11.16.0",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "build": "node build.mjs",
     "build:check": "node check-build.mjs",
