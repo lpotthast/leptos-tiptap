@@ -1,3 +1,11 @@
+# Run `cargo install just`. Then run `just` to list available recipes.
+
+default:
+  just --list
+
+# Lists all available commands.
+stable_all_features := "component,full,ssr"
+
 # Install the tools this crate depends on for local development.
 install-tools:
   cargo install just
@@ -7,12 +15,6 @@ install-tools:
   cargo install cargo-deny
   cargo install cargo-semver-checks
   cargo install leptosfmt
-
-# Lists all available commands.
-stable_all_features := "component,full,ssr"
-
-list:
-    just --list
 
 # Perform a full build of the tiptap bundle.
 build:
@@ -28,7 +30,6 @@ install-tiptap:
 update-tiptap version="2":
     cd tiptap && node update-tiptap.mjs {{ version }}
     cd tiptap && npm install
-    cd tiptap && npm update
     just bundle-tiptap
 
 # Bundle the Rust-facing Tiptap host runtime and standalone extension modules into
