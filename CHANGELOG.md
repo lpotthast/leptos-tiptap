@@ -7,6 +7,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [leptos-tiptap 0.10.0] - 2026-07-17
 
+### Important: JavaScript delivery and deployment changed
+
+This release replaces the external `/js/tiptap.js` asset contract with crate-local `wasm-bindgen` snippets. The
+precompiled Tiptap bridge and extension modules are now emitted into the application's generated JavaScript/Wasm output
+as part of its normal build. Consumer applications therefore no longer need `leptos-tiptap-build`, a downstream
+`build.rs`, a copied `tiptap.js`, or a manual preload tag.
+
+Applications with custom asset pipelines or server configuration must account for the new output layout:
+
+- Publish and serve the complete generated JavaScript/Wasm output recursively, including its `snippets/` subtree, with
+  the correct JavaScript MIME type. The crate arranges for these files to be emitted; the application server or CDN is
+  still responsible for serving them.
+- Replace CDN, reverse-proxy, cache, CSP, CORS, service-worker, and precache rules that targeted `/js/tiptap.js`. That
+  URL is no longer used by the runtime.
+- Deploy the generated JavaScript glue, Wasm, and snippet files together. Treat generated snippet paths as internal
+  build output rather than stable public URLs, and ensure cached files are invalidated when replacing a build.
+
 ### Added
 
 - Added the `use_tiptap_editor` hook for mounting an editor on a custom host element. `UseTiptapEditorInput::new` and
@@ -40,7 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Removed
 
 - Removed the legacy `leptos-tiptap-build` crate and the downstream `build.rs`, copied asset, and preload-tag setup it
-  required. The runtime crate now ships the JavaScript bridge itself.
+  required. The runtime crate now ships the JavaScript bridge itself; see the deployment migration notice above.
 - Removed the public `TiptapEditorState` type.
 
 ## [leptos-tiptap-build 0.2.9] - 2026-04-08
