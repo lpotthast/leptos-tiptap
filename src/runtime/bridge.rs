@@ -39,10 +39,15 @@ struct JsInteropResponse<T> {
 
 #[cfg(not(feature = "ssr"))]
 fn serialize_request<T: Serialize>(request: &T) -> Result<JsValue, TiptapEditorError> {
-    serde_wasm_bindgen::to_value(request).map_err(|err| {
-        TiptapEditorError::BridgeError(format!("could not serialize JS bridge request: {err}"))
-    })
+    request
+        .serialize(&serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true))
+        .map_err(|err| {
+            TiptapEditorError::BridgeError(format!("could not serialize JS bridge request: {err}"))
+        })
 }
+
+#[cfg(all(test, target_arch = "wasm32", not(feature = "ssr")))]
+mod wasm_abi_tests;
 
 #[cfg(not(feature = "ssr"))]
 fn deserialize_response<T: DeserializeOwned>(

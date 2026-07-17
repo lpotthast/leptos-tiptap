@@ -6,6 +6,7 @@ pub mod duplicate_editor_id;
 pub mod extension_subset;
 pub mod handle_lifecycle;
 pub mod hydrate_and_round_trip;
+pub mod json_bridge;
 pub mod multi_editor;
 pub mod on_change_fires_once;
 pub mod on_error;

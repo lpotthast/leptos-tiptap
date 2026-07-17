@@ -38,6 +38,11 @@ jobs:
       - name: Install just
         uses: extractions/setup-just@v4
 
+      - name: Install wasm-bindgen test runner
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@0.2.126
+
       - name: Install Tiptap npm dependencies
         working-directory: tiptap
         run: npm ci

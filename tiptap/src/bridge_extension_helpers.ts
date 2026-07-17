@@ -3,6 +3,8 @@ import type {Editor} from "@tiptap/core"
 import type {ActiveKey, ActiveState, ExtensionDescriptor} from "./bridge_api.ts"
 import {getBridgeBindings} from "./bridge_api.ts"
 
+const bridgeBindings = getBridgeBindings()
+
 export function activeState(
     entries: ReadonlyArray<readonly [
         key: ActiveKey,
@@ -24,5 +26,5 @@ export function activeState(
 export const mappedActiveState = activeState
 
 export function registerOfficialExtension(descriptor: ExtensionDescriptor): void {
-    getBridgeBindings().registerExtension(descriptor)
+    bridgeBindings.registerExtension(descriptor)
 }

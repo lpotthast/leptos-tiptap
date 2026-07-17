@@ -8,14 +8,17 @@
 //! - a non-default extension subset
 //! - the `on_error` callback
 //! - the `on_change` callback firing exactly once per programmatic content replacement.
+//! - JSON initialization, JSON replacement, and generic attribute commands.
 //! - a persistent handle reused after destroy or create failure.
 //!
 //! The main `DemoApp` deliberately stays unrelated to any test.
 
 use leptos::prelude::*;
+use leptos::serde_json;
 use leptos_tiptap::{
-    TiptapContent, TiptapEditor, TiptapEditorError, TiptapEditorHandle, TiptapEditorReport,
-    TiptapExtension, TiptapHeadingLevel, UseTiptapEditorInput, use_tiptap_editor,
+    TiptapAttributes, TiptapContent, TiptapEditor, TiptapEditorError, TiptapEditorHandle,
+    TiptapEditorReport, TiptapExtension, TiptapHeadingLevel, TiptapMarkName,
+    UseTiptapEditorInput, use_tiptap_editor,
 };
 
 #[component]
@@ -245,6 +248,104 @@ pub fn OnChangeCountingFixture() -> impl IntoView {
             />
 
             <pre id="on-change-count">{ move || count.get().to_string() }</pre>
+        </section>
+    }
+}
+
+fn json_document(text: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "doc",
+        "content": [{
+            "type": "paragraph",
+            "content": [{"type": "text", "text": text}]
+        }]
+    })
+}
+
+fn sync_json_bridge_outputs(
+    handle: TiptapEditorHandle,
+    set_html: WriteSignal<String>,
+    set_json: WriteSignal<String>,
+) {
+    set_html.set(
+        handle
+            .get_html()
+            .unwrap_or_else(|report| format!("Error reading HTML: {report}")),
+    );
+    set_json.set(
+        handle
+            .get_json()
+            .map(|content| serde_json::to_string_pretty(&content).unwrap())
+            .unwrap_or_else(|report| format!("Error reading JSON: {report}")),
+    );
+}
+
+#[component]
+pub fn JsonBridgeFixture() -> impl IntoView {
+    let handle = TiptapEditorHandle::new();
+    let (html_output, set_html_output) = signal(String::new());
+    let (json_output, set_json_output) = signal(String::new());
+    let (status, set_status) = signal(String::from("ok"));
+
+    view! {
+        <section id="json-bridge">
+            <h2>"JSON bridge"</h2>
+
+            <button
+                disabled=move || !handle.is_ready()
+                on:click=move |_| {
+                    match handle.set_json(json_document("Replacement JSON content.")) {
+                        Ok(()) => {
+                            set_status.set(String::from("ok"));
+                            sync_json_bridge_outputs(handle, set_html_output, set_json_output);
+                        }
+                        Err(report) => set_status.set(format!("{report}")),
+                    }
+                }
+            >
+                "Set JSON"
+            </button>
+            <button
+                disabled=move || !handle.is_ready()
+                on:click=move |_| {
+                    let attributes = [
+                        ("href", serde_json::json!("https://example.com/bridge")),
+                        ("target", serde_json::json!("_blank")),
+                        ("rel", serde_json::json!("noopener")),
+                    ]
+                    .into_iter()
+                    .collect::<TiptapAttributes>();
+                    match handle
+                        .select_all()
+                        .and_then(|()| handle.set_mark(TiptapMarkName::Link, Some(attributes)))
+                    {
+                        Ok(()) => {
+                            set_status.set(String::from("ok"));
+                            sync_json_bridge_outputs(handle, set_html_output, set_json_output);
+                        }
+                        Err(report) => set_status.set(format!("{report}")),
+                    }
+                }
+            >
+                "Set generic link attributes"
+            </button>
+
+            <TiptapEditor
+                handle=handle
+                id="json-bridge-editor"
+                initial_content=TiptapContent::json(json_document("Initial JSON content."))
+                extensions=TiptapExtension::all_enabled()
+                on_ready=move |_| {
+                    sync_json_bridge_outputs(handle, set_html_output, set_json_output);
+                }
+                on_change=move |_| {
+                    sync_json_bridge_outputs(handle, set_html_output, set_json_output);
+                }
+            />
+
+            <pre id="json-bridge-html">{move || html_output.get()}</pre>
+            <pre id="json-bridge-json">{move || json_output.get()}</pre>
+            <pre id="json-bridge-status">{move || status.get()}</pre>
         </section>
     }
 }

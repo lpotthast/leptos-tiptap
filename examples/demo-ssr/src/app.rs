@@ -1,6 +1,7 @@
 use demo_app::test_fixtures::{
-    DuplicateEditorIdFixture, ExtensionSubsetFixture, MultiEditorFixture, OnChangeCountingFixture,
-    OnErrorFixture, PlaceholderFixture, RemountHandleFixture, RetryHandleFixture,
+    DuplicateEditorIdFixture, ExtensionSubsetFixture, JsonBridgeFixture, MultiEditorFixture,
+    OnChangeCountingFixture, OnErrorFixture, PlaceholderFixture, RemountHandleFixture,
+    RetryHandleFixture,
 };
 use demo_app::DemoApp;
 use leptos::prelude::*;
@@ -46,6 +47,7 @@ pub fn App() -> impl IntoView {
                     <Route path=StaticSegment("extension-subset") view=ExtensionSubsetFixture/>
                     <Route path=StaticSegment("on-error") view=OnErrorFixture/>
                     <Route path=StaticSegment("on-change-counting") view=OnChangeCountingFixture/>
+                    <Route path=StaticSegment("json-bridge") view=JsonBridgeFixture/>
                     <Route path=StaticSegment("remount-handle") view=RemountHandleFixture/>
                     <Route path=StaticSegment("retry-handle") view=RetryHandleFixture/>
                 </Routes>

@@ -10,7 +10,7 @@
   "scripts": {
     "build": "node build.mjs",
     "build:check": "node check-build.mjs",
-    "test": "node --import tsx --test src/bridge_runtime.test.ts",
+    "test": "node --import tsx --test src/bridge_runtime.test.ts third-party-notices.test.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

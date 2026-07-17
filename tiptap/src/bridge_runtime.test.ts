@@ -11,6 +11,11 @@ import type {
     ReadyPayload,
     SelectionState,
 } from "./bridge_api.ts"
+import {
+    BRIDGE_GLOBAL_KEY,
+    getBridgeBindings,
+    getOrCreateBridgeBindings,
+} from "./bridge_api.ts"
 import {__testing, command, create as createRuntime, destroy, document} from "./bridge_runtime.ts"
 import {register_blockquote} from "./extensions/tiptap_blockquote.ts"
 import {register_bold} from "./extensions/tiptap_bold.ts"
@@ -63,6 +68,31 @@ const DEFAULT_EXTENSION_NAMES: string[] = [
     "link",
     "youtube",
 ]
+
+test("keeps versioned bridge state isolated by generated artifact scope", () => {
+    const firstScope = "test://leptos-tiptap/app-one/"
+    const secondScope = "test://leptos-tiptap/app-two/"
+    const firstBindings = getOrCreateBridgeBindings(firstScope)
+    const secondBindings = getOrCreateBridgeBindings(secondScope)
+
+    firstBindings.modules.example = "first"
+    secondBindings.modules.example = "second"
+
+    assert.match(BRIDGE_GLOBAL_KEY, /_V\d+__$/)
+    assert.notStrictEqual(firstBindings, secondBindings)
+    assert.equal(firstBindings.modules.example, "first")
+    assert.equal(secondBindings.modules.example, "second")
+    assert.strictEqual(getBridgeBindings(firstScope), firstBindings)
+    assert.throws(
+        () => getBridgeBindings("test://leptos-tiptap/missing/"),
+        /bridge bindings are unavailable/,
+    )
+
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, BRIDGE_GLOBAL_KEY)
+    assert.equal(descriptor?.configurable, false)
+    assert.equal(descriptor?.writable, false)
+    assert.equal(Reflect.set(globalThis, BRIDGE_GLOBAL_KEY, {}), false)
+})
 
 // Keep the existing callback-oriented assertions focused on callback ordering while the runtime's
 // public create contract returns the synchronous ready/error outcome as a structured result.

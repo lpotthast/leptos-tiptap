@@ -2,9 +2,11 @@ import {build} from "esbuild"
 import {promises as fs} from "node:fs"
 import path from "node:path"
 
+import {BRIDGE_GLOBAL_KEY} from "./bridge-config.mjs"
+import {writeThirdPartyNotices} from "./third-party-notices.mjs"
+
 const outputDir = path.resolve("../src/js/generated")
 const extensionsDir = path.resolve("./src/extensions")
-const bridgeGlobalKey = "__LEPTOS_TIPTAP_BRIDGE__"
 const hostedModulesSourcePath = path.resolve("./src/generated/hosted_modules.ts")
 
 // Keep the shared runtime optimized for the common/default extension set.
@@ -26,8 +28,13 @@ const bridgeRuntimeEntry = {
     bridge_runtime: "./src/bridge_runtime.ts",
 }
 
+/** @type {Map<string, string[]>} */
 const exportNameCache = new Map()
 
+/**
+ * @param {string[]} hostedModuleNames
+ * @returns {import("esbuild").Plugin}
+ */
 function createHostedModulePlugin(hostedModuleNames) {
     const hostedModules = new Set(hostedModuleNames)
 
@@ -55,6 +62,7 @@ function createHostedModulePlugin(hostedModuleNames) {
     }
 }
 
+/** @param {string} moduleName */
 async function createHostedModuleContents(moduleName) {
     let exportNames = exportNameCache.get(moduleName)
     if (exportNames == null) {
@@ -66,7 +74,8 @@ async function createHostedModuleContents(moduleName) {
     }
 
     const lines = [
-        `const bridgeBindings = globalThis.${bridgeGlobalKey};`,
+        `const bridgeHost = globalThis[${JSON.stringify(BRIDGE_GLOBAL_KEY)}];`,
+        "const bridgeBindings = bridgeHost?.getBindings(new URL(\".\", import.meta.url).href);",
         "if (bridgeBindings == null || bridgeBindings.modules == null) throw new Error(\"leptos-tiptap bridge bindings are unavailable\");",
         `const moduleExports = bridgeBindings.modules[${JSON.stringify(moduleName)}];`,
         `if (moduleExports == null) throw new Error(${JSON.stringify(`leptos-tiptap bridge module "${moduleName}" is unavailable`)});`,
@@ -79,6 +88,7 @@ async function createHostedModuleContents(moduleName) {
     return lines.join("\n")
 }
 
+/** @returns {Promise<Record<string, string>>} */
 async function discoverExtensionEntries() {
     const files = (await fs.readdir(extensionsDir))
         .filter((name) => name.startsWith("tiptap_") && name.endsWith(".ts"))
@@ -92,12 +102,14 @@ async function discoverExtensionEntries() {
     )
 }
 
+/** @param {string} moduleName */
 function moduleIdentifier(moduleName) {
     const normalizedName = moduleName.replace(/^@/, "")
     const segments = normalizedName.split(/[/-]/).filter(Boolean)
-    return `hosted${segments.map((segment) => segment[0].toUpperCase() + segment.slice(1)).join("")}`
+    return `hosted${segments.map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1)).join("")}`
 }
 
+/** @param {string[]} moduleNames */
 function createHostedModulesSource(moduleNames) {
     const imports = moduleNames
         .map((moduleName) => `import * as ${moduleIdentifier(moduleName)} from ${JSON.stringify(moduleName)}`)
@@ -129,11 +141,13 @@ export function installHostedModules(modules: Record<string, unknown>): void {
 `
 }
 
+/** @param {string[]} moduleNames */
 async function writeHostedModulesSource(moduleNames) {
     await fs.mkdir(path.dirname(hostedModulesSourcePath), {recursive: true})
     await fs.writeFile(hostedModulesSourcePath, createHostedModulesSource(moduleNames))
 }
 
+/** @param {string} directory */
 async function validateImportFreeArtifacts(directory) {
     const files = (await fs.readdir(directory))
         .filter((name) => name.endsWith(".js"))
@@ -146,18 +160,24 @@ async function validateImportFreeArtifacts(directory) {
     }
 }
 
+/**
+ * @param {Record<string, string>} entryPoints
+ * @param {import("esbuild").Plugin[]} plugins
+ */
 async function buildEntryPoints(entryPoints, plugins = []) {
-    await build({
+    const result = await build({
         entryPoints,
         bundle: true,
         format: "esm",
+        metafile: true,
         minify: true,
         platform: "browser",
         splitting: false,
-        target: "es2020",
+        target: "es2022",
         outdir: outputDir,
         plugins,
     })
+    return result.metafile
 }
 
 await fs.rm(outputDir, {recursive: true, force: true})
@@ -166,10 +186,11 @@ await fs.mkdir(outputDir, {recursive: true})
 const extensionEntries = await discoverExtensionEntries()
 await writeHostedModulesSource(SHARED_BASE_MODULES)
 
-await buildEntryPoints(bridgeRuntimeEntry)
+const metafiles = [await buildEntryPoints(bridgeRuntimeEntry)]
 
 const hostedModulePlugin = createHostedModulePlugin(SHARED_BASE_MODULES)
 
-await buildEntryPoints(extensionEntries, [hostedModulePlugin])
+metafiles.push(await buildEntryPoints(extensionEntries, [hostedModulePlugin]))
 
 await validateImportFreeArtifacts(outputDir)
+await writeThirdPartyNotices(metafiles)

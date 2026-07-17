@@ -25,6 +25,7 @@ use ui_tests::handle_lifecycle::{
     RemountsDestroyedHandleThroughNotReady, RetriesFailedHandleThroughNotReady,
 };
 use ui_tests::hydrate_and_round_trip::HydratesAndRoundTripsContent;
+use ui_tests::json_bridge::PreservesJsonObjectsAcrossTheWasmBridge;
 use ui_tests::multi_editor::MountsTwoEditorsIndependently;
 use ui_tests::on_change_fires_once::FiresOnChangeExactlyOncePerReplace;
 use ui_tests::on_error::EmitsErrorReportToOnErrorCallback;
@@ -81,6 +82,7 @@ async fn browser_tests() -> Result<(), Report> {
         .with(ActivatesExtensionSubset)
         .with(EmitsErrorReportToOnErrorCallback)
         .with(FiresOnChangeExactlyOncePerReplace)
+        .with(PreservesJsonObjectsAcrossTheWasmBridge)
         .with(ObservesSelectionStateBoldFlag)
         .with(RemountsDestroyedHandleThroughNotReady)
         .with(RetriesFailedHandleThroughNotReady);

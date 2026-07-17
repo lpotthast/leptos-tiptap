@@ -4,12 +4,15 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "strict": true,
+    "noUncheckedIndexedAccess": true,
     "noEmit": true,
+    "allowJs": true,
+    "checkJs": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "lib": ["ES2022", "DOM"],
     "types": ["node"],
-    "skipLibCheck": true
+    "skipLibCheck": false
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "*.mjs"]
 }

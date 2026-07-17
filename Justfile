@@ -1,3 +1,13 @@
+# Install the tools this crate depends on for local development.
+install-tools:
+  cargo install just
+  cargo install cargo-leptos
+  cargo install wasm-bindgen-cli
+  cargo install cargo-audit
+  cargo install cargo-deny
+  cargo install cargo-semver-checks
+  cargo install leptosfmt
+
 # Lists all available commands.
 stable_all_features := "component,full,ssr"
 
@@ -26,7 +36,8 @@ update-tiptap version="2":
 bundle-tiptap:
     cd tiptap && npm run build
 
-# Run the core validation suite, including generated-bundle drift checks.
+# Run the core validation suite, including static bridge parity, generated-bundle
+# drift, and runtime WASM ABI checks.
 verify:
     cargo fmt --all -- --check
     cd tiptap && npm test
@@ -40,12 +51,17 @@ verify:
     cargo test --doc
     cargo test --lib --features full
     cargo test --doc --features full
+    just wasm-abi-test
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --no-default-features --features {{stable_all_features}}
     cargo test --test browser_test -- --nocapture
     cargo build --features ssr
     cargo build --target wasm32-unknown-unknown --features full
     cargo check --manifest-path examples/demo-csr/Cargo.toml --target wasm32-unknown-unknown
     cargo check --manifest-path examples/demo-ssr/Cargo.toml --features ssr
+
+# Exercise the real serde_wasm_bindgen request and response shapes in JavaScript.
+wasm-abi-test:
+    CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --lib --target wasm32-unknown-unknown --no-default-features --features full
 
 # Verify the nightly-only Leptos integrations without requiring nightly for the stable suite.
 verify-nightly:

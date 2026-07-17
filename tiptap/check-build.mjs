@@ -4,6 +4,7 @@ import path from "node:path"
 
 const generatedDir = path.resolve("../src/js/generated")
 const hostedModulesPath = path.resolve("./src/generated/hosted_modules.ts")
+const thirdPartyNoticesPath = path.resolve("../THIRD_PARTY_NOTICES")
 const bridgeApiPath = path.resolve("./src/bridge_api.ts")
 const extensionsDir = path.resolve("./src/extensions")
 const rustExtensionsPath = path.resolve("../src/api/extensions.rs")
@@ -12,6 +13,11 @@ const rustProtocolPath = path.resolve("../src/protocol/mod.rs")
 const rustRegistrationPath = path.resolve("../src/runtime/registration.rs")
 const rustSelectionPath = path.resolve("../src/api/types/selection.rs")
 
+/**
+ * @param {string} directory
+ * @param {string} root
+ * @returns {Promise<Map<string, string>>}
+ */
 async function snapshotDirectory(directory, root = directory) {
     const entries = await fs.readdir(directory, {withFileTypes: true})
     const snapshot = new Map()
@@ -32,6 +38,11 @@ async function snapshotDirectory(directory, root = directory) {
     return snapshot
 }
 
+/**
+ * @param {Map<string, string>} before
+ * @param {Map<string, string>} after
+ * @param {string} label
+ */
 function diffSnapshots(before, after, label) {
     const changedPaths = new Set([...before.keys(), ...after.keys()])
     const diffs = []
@@ -45,10 +56,17 @@ function diffSnapshots(before, after, label) {
     return diffs
 }
 
+/** @param {string[]} values */
 function uniqueSorted(values) {
     return [...new Set(values)].sort()
 }
 
+/**
+ * @param {string} contents
+ * @param {string} startMarker
+ * @param {string} endMarker
+ * @param {string} label
+ */
 function extractBetween(contents, startMarker, endMarker, label) {
     const start = contents.indexOf(startMarker)
     if (start === -1) {
@@ -63,15 +81,28 @@ function extractBetween(contents, startMarker, endMarker, label) {
     return contents.slice(start, end)
 }
 
+/**
+ * @param {string} contents
+ * @param {RegExp} expression
+ */
 function matches(contents, expression) {
-    return [...contents.matchAll(expression)].map((match) => match[1])
+    return [...contents.matchAll(expression)].flatMap((match) =>
+        match[1] == null ? [] : [match[1]])
 }
 
+/** @param {string} value */
 function toSnakeCase(value) {
     return value.replace(/[A-Z]/g, (character, index) =>
         `${index === 0 ? "" : "_"}${character.toLowerCase()}`)
 }
 
+/**
+ * @param {string} label
+ * @param {string} leftName
+ * @param {string[]} leftValues
+ * @param {string} rightName
+ * @param {string[]} rightValues
+ */
 function assertSameSet(label, leftName, leftValues, rightName, rightValues) {
     const left = uniqueSorted(leftValues)
     const right = uniqueSorted(rightValues)
@@ -97,6 +128,10 @@ function assertSameSet(label, leftName, leftValues, rightName, rightValues) {
 
 // Extracts the brace-delimited body that follows a `pub(crate) enum X {` declaration
 // in a Rust source string, walking braces to handle nested ones.
+/**
+ * @param {string} contents
+ * @param {string} declaration
+ */
 function extractRustEnumBody(contents, declaration) {
     const start = contents.indexOf(declaration)
     if (start === -1) {
@@ -128,6 +163,10 @@ function extractRustEnumBody(contents, declaration) {
 
 // Parses a Rust enum body into a Map<snake_case_name, sorted_field_names[]>.
 // Unit variants map to an empty array; struct variants map to their named fields.
+/**
+ * @param {string} body
+ * @returns {Map<string, string[]>}
+ */
 function parseRustVariantFields(body) {
     const variants = new Map()
     const variantRegex = /(?:#\[[^\]]+\]\s*)*([A-Z][A-Za-z0-9]*)\s*(?:\{([^}]*)\}|,)/g
@@ -137,12 +176,18 @@ function parseRustVariantFields(body) {
     while ((variantMatch = variantRegex.exec(body)) !== null) {
         const variantName = variantMatch[1]
         const fieldsBlock = variantMatch[2]
+        if (variantName == null) {
+            throw new Error("Rust variant parser matched without a variant name")
+        }
         const fields = []
 
         if (fieldsBlock != null) {
             let fieldMatch
             while ((fieldMatch = fieldRegex.exec(fieldsBlock)) !== null) {
-                fields.push(fieldMatch[1])
+                const field = fieldMatch[1]
+                if (field != null) {
+                    fields.push(field)
+                }
             }
             fieldRegex.lastIndex = 0
         }
@@ -156,6 +201,10 @@ function parseRustVariantFields(body) {
 // Parses a TypeScript discriminated-union section into a Map<kind, sorted_field_names[]>.
 // Each variant is expected to be written as `| { kind: "x"; field?: T; ... }`.
 // `kind` itself is filtered out of the field set since it is the discriminator.
+/**
+ * @param {string} section
+ * @returns {Map<string, string[]>}
+ */
 function parseTsVariantFields(section) {
     const variants = new Map()
     const variantRegex = /\|\s*\{\s*kind:\s*"([^"]+)"([^}]*)\}/g
@@ -165,12 +214,15 @@ function parseTsVariantFields(section) {
     while ((variantMatch = variantRegex.exec(section)) !== null) {
         const kind = variantMatch[1]
         const remainder = variantMatch[2]
+        if (kind == null || remainder == null) {
+            throw new Error("TypeScript variant parser matched without a kind or body")
+        }
         const fields = []
 
         let fieldMatch
         while ((fieldMatch = fieldRegex.exec(remainder)) !== null) {
             const name = fieldMatch[1]
-            if (name !== "kind") {
+            if (name != null && name !== "kind") {
                 fields.push(name)
             }
         }
@@ -185,6 +237,13 @@ function parseTsVariantFields(section) {
 // Asserts that, for every kind shared by both maps, the field sets match exactly.
 // Kinds that exist only on one side are intentionally ignored here: the kind-set
 // drift check above already covers that case.
+/**
+ * @param {string} label
+ * @param {string} leftName
+ * @param {Map<string, string[]>} leftMap
+ * @param {string} rightName
+ * @param {Map<string, string[]>} rightMap
+ */
 function assertSameVariantFields(label, leftName, leftMap, rightName, rightMap) {
     const sharedKinds = [...leftMap.keys()].filter((kind) => rightMap.has(kind)).sort()
     const drifts = []
@@ -192,6 +251,9 @@ function assertSameVariantFields(label, leftName, leftMap, rightName, rightMap) 
     for (const kind of sharedKinds) {
         const left = leftMap.get(kind)
         const right = rightMap.get(kind)
+        if (left == null || right == null) {
+            throw new Error(`Shared variant ${kind} disappeared during comparison`)
+        }
         const leftSet = new Set(left)
         const rightSet = new Set(right)
         const missingFromLeft = right.filter((value) => !leftSet.has(value))
@@ -364,6 +426,7 @@ async function main() {
 
     const generatedBefore = await snapshotDirectory(generatedDir)
     const hostedModulesBefore = await fs.readFile(hostedModulesPath, "utf8")
+    const thirdPartyNoticesBefore = await fs.readFile(thirdPartyNoticesPath, "utf8")
 
     const result = spawnSync(process.execPath, ["build.mjs"], {
         stdio: "inherit",
@@ -374,12 +437,16 @@ async function main() {
 
     const generatedAfter = await snapshotDirectory(generatedDir)
     const hostedModulesAfter = await fs.readFile(hostedModulesPath, "utf8")
+    const thirdPartyNoticesAfter = await fs.readFile(thirdPartyNoticesPath, "utf8")
     const changedFiles = [
         ...diffSnapshots(generatedBefore, generatedAfter, "generated"),
     ]
 
     if (hostedModulesBefore !== hostedModulesAfter) {
         changedFiles.push("src/generated/hosted_modules.ts")
+    }
+    if (thirdPartyNoticesBefore !== thirdPartyNoticesAfter) {
+        changedFiles.push("../THIRD_PARTY_NOTICES")
     }
 
     if (changedFiles.length > 0) {

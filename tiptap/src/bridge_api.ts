@@ -1,6 +1,10 @@
 import type {Editor, EditorOptions} from "@tiptap/core"
 
-export const BRIDGE_GLOBAL_KEY = "__LEPTOS_TIPTAP_BRIDGE__"
+import {BRIDGE_GLOBAL_KEY, bridgeScopeKey} from "../bridge-config.mjs"
+
+export {BRIDGE_GLOBAL_KEY}
+
+const BRIDGE_SCOPE_KEY = bridgeScopeKey(import.meta.url)
 
 export type ContentFormat = "html" | "json"
 
@@ -283,32 +287,66 @@ export type BridgeBindings = {
     registerExtension: (descriptor: ExtensionDescriptor) => void
 }
 
+type BridgeHost = Readonly<{
+    getBindings: (scopeKey: string) => BridgeBindings | undefined
+    getOrCreateBindings: (scopeKey: string) => BridgeBindings
+}>
+
 type BridgeGlobal = typeof globalThis & {
-    [BRIDGE_GLOBAL_KEY]?: BridgeBindings
+    [BRIDGE_GLOBAL_KEY]?: BridgeHost
 }
 
 export function emptySelectionState(): SelectionState {
     return {active: {}}
 }
 
-export function getOrCreateBridgeBindings(): BridgeBindings {
+function createBridgeBindings(): BridgeBindings {
+    return {
+        modules: {},
+        registerExtension: () => {
+            throw new Error("leptos-tiptap bridge runtime is not initialized")
+        },
+    }
+}
+
+function getOrCreateBridgeHost(): BridgeHost {
     const bridge = globalThis as BridgeGlobal
     const existing = bridge[BRIDGE_GLOBAL_KEY]
     if (existing != null) {
         return existing
     }
 
-    const bindings: BridgeBindings = {
-        modules: {},
-        registerExtension: () => {
-            throw new Error("leptos-tiptap bridge runtime is not initialized")
+    const bindingsByScope = new Map<string, BridgeBindings>()
+    const host = Object.freeze<BridgeHost>({
+        getBindings: (scopeKey) => bindingsByScope.get(scopeKey),
+        getOrCreateBindings: (scopeKey) => {
+            let bindings = bindingsByScope.get(scopeKey)
+            if (bindings == null) {
+                bindings = createBridgeBindings()
+                bindingsByScope.set(scopeKey, bindings)
+            }
+            return bindings
         },
-    }
+    })
 
-    bridge[BRIDGE_GLOBAL_KEY] = bindings
-    return bindings
+    Object.defineProperty(bridge, BRIDGE_GLOBAL_KEY, {
+        value: host,
+        configurable: false,
+        enumerable: false,
+        writable: false,
+    })
+    return host
 }
 
-export function getBridgeBindings(): BridgeBindings {
-    return getOrCreateBridgeBindings()
+export function getOrCreateBridgeBindings(scopeKey = BRIDGE_SCOPE_KEY): BridgeBindings {
+    return getOrCreateBridgeHost().getOrCreateBindings(scopeKey)
+}
+
+export function getBridgeBindings(scopeKey = BRIDGE_SCOPE_KEY): BridgeBindings {
+    const bridge = globalThis as BridgeGlobal
+    const bindings = bridge[BRIDGE_GLOBAL_KEY]?.getBindings(scopeKey)
+    if (bindings == null) {
+        throw new Error("leptos-tiptap bridge bindings are unavailable")
+    }
+    return bindings
 }
