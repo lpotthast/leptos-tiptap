@@ -1,17 +1,23 @@
+// Verifies Rust/TypeScript bridge parity and that all checked-in generated artifacts are current.
+// This keeps wire-contract drift and stale bundles or license notices out of published crates.
+
 import {spawnSync} from "node:child_process"
 import {promises as fs} from "node:fs"
 import path from "node:path"
+import {fileURLToPath} from "node:url"
 
-const generatedDir = path.resolve("../src/js/generated")
-const hostedModulesPath = path.resolve("./src/generated/hosted_modules.ts")
-const thirdPartyNoticesPath = path.resolve("../THIRD_PARTY_NOTICES")
-const bridgeApiPath = path.resolve("./src/bridge_api.ts")
-const extensionsDir = path.resolve("./src/extensions")
-const rustExtensionsPath = path.resolve("../src/api/extensions.rs")
-const rustFfiPath = path.resolve("../src/runtime/ffi.rs")
-const rustProtocolPath = path.resolve("../src/protocol/mod.rs")
-const rustRegistrationPath = path.resolve("../src/runtime/registration.rs")
-const rustSelectionPath = path.resolve("../src/api/types/selection.rs")
+const moduleDirectory = path.dirname(fileURLToPath(import.meta.url))
+const buildScriptPath = path.resolve(moduleDirectory, "build.mjs")
+const generatedDir = path.resolve(moduleDirectory, "../src/js/generated")
+const hostedModulesPath = path.resolve(moduleDirectory, "./src/generated/hosted_modules.ts")
+const thirdPartyNoticesPath = path.resolve(moduleDirectory, "../THIRD_PARTY_NOTICES")
+const bridgeApiPath = path.resolve(moduleDirectory, "./src/bridge_api.ts")
+const extensionsDir = path.resolve(moduleDirectory, "./src/extensions")
+const rustExtensionsPath = path.resolve(moduleDirectory, "../src/api/extensions.rs")
+const rustFfiPath = path.resolve(moduleDirectory, "../src/runtime/ffi.rs")
+const rustProtocolPath = path.resolve(moduleDirectory, "../src/protocol/mod.rs")
+const rustRegistrationPath = path.resolve(moduleDirectory, "../src/runtime/registration.rs")
+const rustSelectionPath = path.resolve(moduleDirectory, "../src/api/types/selection.rs")
 
 /**
  * @param {string} directory
@@ -428,7 +434,8 @@ async function main() {
     const hostedModulesBefore = await fs.readFile(hostedModulesPath, "utf8")
     const thirdPartyNoticesBefore = await fs.readFile(thirdPartyNoticesPath, "utf8")
 
-    const result = spawnSync(process.execPath, ["build.mjs"], {
+    const result = spawnSync(process.execPath, [buildScriptPath], {
+        cwd: moduleDirectory,
         stdio: "inherit",
     })
     if (result.status !== 0) {

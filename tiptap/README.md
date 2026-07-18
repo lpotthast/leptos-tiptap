@@ -12,6 +12,12 @@ This project uses two separate flows:
 - `npm run typecheck` for bridge-level TypeScript validation
 - `npm test` for bridge-level unit tests
 
+The generated browser modules target ES2022. Type checking is split by execution environment:
+
+- `tsconfig.browser.json` checks the shipped bridge and extension sources with browser globals only
+- `tsconfig.tests.json` adds Node types for the TypeScript test suite
+- `tsconfig.tooling.json` checks the Node-based `.mjs` build and maintenance scripts without DOM globals
+
 Bundle the bridge runtime and official extension snippets with esbuild
 
     npm run build

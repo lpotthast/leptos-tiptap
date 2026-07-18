@@ -1,3 +1,6 @@
+// Pins every official Tiptap dependency and refreshes its vendored, checksummed license text.
+// Updating both together keeps generated bundles and their publication notices traceable.
+
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { readFile, writeFile } from 'node:fs/promises'

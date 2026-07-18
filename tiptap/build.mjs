@@ -1,13 +1,18 @@
+// Bundles the TypeScript bridge into import-free wasm-bindgen snippets and records their licenses.
+// The Rust crate ships these generated artifacts, so both outputs must be rebuilt together.
+
 import {build} from "esbuild"
 import {promises as fs} from "node:fs"
 import path from "node:path"
+import {fileURLToPath} from "node:url"
 
 import {BRIDGE_GLOBAL_KEY} from "./bridge-config.mjs"
 import {writeThirdPartyNotices} from "./third-party-notices.mjs"
 
-const outputDir = path.resolve("../src/js/generated")
-const extensionsDir = path.resolve("./src/extensions")
-const hostedModulesSourcePath = path.resolve("./src/generated/hosted_modules.ts")
+const moduleDirectory = path.dirname(fileURLToPath(import.meta.url))
+const outputDir = path.resolve(moduleDirectory, "../src/js/generated")
+const extensionsDir = path.resolve(moduleDirectory, "./src/extensions")
+const hostedModulesSourcePath = path.resolve(moduleDirectory, "./src/generated/hosted_modules.ts")
 
 // Keep the shared runtime optimized for the common/default extension set.
 const SHARED_BASE_MODULES = [
@@ -166,6 +171,7 @@ async function validateImportFreeArtifacts(directory) {
  */
 async function buildEntryPoints(entryPoints, plugins = []) {
     const result = await build({
+        absWorkingDir: moduleDirectory,
         entryPoints,
         bundle: true,
         format: "esm",
@@ -193,4 +199,4 @@ const hostedModulePlugin = createHostedModulePlugin(SHARED_BASE_MODULES)
 metafiles.push(await buildEntryPoints(extensionEntries, [hostedModulePlugin]))
 
 await validateImportFreeArtifacts(outputDir)
-await writeThirdPartyNotices(metafiles)
+await writeThirdPartyNotices(metafiles, {workingDirectory: moduleDirectory})

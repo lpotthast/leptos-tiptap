@@ -1,3 +1,6 @@
+// Exercises notice generation, license grouping, and rejection of missing or mismatched licenses.
+// These tests prevent dependency updates from silently producing incomplete publication notices.
+
 import assert from "node:assert/strict"
 import {createHash} from "node:crypto"
 import {promises as fs} from "node:fs"

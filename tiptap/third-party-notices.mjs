@@ -1,3 +1,6 @@
+// Derives third-party notices from the npm modules that esbuild actually includes in the bundles.
+// This fail-closed inventory is needed because the generated JavaScript ships inside the Rust crate.
+
 import {createHash} from "node:crypto"
 import {promises as fs} from "node:fs"
 import path from "node:path"

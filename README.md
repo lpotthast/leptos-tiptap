@@ -10,16 +10,33 @@ The crate gives you two entry points:
 
 ## Usage
 
-Add the crate to your Leptos app. The default feature set includes the component and the minimal Tiptap schema
-(`document`, `paragraph`, and `text`).
+Add the crate to your Leptos app.
 
 ```toml
 [dependencies]
 leptos-tiptap = { version = "0.10", features = ["starter-kit"] }
 ```
 
-The crate ships its JavaScript bridge as crate-local `wasm-bindgen` snippets. You do not need a downstream `build.rs`,
-copied browser assets, or a manual preload tag.
+The crate ships its precompiled Tiptap JavaScript and bridge sources as crate-local `wasm-bindgen` snippets. You do not
+need to manually handle assets in any way.
+
+## Cargo features
+
+Tiptap is highly modularized. Nearly every aspect of it is a module (also named extension). Each module can be enabled
+with a feature of this crate. Only the Tiptap code for enabled features will be shipped in your app!
+
+Tiptap extensions are selected at compile time through Cargo features. Individual extensions can be enabled directly,
+and the crate provides these common feature sets:
+
+- The default features enable the `TiptapEditor` component and the minimal Tiptap schema: `document`, `paragraph`, and
+  `text`.
+- `starter-kit` also enables: blockquote, bold, bullet list, code, code block, document, dropcursor, gapcursor,
+  hard break, heading, history, horizontal rule, italic, list item, ordered list, paragraph, strike, and text.
+- `full` enables `starter-kit` plus: text alignment, highlight, image, link, placeholder, and YouTube support.
+
+Enable `ssr` for server builds so JavaScript interop becomes a no-op while the editor host still renders for hydration.
+The `nightly` feature enables Leptos' nightly APIs and forwards nightly support to `leptos-classes` and `leptos-styles`
+when the `component` feature activates those optional dependencies.
 
 ## Component
 
@@ -82,8 +99,6 @@ concurrently mounted editors.
 For advanced cases, `handle.instance()` returns the current `TiptapEditorInstance`. That value is bound to a concrete
 mounted editor id and generation, so older instances become stale after destroy and recreate cycles.
 
-The user-held handle type is `TiptapEditorHandle`; the component is `<TiptapEditor/>`.
-
 ## Hook
 
 Use the hook when you want to choose the host element yourself or compose editor mounting into a larger component.
@@ -136,9 +151,8 @@ step.
 Use `TiptapAttributes` for structured node and mark attributes. It supports insertion, lookup, borrowed map access,
 consuming map access, and collection from key/value pairs.
 
-Compiled extensions are selected through Cargo features. Use `starter-kit` for the StarterKit-like subset supported by
-this crate, or `full` for every currently supported extension. Per-instance extension subsets can be selected with the
-component `extensions` prop or the hook input `extensions` field; if omitted, all compiled extensions are active.
+Per-instance extension subsets can be selected with the component `extensions` prop or the hook input `extensions`
+field; if omitted, all compiled extensions are active.
 
 Selection callbacks receive an opaque `TiptapSelectionState`. Query boolean extension activity with typed keys:
 
@@ -154,17 +168,17 @@ Use `active_entries` to iterate every contributed boolean state. Separately type
 the opaque aggregate without turning it into an untyped value map.
 
 When the `placeholder` feature is enabled and active for an editor, set the component or hook `placeholder` option to
-initialize its placeholder text. The extension adds placeholder classes and `data-placeholder`; your app stylesheet must
+initialize its placeholder text. The extension adds placeholder classes and `data-placeholder`. Your app stylesheet must
 render them, for example:
 
 ```css
 .tiptap p.is-editor-empty:first-child::before,
 .tiptap p.is-empty::before {
-  color: #6b7280;
-  content: attr(data-placeholder);
-  float: left;
-  height: 0;
-  pointer-events: none;
+    color: #6b7280;
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
 }
 ```
 
@@ -177,9 +191,6 @@ editor is not currently usable resolve to one of `TiptapEditorError::NotReady` (
 `TiptapEditorError::Destroyed` (cleanup ran), `TiptapEditorError::CreateFailed` (mount failed), or
 `TiptapEditorError::Stale` (the `TiptapEditorInstance` refers to an editor that has since been destroyed and
 recreated).
-
-For SSR builds, enable the `ssr` feature in the app's server build. Server-side JavaScript interop is a no-op, while the
-DOM node still renders and hydrates on the client.
 
 ## Content sanitization
 
@@ -195,41 +206,31 @@ here. If any of that input can come from an untrusted source, sanitize it on you
 If you are searching for a ready-to-use text editor, check out the leptos component library
 [Leptonic](https://leptonic.dev/), which already incorporates this crate to define an editor.
 
-## Contributing
+## Development
 
-Current repository versions:
-
-- `leptos-tiptap`: `0.10.0`
-- minimum direct `leptos` dependency: `0.8.2` (examples currently verify against `0.8.19`)
-- Tiptap npm packages in `tiptap/package.json`: `2.27.2`
-
-Current default crate feature set:
-
-- component, document, paragraph, text
-
-Optional feature bundles:
-
-- `nightly`: enables Leptos' nightly APIs and forwards nightly support to `leptos-classes` and `leptos-styles` when the
-  `component` feature activates those optional dependencies
-- `starter-kit`: blockquote, bold, bullet list, code, code block, document, dropcursor, gapcursor, hard break, heading,
-  history, horizontal rule, italic, list item, ordered list, paragraph, strike, text
-- `full`: `starter-kit` plus text-align, highlight, image, link, placeholder, youtube
-
-### Layout
+### Repository layout
 
 - The Rust crate lives at the repository root (`Cargo.toml`, `src/`, `tests/`).
-- The browser-side TipTap host lives in `tiptap/` as a TypeScript build project. `npm run build` (driven by
-  `just build`) produces one bundle per TipTap extension into `src/js/generated/`. Those bundles are checked in and
-  shipped with the crate via crate-local `wasm-bindgen` snippets.
-- Example apps live in `examples/`. `demo-app` is the shared UI; `demo-csr` and `demo-ssr` are thin CSR/SSR wrappers
-  around it.
+- The browser-side Tiptap host lives in `tiptap/` as a TypeScript build project. `npm run build` (driven by
+  `just build`) produces one bundle per Tiptap extension in `src/js/generated/`. Those bundles are checked in and
+  shipped with the crate as crate-local `wasm-bindgen` snippets.
+- Example apps live in `examples/`. `demo-app` is the shared UI. `demo-csr` and `demo-ssr` are thin CSR/SSR wrappers
+  around it. `demo-app` also hosts fixtures used for browser-based integration testing.
 
-### Prerequisites
+### Library prerequisites
 
-- Rust toolchain matching the MSRV (`1.89.0` — see `Cargo.toml`'s `rust-version`) or newer.
+- A Rust toolchain matching the crate's MSRV, currently `1.89.0`, or newer.
+- The `wasm32-unknown-unknown` target for Leptos app development
+  (`rustup target add wasm32-unknown-unknown`).
+
+Library users do not need Node.js; the generated Tiptap JavaScript is included in the crate.
+
+### Development prerequisites
+
+In addition to the library prerequisites above, contributors need:
+
 - A nightly toolchain with `wasm32-unknown-unknown` installed when running `just verify-nightly`.
-- `wasm32-unknown-unknown` target installed (`rustup target add wasm32-unknown-unknown`).
-- Node.js 20 or newer with `npm`.
+- Node.js 24 or newer with `npm` to rebuild and validate the Tiptap JavaScript bundle.
 - [`just`](https://github.com/casey/just) for the orchestration recipes.
 
 ### Common commands
@@ -237,53 +238,39 @@ Optional feature bundles:
 Run the examples:
 
 ```sh
-cd examples/demo-csr && trunk serve
 cd examples/demo-ssr && cargo leptos watch
+cd examples/demo-csr && trunk serve
 ```
 
-Build the checked-in Tiptap JavaScript bundle:
+Run `just` to list all available recipes.
 
-```sh
-just build
-```
-
-`just build` performs a reproducible rebuild from `tiptap/package-lock.json`. `just update-tiptap` resolves and pins all
-official packages to the newest stable Tiptap 2 release, refreshes transitive npm dependencies, and rebuilds the
-checked-in bundle artifacts. Pass a specific stable 2.x version when needed, for example
-`just update-tiptap 2.27.1`. `just verify` runs the full Rust and bridge-level validation suite, including formatting,
-warning-denied documentation, and a generated-bundle drift check. Run `just` to list all available recipes.
-
-### Conventions
-
-- Follow `rustfmt` defaults; `cargo fmt --check` is part of CI.
-- Use the `assertr` crate for unit-level assertions instead of `assert!` / `assert_eq!`.
-- When you add or remove a TipTap command, update the Rust `protocol`/`api`/`runtime` modules and the matching
-  TypeScript bridge or extension module together. `tiptap/check-build.mjs` enforces that command names, document
-  request kinds, active-state keys, and extension names stay in sync between Rust and TypeScript.
-- If a change touches `tiptap/src/`, rebuild the generated bundles with `just build` and include the resulting diffs
-  under `src/js/generated/` in the same commit. The drift check will fail otherwise.
-
-### Pull requests
-
-- Keep commits focused; recent history uses short, imperative subjects.
-- Mention generated-bundle updates in the commit message when `src/js/generated/` changes.
-- Run `just verify` locally before requesting review.
+- `just build` performs a reproducible rebuild from `tiptap/package-lock.json`.
+- `just update-tiptap` resolves and pins all official packages to the newest stable Tiptap 2 release, refreshes
+  transitive npm dependencies, and rebuilds the checked-in bundle artifacts. Pass a specific stable 2.x version when
+  needed, for example `just update-tiptap 2.27.1`.
+- `just verify` runs the full Rust and bridge-level validation suite, including formatting and a generated-bundle
+  drift check.
 
 ## Leptos compatibility
 
 | Crate version | Compatible Leptos version |
 |---------------|---------------------------|
-| 0.1           | 0.3                       |
-| 0.2           | 0.4                       |
-| 0.3.0-alpha   | 0.5.0-alpha               |
-| 0.3.0-beta    | 0.5.0-beta                |
-| 0.3.0-rc1     | 0.5.0-rc1                 |
-| 0.4           | 0.5 (csr)                 |
-| 0.5, 0.6      | 0.5 (csr and ssr)         |
-| 0.7           | 0.6                       |
-| 0.8           | 0.7                       |
 | 0.9, 0.10     | 0.8                       |
+| 0.8           | 0.7                       |
+| 0.7           | 0.6                       |
+| 0.5, 0.6      | 0.5 (csr and ssr)         |
+| 0.4           | 0.5 (csr)                 |
+| 0.3.0-rc1     | 0.5.0-rc1                 |
+| 0.3.0-beta    | 0.5.0-beta                |
+| 0.3.0-alpha   | 0.5.0-alpha               |
+| 0.2           | 0.4                       |
+| 0.1           | 0.3                       |
 
 ## MSRV
 
 The minimum supported Rust version is `1.89.0`.
+
+## Contributing
+
+Contributions are very welcome. We appreciate bug reports, feature ideas, documentation improvements, and pull
+requests of all sizes.

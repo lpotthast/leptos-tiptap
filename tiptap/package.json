@@ -10,8 +10,8 @@
   "scripts": {
     "build": "node build.mjs",
     "build:check": "node check-build.mjs",
-    "test": "node --import tsx --test src/bridge_runtime.test.ts third-party-notices.test.mjs",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "test": "node --import tsx --test src/bridge_runtime.test.ts generated-bridge-scope.test.mjs third-party-notices.test.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.browser.json && tsc --noEmit -p tsconfig.tests.json && tsc --noEmit -p tsconfig.tooling.json"
   },
   "dependencies": {
     "@tiptap/core": "2.27.2",
